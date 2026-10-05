@@ -8,11 +8,101 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model Usuario {
-  id        Int      @id @default(autoincrement())
-  nombre    String
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model User {
+  id                   String           @id @default(uuid()) @db.Uuid
+  email                String           @unique
+  full_name            String
+  is_landlord          Boolean
+  apartments           Apartment[]
+  createdTransactions  Transaction[]    @relation("CreatedTransactions")
+  receivedTransactions Transaction[]    @relation("ReceivedTransactions")
+  taskAssignments      TaskAssignment[]
+}
+
+model Apartment {
+  id           String        @id @default(uuid()) @db.Uuid
+  address      String
+  landlord_id  String        @db.Uuid
+  landlord     User          @relation(fields: [landlord_id], references: [id])
+  transactions Transaction[]
+  tasks        Task[]
+}
+
+model Transaction {
+  id           String              @id @default(uuid()) @db.Uuid
+  apartment_id String              @db.Uuid
+  from_user_id    String           @db.Uuid
+  to_user_id      String           @db.Uuid
+  amount       Decimal             @db.Decimal(12, 2)
+  category     TransactionCategory
+  apartment    Apartment           @relation(fields: [apartment_id], references: [id])
+  fromUser     User                @relation("CreatedTransactions", fields: [from_user_id], references: [id])
+  toUser       User                @relation("ReceivedTransactions", fields: [to_user_id], references: [id])
+}
+
+model Task {
+  id           String           @id @default(uuid()) @db.Uuid
+  apartment_id String           @db.Uuid
+  title        String
+  status       TaskStatus
+  category     TaskCategory
+  priority     TaskPriority
+  frequency    TaskFrequency
+  apartment    Apartment        @relation(fields: [apartment_id], references: [id])
+  assignments  TaskAssignment[]
+}
+
+model TaskAssignment {
+  id        String           @id @default(uuid()) @db.Uuid
+  task_id   String           @db.Uuid
+  user_id String           @db.Uuid
+  status    AssignmentStatus
+  due_date  DateTime         @db.Date
+  task      Task             @relation(fields: [task_id], references: [id])
+  user    User             @relation(fields: [user_id], references: [id])
+}
+
+enum TransactionCategory {
+  utilities
+  maintenance
+  supplies
+  payment
+  other
+}
+
+enum TaskStatus {
+  pending
+  assigned
+  in_progress
+  completed
+  cancelled
+}
+
+enum TaskCategory {
+  cleaning
+  maintenance
+  shopping
+  other
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+}
+
+enum TaskFrequency {
+  none
+  daily
+  weekly
+  biweekly
+  monthly
+}
+
+enum AssignmentStatus {
+  pending
+  accepted
+  rejected
+  completed
+  overdue
 }
