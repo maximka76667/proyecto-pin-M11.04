@@ -13,26 +13,37 @@ model User {
   email                String           @unique
   full_name            String
   is_landlord          Boolean
-  apartments           Apartment[]
+  user_apartments      UserApartment[]
+  landlord_apartments  Apartment[]      @relation("LandlordApartments")
   createdTransactions  Transaction[]    @relation("CreatedTransactions")
   receivedTransactions Transaction[]    @relation("ReceivedTransactions")
   taskAssignments      TaskAssignment[]
 }
 
 model Apartment {
-  id           String        @id @default(uuid()) @db.Uuid
-  address      String
-  landlord_id  String        @db.Uuid
-  landlord     User          @relation(fields: [landlord_id], references: [id])
-  transactions Transaction[]
-  tasks        Task[]
+  id              String          @id @default(uuid()) @db.Uuid
+  address         String
+  landlord_id     String          @db.Uuid
+  landlord        User            @relation("LandlordApartments", fields: [landlord_id], references: [id])
+  transactions    Transaction[]
+  tasks           Task[]
+  user_apartments UserApartment[]
+}
+
+model UserApartment {
+  user_id      String    @db.Uuid
+  apartment_id String    @db.Uuid
+  user         User      @relation(fields: [user_id], references: [id])
+  apartment    Apartment @relation(fields: [apartment_id], references: [id])
+
+  @@id([user_id, apartment_id])
 }
 
 model Transaction {
   id           String              @id @default(uuid()) @db.Uuid
   apartment_id String              @db.Uuid
-  from_user_id    String           @db.Uuid
-  to_user_id      String           @db.Uuid
+  from_user_id String              @db.Uuid
+  to_user_id   String              @db.Uuid
   amount       Decimal             @db.Decimal(12, 2)
   category     TransactionCategory
   apartment    Apartment           @relation(fields: [apartment_id], references: [id])
@@ -53,13 +64,13 @@ model Task {
 }
 
 model TaskAssignment {
-  id        String           @id @default(uuid()) @db.Uuid
-  task_id   String           @db.Uuid
-  user_id String           @db.Uuid
-  status    AssignmentStatus
-  due_date  DateTime         @db.Date
-  task      Task             @relation(fields: [task_id], references: [id])
-  user    User             @relation(fields: [user_id], references: [id])
+  id       String           @id @default(uuid()) @db.Uuid
+  task_id  String           @db.Uuid
+  user_id  String           @db.Uuid
+  status   AssignmentStatus
+  due_date DateTime         @db.Date
+  task     Task             @relation(fields: [task_id], references: [id])
+  user     User             @relation(fields: [user_id], references: [id])
 }
 
 enum TransactionCategory {
