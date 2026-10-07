@@ -1,236 +1,208 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Card, Text, TextInput, useTheme } from 'react-native-paper';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-const API_URL = 'http://localhost:3000';
+import { Eyebrow, PrimaryButton } from '@/components/onboarding';
+import { Palette } from '@/constants/onboarding';
 
-type Apartment = {
-  id: string;
-  name: string;
-  address: string;
-  landlord_id: string | null;
-};
-
-// Sends the request and throws an Error with the backend message if it fails
-async function api(method: string, path: string, body?: object) {
-  const response = await fetch(`${API_URL}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    const message = Array.isArray(data.message) ? data.message.join('\n') : data.message;
-    throw new Error(`${response.status}: ${message}`);
-  }
-  return data;
-}
-
-function errorMessage(e: unknown) {
-  return e instanceof Error ? e.message : 'Error al conectar';
-}
-
-export default function App() {
-  const theme = useTheme();
-  const [apartments, setApartments] = useState<Apartment[]>([]);
-  const [error, setError] = useState('');
-
-  const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
-  const [landlordId, setLandlordId] = useState('');
-
-  const loadApartments = useCallback(async () => {
-    try {
-      setApartments(await api('GET', '/apartments'));
-      setError('');
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    loadApartments();
-  }, [loadApartments]);
-
-  const createApartment = async () => {
-    try {
-      await api('POST', '/apartments', {
-        name,
-        address,
-        ...(landlordId.trim() ? { landlord_id: landlordId.trim() } : {}),
-      });
-      setName('');
-      setAddress('');
-      setLandlordId('');
-      await loadApartments();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const updateApartment = async (id: string, changes: Partial<Apartment>) => {
-    try {
-      await api('PATCH', `/apartments/${id}`, changes);
-      await loadApartments();
-      return true;
-    } catch (e) {
-      setError(errorMessage(e));
-      return false;
-    }
-  };
-
-  const deleteApartment = async (id: string) => {
-    try {
-      await api('DELETE', `/apartments/${id}`);
-      await loadApartments();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
+export default function Welcome() {
   return (
-    <ScrollView
-      style={{ backgroundColor: theme.colors.background }}
-      contentContainerStyle={styles.container}>
-      <Card>
-        <Card.Title title="Crear apartamento" />
-        <Card.Content style={styles.form}>
-          <TextInput mode="outlined" label="Nombre" value={name} onChangeText={setName} />
-          <TextInput
-            mode="outlined"
-            label="Dirección"
-            value={address}
-            onChangeText={setAddress}
-          />
-          <TextInput
-            mode="outlined"
-            label="ID del landlord (opcional)"
-            value={landlordId}
-            onChangeText={setLandlordId}
-            autoCapitalize="none"
-          />
-        </Card.Content>
-        <Card.Actions>
-          <Button mode="contained" icon="home-plus" onPress={createApartment}>
-            Crear
-          </Button>
-        </Card.Actions>
-      </Card>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <View style={styles.topBar}>
+          <View style={styles.brand}>
+            <View style={styles.logo}>
+              <Text style={styles.logoText}>8</Text>
+            </View>
+            <Text style={styles.brandText}>room8</Text>
+          </View>
+          <Text style={styles.step}>1 of 3</Text>
+        </View>
 
-      {error ? (
-        <Text style={{ color: theme.colors.error }} onPress={() => setError('')}>
-          {error}
-        </Text>
-      ) : null}
+        <HouseIllustration />
 
-      <View style={styles.listHeader}>
-        <Text variant="titleLarge">Apartamentos ({apartments.length})</Text>
-        <Button icon="refresh" onPress={loadApartments}>
-          Recargar
-        </Button>
+        <View style={styles.copy}>
+          <Eyebrow>Welcome home</Eyebrow>
+          <Text style={styles.title}>A happier home starts together.</Text>
+          <Text style={styles.subtitle}>
+            Room8 makes chores and shared expenses feel fair, simple, and a little more human.
+          </Text>
+        </View>
+
+        <View style={styles.actions}>
+          <PrimaryButton title="Create a household" onPress={() => router.push('/household')} />
+          <Pressable
+            onPress={() => router.push({ pathname: '/household', params: { mode: 'join' } })}>
+            <Text style={styles.link}>Join with an invite code</Text>
+          </Pressable>
+          <Text style={styles.footer}>Made for the people you live with.</Text>
+        </View>
       </View>
-
-      {apartments.map((apartment) => (
-        <ApartmentItem
-          key={apartment.id}
-          apartment={apartment}
-          onSave={(changes) => updateApartment(apartment.id, changes)}
-          onDelete={() => deleteApartment(apartment.id)}
-        />
-      ))}
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
-function ApartmentItem({
-  apartment,
-  onSave,
-  onDelete,
-}: {
-  apartment: Apartment;
-  onSave: (changes: Partial<Apartment>) => Promise<boolean>;
-  onDelete: () => void;
-}) {
-  const theme = useTheme();
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(apartment.name);
-  const [address, setAddress] = useState(apartment.address);
-  const [landlordId, setLandlordId] = useState(apartment.landlord_id ?? '');
-
-  const startEditing = () => {
-    setName(apartment.name);
-    setAddress(apartment.address);
-    setLandlordId(apartment.landlord_id ?? '');
-    setEditing(true);
-  };
-
-  const save = async () => {
-    // Empty landlord = remove the landlord
-    const ok = await onSave({ name, address, landlord_id: landlordId.trim() || null });
-    if (ok) setEditing(false);
-  };
-
-  if (editing) {
-    return (
-      <Card mode="outlined">
-        <Card.Content style={styles.form}>
-          <TextInput mode="outlined" label="Nombre" value={name} onChangeText={setName} />
-          <TextInput
-            mode="outlined"
-            label="Dirección"
-            value={address}
-            onChangeText={setAddress}
-          />
-          <TextInput
-            mode="outlined"
-            label="ID del landlord (vacío = sin landlord)"
-            value={landlordId}
-            onChangeText={setLandlordId}
-            autoCapitalize="none"
-          />
-        </Card.Content>
-        <Card.Actions>
-          <Button onPress={() => setEditing(false)}>Cancelar</Button>
-          <Button mode="contained" icon="content-save" onPress={save}>
-            Guardar
-          </Button>
-        </Card.Actions>
-      </Card>
-    );
-  }
-
+function HouseIllustration() {
   return (
-    <Card mode="outlined">
-      <Card.Title title={apartment.name} subtitle={apartment.address} />
-      <Card.Content>
-        <Text variant="bodySmall">Landlord: {apartment.landlord_id ?? 'sin landlord'}</Text>
-        <Text variant="bodySmall">ID: {apartment.id}</Text>
-      </Card.Content>
-      <Card.Actions>
-        <Button icon="pencil" onPress={startEditing}>
-          Editar
-        </Button>
-        <Button icon="delete" textColor={theme.colors.error} onPress={onDelete}>
-          Eliminar
-        </Button>
-      </Card.Actions>
-    </Card>
+    <View style={styles.illustration}>
+      <View style={styles.circle} />
+      <View style={styles.sun} />
+      <View style={styles.house}>
+        <View style={styles.roof} />
+        <View style={styles.houseBody}>
+          <View style={styles.windows}>
+            <View style={[styles.window, { backgroundColor: Palette.sun }]} />
+            <View style={[styles.window, { backgroundColor: Palette.peach }]} />
+          </View>
+          <View style={styles.door} />
+        </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: Palette.background,
+  },
   container: {
-    flexGrow: 1,
-    padding: 20,
-    paddingTop: 100,
-    gap: 16,
+    flex: 1,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 16,
   },
-  form: {
-    gap: 12,
-  },
-  listHeader: {
+  topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 8,
+  },
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logo: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.peach,
+  },
+  logoText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Palette.text,
+  },
+  brandText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Palette.text,
+  },
+  step: {
+    fontSize: 12,
+    color: Palette.textSecondary,
+  },
+  illustration: {
+    flex: 1,
+    minHeight: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circle: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: Palette.mint,
+  },
+  sun: {
+    position: 'absolute',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Palette.sun,
+    top: '50%',
+    marginTop: -110,
+    marginLeft: 150,
+  },
+  house: {
+    alignItems: 'center',
+    marginTop: 40,
+  },
+  roof: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 75,
+    borderRightWidth: 75,
+    borderBottomWidth: 55,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: Palette.primary,
+  },
+  houseBody: {
+    width: 120,
+    height: 80,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingBottom: 0,
+    backgroundColor: Palette.primary,
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+  },
+  windows: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 26,
+  },
+  window: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+  },
+  door: {
+    width: 22,
+    height: 36,
+    borderTopLeftRadius: 11,
+    borderTopRightRadius: 11,
+    backgroundColor: Palette.surface,
+  },
+  copy: {
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 32,
+  },
+  title: {
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    textAlign: 'center',
+    color: Palette.text,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    color: Palette.textSecondary,
+  },
+  actions: {
+    gap: 16,
+  },
+  link: {
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+    color: Palette.primary,
+  },
+  footer: {
+    fontSize: 12,
+    textAlign: 'center',
+    color: Palette.textSecondary,
   },
 });
