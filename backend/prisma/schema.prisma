@@ -24,8 +24,8 @@ model Apartment {
   id              String          @id @default(uuid()) @db.Uuid
   address         String
   name            String
-  landlord_id     String          @db.Uuid
-  landlord        User            @relation("LandlordApartments", fields: [landlord_id], references: [id])
+  landlord_id     String?         @db.Uuid
+  landlord        User?           @relation("LandlordApartments", fields: [landlord_id], references: [id])
   transactions    Transaction[]
   tasks           Task[]
   user_apartments UserApartment[]
