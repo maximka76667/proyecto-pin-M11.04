@@ -49,8 +49,9 @@ export class TransactionsService {
     });
   }
 
-  findAll() {
+  findAll(apartmentId?: string) {
     return this.prisma.transaction.findMany({
+      where: apartmentId ? { apartment_id: apartmentId } : undefined,
       include: {
         apartment: true,
         fromUser: true,
