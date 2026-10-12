@@ -133,7 +133,7 @@ export default function Transactions() {
                       {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
                     </Text>
                   </View>
-                  <Text style={styles.transactionAmount}>
+                  <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
                     {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
                   </Text>
                 </View>
@@ -220,6 +220,7 @@ const styles = StyleSheet.create({
   transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
   transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
+  negativeAmount: { color: Palette.error },
   error: { fontSize: 14, color: Palette.error },
   muted: { fontSize: 14, color: Palette.textSecondary },
 });
