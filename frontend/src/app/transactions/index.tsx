@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -46,34 +47,76 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [transactionMenu, setTransactionMenu] = useState<Transaction | null>(null);
+  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
 
-  useEffect(() => {
-    const loadTransactions = async () => {
+  const deleteTransaction = async () => {
+    if (!transactionToDelete) return;
+
+    try {
+      await api('DELETE', `/transactions/${transactionToDelete.id}`);
+      const deletedId = transactionToDelete.id;
+      setTransactionToDelete(null);
+      setTransactions((current) =>
+        current.filter(({ id }) => id !== deletedId),
+      );
+
       try {
-        const [summaryData, allTransactions] = await Promise.all([
-          api(
+        const updatedSummary = await api(
+          'GET',
+          `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
+        ) as PersonalSummary;
+        setSummary(updatedSummary);
+      } catch (summaryError) {
+        setError(errorMessage(summaryError));
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      const loadTransactions = async () => {
+        setLoading(true);
+        setError('');
+      try {
+        const apartmentTransactions = await api(
+          'GET',
+          `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+        ) as Transaction[];
+
+        if (active) {
+          setTransactions(
+            apartmentTransactions.filter((transaction) =>
+              transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID),
+          );
+        }
+
+        try {
+          const summaryData = await api(
             'GET',
             `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
-          ) as Promise<PersonalSummary>,
-          api('GET', '/transactions') as Promise<Transaction[]>,
-        ]);
-
-        setSummary(summaryData);
-        setTransactions(
-          allTransactions.filter(
-            (transaction) => transaction.apartment_id === APARTMENT_ID
-              && (transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID),
-          ),
-        );
+          ) as PersonalSummary;
+          if (active) setSummary(summaryData);
+        } catch (summaryError) {
+          if (active) setError(errorMessage(summaryError));
+        }
       } catch (e) {
-        setError(errorMessage(e));
+        if (active) setError(errorMessage(e));
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
-    };
+      };
 
-    loadTransactions();
-  }, []);
+      void loadTransactions();
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -133,9 +176,17 @@ export default function Transactions() {
                       {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
                     </Text>
                   </View>
-                  <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
-                    {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
-                  </Text>
+                  <View style={styles.transactionActions}>
+                    <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
+                      {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
+                    </Text>
+                    <Pressable
+                      onPress={() => setTransactionMenu(transaction)}
+                      hitSlop={8}
+                      style={styles.menuButton}>
+                      <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
+                    </Pressable>
+                  </View>
                 </View>
               );
             })}
@@ -144,6 +195,98 @@ export default function Transactions() {
           <Text style={styles.muted}>No hay transacciones para mostrar.</Text>
         ) : null}
       </ScrollView>
+      <Modal
+        visible={transactionMenu !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTransactionMenu(null)}>
+        <Pressable
+          style={[styles.modalBackdrop, styles.actionMenuBackdrop]}
+          onPress={() => setTransactionMenu(null)}>
+          <Pressable style={styles.actionMenu} onPress={() => undefined}>
+            <View style={styles.actionMenuHandle} />
+            <View style={styles.actionMenuHeader}>
+              <View style={styles.actionMenuIcon}>
+                <MaterialCommunityIcons name="receipt-text-outline" size={23} color={Palette.primary} />
+              </View>
+              <View style={styles.actionMenuHeaderText}>
+                <Text style={styles.actionMenuEyebrow}>OPCIONES DEL GASTO</Text>
+                <Text style={styles.actionMenuTitle}>
+                  {transactionMenu?.category ?? 'Gasto'}
+                </Text>
+              </View>
+              <Text style={styles.actionMenuAmount}>
+                {transactionMenu ? `${Number(transactionMenu.amount).toFixed(2)} €` : ''}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                if (!transactionMenu) return;
+                const id = transactionMenu.id;
+                setTransactionMenu(null);
+                router.push({
+                  pathname: '/transactions/edit',
+                  params: { id },
+                });
+              }}
+              style={styles.actionMenuItem}>
+              <View style={styles.actionMenuItemIcon}>
+                <MaterialCommunityIcons name="pencil-outline" size={20} color={Palette.primary} />
+              </View>
+              <Text style={styles.actionMenuItemText}>Editar gasto</Text>
+              <MaterialCommunityIcons name="chevron-right" size={21} color={Palette.textSecondary} />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setTransactionToDelete(transactionMenu);
+                setTransactionMenu(null);
+              }}
+              style={styles.actionMenuItem}>
+              <View style={[styles.actionMenuItemIcon, styles.actionMenuDeleteIcon]}>
+                <MaterialCommunityIcons name="trash-can-outline" size={20} color={Palette.error} />
+              </View>
+              <Text style={styles.actionMenuDeleteText}>Eliminar gasto</Text>
+              <MaterialCommunityIcons name="chevron-right" size={21} color={Palette.textSecondary} />
+            </Pressable>
+            <Pressable
+              onPress={() => setTransactionMenu(null)}
+              style={styles.actionMenuCancel}>
+              <Text style={styles.actionMenuCancelText}>Cancelar</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={transactionToDelete !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTransactionToDelete(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.confirmation}>
+            <View style={styles.confirmationIcon}>
+              <MaterialCommunityIcons name="trash-can-outline" size={24} color={Palette.error} />
+            </View>
+            <Text style={styles.confirmationTitle}>Cancelar gasto</Text>
+            <Text style={styles.confirmationMessage}>
+              ¿Quieres eliminar{' '}
+              {transactionToDelete
+                ? `${Number(transactionToDelete.amount).toFixed(2)} € de ${transactionToDelete.category}`
+                : 'este gasto'}
+              ?
+            </Text>
+            <View style={styles.confirmationActions}>
+              <Pressable
+                onPress={() => setTransactionToDelete(null)}
+                style={styles.cancelButton}>
+                <Text style={styles.cancelButtonText}>No</Text>
+              </Pressable>
+              <Pressable onPress={() => void deleteTransaction()} style={styles.deleteButton}>
+                <Text style={styles.deleteButtonText}>Sí, eliminar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -220,7 +363,132 @@ const styles = StyleSheet.create({
   transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
   transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
+  transactionActions: { alignItems: 'flex-end', gap: 8 },
+  menuButton: {
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: Palette.segment,
+  },
   negativeAmount: { color: Palette.error },
   error: { fontSize: 14, color: Palette.error },
   muted: { fontSize: 14, color: Palette.textSecondary },
+  actionMenuBackdrop: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    padding: 0,
+  },
+  actionMenu: {
+    width: '100%',
+    maxWidth: 560,
+    gap: 6,
+    padding: 24,
+    paddingTop: 12,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: Palette.background,
+  },
+  actionMenuHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    marginBottom: 20,
+    borderRadius: 999,
+    backgroundColor: Palette.border,
+  },
+  actionMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  actionMenuIcon: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: Palette.mint,
+  },
+  actionMenuHeaderText: { flex: 1, gap: 3 },
+  actionMenuEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: Palette.textSecondary,
+  },
+  actionMenuTitle: { fontSize: 19, fontWeight: '800', color: Palette.text },
+  actionMenuAmount: { fontSize: 16, fontWeight: '800', color: Palette.primary },
+  actionMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 58,
+    paddingHorizontal: 10,
+    borderRadius: 15,
+    backgroundColor: Palette.surface,
+  },
+  actionMenuItemIcon: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 11,
+    backgroundColor: Palette.mint,
+  },
+  actionMenuDeleteIcon: { backgroundColor: '#F9E4E0' },
+  actionMenuItemText: { fontSize: 16, fontWeight: '700', color: Palette.text },
+  actionMenuDeleteText: { fontSize: 16, fontWeight: '700', color: Palette.error },
+  actionMenuCancel: {
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+    marginTop: 6,
+    borderRadius: 15,
+    backgroundColor: Palette.segment,
+  },
+  actionMenuCancelText: { fontSize: 15, fontWeight: '800', color: Palette.text },
+  modalBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(31,42,36,0.45)',
+  },
+  confirmation: {
+    width: '100%',
+    maxWidth: 380,
+    gap: 12,
+    padding: 24,
+    borderRadius: 22,
+    backgroundColor: Palette.background,
+  },
+  confirmationIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    backgroundColor: '#FBE9E7',
+  },
+  confirmationTitle: { fontSize: 22, fontWeight: '800', color: Palette.text },
+  confirmationMessage: { fontSize: 15, lineHeight: 22, color: Palette.textSecondary },
+  confirmationActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  cancelButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: Palette.segment,
+  },
+  cancelButtonText: { fontSize: 15, fontWeight: '800', color: Palette.text },
+  deleteButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: Palette.error,
+  },
+  deleteButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
 });
