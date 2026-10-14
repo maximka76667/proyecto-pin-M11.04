@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
@@ -33,14 +34,14 @@ export class TransactionsController {
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateTransactionDto: UpdateTransactionDto,
   ) {
     return this.transactionsService.update(id, updateTransactionDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.transactionsService.remove(id);
   }
 
