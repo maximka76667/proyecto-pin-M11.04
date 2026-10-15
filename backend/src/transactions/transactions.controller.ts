@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
 @Controller('transactions')
@@ -48,5 +49,20 @@ export class TransactionsController {
     const usuarioLogueadoId = '22222222-2222-2222-2222-222222222222';
 
     return this.transactionsService.getPersonalSummary(apartmentId, usuarioLogueadoId);
+  }
+
+  @Get(':apartmentId/settle-up')
+  getSettleUp(@Param('apartmentId') apartmentId: string) {
+    return this.transactionsService.getSettleUp(apartmentId);
+  }
+
+  @Post(':apartmentId/settle')
+  settleDebt(
+    @Param('apartmentId') apartmentId: string,
+    @Body() settleDebtDto: SettleDebtDto,
+  ) {
+    const usuarioLogueadoId = '22222222-2222-2222-2222-222222222222';
+
+    return this.transactionsService.settleDebt(apartmentId, usuarioLogueadoId, settleDebtDto);
   }
 }

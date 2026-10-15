@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SettleUpCard } from '@/components/settle-up';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
@@ -46,6 +47,7 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const loadTransactions = async () => {
@@ -73,7 +75,7 @@ export default function Transactions() {
     };
 
     loadTransactions();
-  }, []);
+  }, [refreshKey]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -106,6 +108,13 @@ export default function Transactions() {
             </View>
           </Pressable>
         ) : null}
+
+        <SettleUpCard
+          apartmentId={APARTMENT_ID}
+          userId={USER_ID}
+          refreshKey={refreshKey}
+          onSettled={() => setRefreshKey((key) => key + 1)}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
