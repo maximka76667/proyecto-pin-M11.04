@@ -70,7 +70,8 @@ export function SettleUpCard({
   refreshKey: number;
   onSettled: () => void;
 }) {
-  const [deudas, setDeudas] = useState<Deuda[]>([]);
+  // null = la lista no se ha podido cargar; [] = cargada y sin ninguna deuda pendiente
+  const [deudas, setDeudas] = useState<Deuda[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -91,6 +92,8 @@ export function SettleUpCard({
         setSelectedKey(selectable.length === 1 ? debtKey(selectable[0]) : null);
         setError('');
       } catch (e) {
+        // sin lista no se puede dar por hecho que las cuentas estén saldadas
+        setDeudas(null);
         setError(errorMessage(e));
       } finally {
         setLoading(false);
@@ -100,8 +103,9 @@ export function SettleUpCard({
     loadDeudas();
   }, [apartmentId, userId, refreshKey]);
 
-  const selected = deudas.find((deuda) => debtKey(deuda) === selectedKey) ?? null;
-  const canSettleAny = deudas.some((deuda) => deuda.acreedorId === userId);
+  const listaDeudas = deudas ?? [];
+  const selected = listaDeudas.find((deuda) => debtKey(deuda) === selectedKey) ?? null;
+  const canSettleAny = listaDeudas.some((deuda) => deuda.acreedorId === userId);
 
   const settle = async () => {
     if (!selected) return;
@@ -132,17 +136,24 @@ export function SettleUpCard({
       {loading ? <ActivityIndicator color={Palette.primary} /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {!loading && deudas.length === 0 ? (
+      {!loading && deudas === null ? (
+        <View style={styles.empty}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={22} color={Palette.error} />
+          <Text style={styles.muted}>No se han podido cargar las deudas pendientes.</Text>
+        </View>
+      ) : null}
+
+      {!loading && deudas !== null && deudas.length === 0 ? (
         <View style={styles.empty}>
           <MaterialCommunityIcons name="check-circle-outline" size={22} color={Palette.primary} />
           <Text style={styles.muted}>Estáis al día. No hay deudas pendientes.</Text>
         </View>
       ) : null}
 
-      {deudas.length > 0 ? (
+      {listaDeudas.length > 0 ? (
         <>
           <View style={styles.list}>
-            {deudas.map((deuda) => {
+            {listaDeudas.map((deuda) => {
               const key = debtKey(deuda);
               const selectable = deuda.acreedorId === userId;
               const isSelected = key === selectedKey;
