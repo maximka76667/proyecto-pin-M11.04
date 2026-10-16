@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
@@ -49,8 +54,9 @@ export class TransactionsService {
     });
   }
 
-  findAll() {
+  findAll(apartmentId?: string) {
     return this.prisma.transaction.findMany({
+      where: apartmentId ? { apartment_id: apartmentId } : undefined,
       include: {
         apartment: true,
         fromUser: true,
@@ -76,17 +82,37 @@ export class TransactionsService {
     return transaction;
   }
 
-  update(id: string, updateTransactionDto: UpdateTransactionDto) {
-    return this.prisma.transaction.update({
-      where: { id },
-      data: updateTransactionDto,
-    });
+  async update(id: string, updateTransactionDto: UpdateTransactionDto) {
+    try {
+      return await this.prisma.transaction.update({
+        where: { id },
+        data: updateTransactionDto,
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
   }
 
-  remove(id: string) {
-    return this.prisma.transaction.delete({
-      where: { id },
-    });
+  async remove(id: string) {
+    try {
+      return await this.prisma.transaction.delete({
+        where: { id },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  private handlePrismaError(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Transaction not found');
+      }
+      if (error.code === 'P2003') {
+        throw new BadRequestException('Apartment or user not found');
+      }
+    }
+    throw error;
   }
 
   async getPagoMinimo(apartmentId: string): Promise<Pago[]> {

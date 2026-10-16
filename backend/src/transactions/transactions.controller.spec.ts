@@ -23,8 +23,27 @@ describe('TransactionsController', () => {
     controller = module.get<TransactionsController>(TransactionsController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('PATCH /transactions/:id passes the id and body to the service', async () => {
+    const updated = { id: 'tx-1', amount: '20.00', category: 'other' };
+    service.update.mockResolvedValue(updated);
+
+    const result = await controller.update('tx-1', { amount: '20.00', category: 'other' });
+
+    expect(service.update).toHaveBeenCalledWith('tx-1', {
+      amount: '20.00',
+      category: 'other',
+    });
+    expect(result).toEqual(updated);
+  });
+
+  it('DELETE /transactions/:id passes the id to the service', async () => {
+    const deleted = { id: 'tx-1' };
+    service.remove.mockResolvedValue(deleted);
+
+    const result = await controller.remove('tx-1');
+
+    expect(service.remove).toHaveBeenCalledWith('tx-1');
+    expect(result).toEqual(deleted);
   });
 
   // PA-1002.01 y PA-1002.02: "el usuario entra a la vista de saldos"
