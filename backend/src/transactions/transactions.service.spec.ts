@@ -222,44 +222,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
 
     it('muestra el saldo neto del usuario que debe dinero', async () => {
       const service = await crearServicio([...GASTOS_DEL_PISO]);
-// Builds the error Prisma throws, e.g. P2025 = record not found
-function prismaError(code: string) {
-  return new Prisma.PrismaClientKnownRequestError('Prisma error', {
-    code,
-    clientVersion: Prisma.prismaVersion.client,
-  });
-}
-
-describe('TransactionsService', () => {
-  let service: TransactionsService;
-
-  // Only the Prisma methods used by update/remove are mocked
-  const prisma = {
-    transaction: {
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-  };
-
-  const transaction = {
-    id: 'tx-1',
-    apartment_id: 'apt-1',
-    from_user_id: 'user-1',
-    to_user_id: 'user-2',
-    amount: '40.00',
-    category: 'supplies',
-  };
-
-  beforeEach(async () => {
-    jest.clearAllMocks();
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        TransactionsService,
-        { provide: PrismaService, useValue: prisma },
-        { provide: UsersService, useValue: {} },
-      ],
-    }).compile();
 
       const resumen = await service.getPersonalSummary(PISO_A, CARLA);
 
@@ -401,6 +363,52 @@ describe('TransactionsService', () => {
       const service = await crearServicio([gasto(ANA, BRUNO, 50), gasto(BRUNO, ANA, 50)]);
 
       await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([]);
+    });
+  });
+});
+
+// Builds the error Prisma throws, e.g. P2025 = record not found
+function prismaError(code: string) {
+  return new Prisma.PrismaClientKnownRequestError('Prisma error', {
+    code,
+    clientVersion: Prisma.prismaVersion.client,
+  });
+}
+
+describe('TransactionsService', () => {
+  let service: TransactionsService;
+
+  // Only the Prisma methods used by update/remove are mocked
+  const prisma = {
+    transaction: {
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+  };
+
+  const transaction = {
+    id: 'tx-1',
+    apartment_id: 'apt-1',
+    from_user_id: 'user-1',
+    to_user_id: 'user-2',
+    amount: '40.00',
+    category: 'supplies',
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TransactionsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: UsersService, useValue: {} },
+      ],
+    }).compile();
+
+    service = module.get<TransactionsService>(TransactionsService);
+  });
+
   describe('update (modify expense)', () => {
     it('updates the expense by id with the given data', async () => {
       const updated = { ...transaction, amount: '55.50', category: 'utilities' };
