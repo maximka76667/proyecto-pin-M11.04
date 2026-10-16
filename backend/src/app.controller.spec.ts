@@ -15,8 +15,10 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('devuelve el mensaje de conexión con el backend', () => {
+      expect(appController.getHello()).toBe(
+        '¡Conexión exitosa con el backend del proyecto PIN!',
+      );
     });
   });
 });
