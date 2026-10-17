@@ -5,6 +5,7 @@ export type Apartment = {
   name: string;
   address: string;
   landlord_id: string | null;
+  invite_code: string;
 };
 
 export type TransactionCategory = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other';
