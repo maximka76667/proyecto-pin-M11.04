@@ -27,6 +27,11 @@ export class TransactionsController {
     return this.transactionsService.findAll(apartmentId);
   }
 
+  @Get('public-balance/:inviteCode')
+  getPublicApartmentBalance(@Param('inviteCode') inviteCode: string) {
+    return this.transactionsService.getPublicApartmentBalance(inviteCode);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.transactionsService.findOne(id);
@@ -45,10 +50,13 @@ export class TransactionsController {
     return this.transactionsService.remove(id);
   }
 
-    @Get(':apartmentId/my-summary')
-    getMyPersonalSummary(@Param('apartmentId') apartmentId: string) {
+  @Get(':apartmentId/my-summary')
+  getMyPersonalSummary(@Param('apartmentId') apartmentId: string) {
     const usuarioLogueadoId = '22222222-2222-2222-2222-222222222222';
 
-    return this.transactionsService.getPersonalSummary(apartmentId, usuarioLogueadoId);
+    return this.transactionsService.getPersonalSummary(
+      apartmentId,
+      usuarioLogueadoId,
+    );
   }
 }

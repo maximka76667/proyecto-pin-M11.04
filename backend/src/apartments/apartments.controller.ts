@@ -11,6 +11,7 @@ import {
 import { ApartmentsService } from './apartments.service';
 import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
+import { JoinApartmentDto } from './dto/join-apartment.dto';
 
 @Controller('apartments')
 export class ApartmentsController {
@@ -19,6 +20,16 @@ export class ApartmentsController {
   @Post()
   create(@Body() createApartmentDto: CreateApartmentDto) {
     return this.apartmentsService.create(createApartmentDto);
+  }
+
+  @Post('join')
+  join(@Body() joinApartmentDto: JoinApartmentDto) {
+    return this.apartmentsService.join(joinApartmentDto);
+  }
+
+  @Post(':id/invitation')
+  generateInvitation(@Param('id', ParseUUIDPipe) id: string) {
+    return this.apartmentsService.generateInvitation(id);
   }
 
   @Get()
