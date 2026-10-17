@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -6,6 +6,8 @@ import { Eyebrow, PrimaryButton } from '@/components/onboarding';
 import { Palette } from '@/constants/onboarding';
 
 export default function Welcome() {
+  const { inviteCode } = useLocalSearchParams<{ inviteCode?: string }>();
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -32,7 +34,12 @@ export default function Welcome() {
         <View style={styles.actions}>
           <PrimaryButton title="Create a household" onPress={() => router.push('/household')} />
           <Pressable
-            onPress={() => router.push({ pathname: '/household', params: { mode: 'join' } })}>
+            onPress={() =>
+              router.push({
+                pathname: '/household',
+                params: { mode: 'join', inviteCode },
+              })
+            }>
             <Text style={styles.link}>Join with an invite code</Text>
           </Pressable>
           <Text style={styles.footer}>Made for the people you live with.</Text>
