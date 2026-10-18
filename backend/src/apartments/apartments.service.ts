@@ -39,7 +39,7 @@ export class ApartmentsService {
     try {
       return await this.prisma.apartment.update({
         where: { id },
-        data: { invite_code: randomUUID() },
+        data: { invite_code: randomUUID() } as unknown as Prisma.ApartmentUpdateInput,
         select: { id: true, invite_code: true },
       });
     } catch (error) {
@@ -82,7 +82,11 @@ export class ApartmentsService {
 
     const guest = await this.prisma.$transaction(async (transaction) => {
       const user = await transaction.user.create({
-        data: { full_name: full_name.trim(), is_landlord: false },
+        data: {
+          full_name: full_name.trim(),
+          email: null,
+          is_landlord: false,
+        },
         select: { id: true, full_name: true },
       });
       await transaction.userApartment.create({

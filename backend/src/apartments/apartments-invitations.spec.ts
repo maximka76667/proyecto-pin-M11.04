@@ -84,16 +84,24 @@ describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('returns 404 for a malformed code without touching the database', async () => {
+  it('returns 404 for a mistyped UUID after checking the database', async () => {
+    prisma.apartment.findUnique.mockResolvedValue(null);
+
     const response = await request(app.getHttpServer())
       .post('/apartments/join')
-      .send({ invite_code: 'not-a-code', full_name: 'Alex' })
+      .send({
+        invite_code: '3f0c9a4e-8b1d-4c2a-9e7f-5a6b7c8d9e01',
+        full_name: 'Alex',
+      })
       .expect(404);
 
     expect(response.body.message).toBe(
       'El código introducido no es válido o ha caducado',
     );
-    expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
+    expect(prisma.apartment.findUnique).toHaveBeenCalledWith({
+      where: { invite_code: '3f0c9a4e-8b1d-4c2a-9e7f-5a6b7c8d9e01' },
+      select: { id: true, name: true, address: true },
+    });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -122,7 +130,11 @@ describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
       .expect(201);
 
     expect(createUser).toHaveBeenCalledWith({
-      data: { full_name: 'Alex', is_landlord: false },
+      data: {
+        full_name: 'Alex',
+        email: null,
+        is_landlord: false,
+      },
       select: { id: true, full_name: true },
     });
     expect(createMembership).toHaveBeenCalledWith({
