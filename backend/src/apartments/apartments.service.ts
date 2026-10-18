@@ -23,12 +23,22 @@ export class ApartmentsService {
     }
 
     try {
-      return await this.prisma.apartment.create({
-        data: {
-          name,
-          address,
-          landlord_id,
-        },
+      return await this.prisma.$transaction(async (transaction) => {
+        const apartment = await transaction.apartment.create({
+          data: {
+            name,
+            address,
+            landlord_id,
+          },
+        });
+
+        if (landlord_id) {
+          await transaction.userApartment.create({
+            data: { user_id: landlord_id, apartment_id: apartment.id },
+          });
+        }
+
+        return apartment;
       });
     } catch (error) {
       this.handlePrismaError(error);
