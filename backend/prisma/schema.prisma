@@ -67,6 +67,8 @@ model Task {
   frequency    TaskFrequency
   apartment    Apartment        @relation(fields: [apartment_id], references: [id])
   assignments  TaskAssignment[]
+
+  @@unique([apartment_id, title])
 }
 
 model TaskAssignment {
