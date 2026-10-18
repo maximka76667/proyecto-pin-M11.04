@@ -36,13 +36,8 @@ export default function HouseholdCreated() {
     Platform.OS === 'web' && typeof window !== 'undefined'
       ? `${window.location.origin}/household?mode=join&inviteCode=${encodeURIComponent(inviteCode)}`
       : undefined;
-  const balanceUrl =
-    Platform.OS === 'web' && typeof window !== 'undefined'
-      ? `${window.location.origin}/shared-balance?inviteCode=${encodeURIComponent(inviteCode)}`
-      : undefined;
   const inviteMessage = [
     `¡Hola! Este es mi piso compartido en Room8. Únete introduciendo este código: ${inviteCode}`,
-    balanceUrl ? `Consulta el balance del hogar: ${balanceUrl}` : '',
     inviteUrl ? `Únete directamente al hogar: ${inviteUrl}` : '',
   ]
     .filter(Boolean)
