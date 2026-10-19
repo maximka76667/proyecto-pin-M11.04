@@ -1,4 +1,4 @@
-import { IsEnum, IsUUID, Matches } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsUUID, Matches } from 'class-validator';
 import { TransactionCategory } from '@prisma/client';
 
 export class CreateTransactionDto {
@@ -20,4 +20,9 @@ export class CreateTransactionDto {
 
   @IsEnum(TransactionCategory)
   category: TransactionCategory;
+
+  // Día en que ocurrió el gasto (YYYY-MM-DD). Si no se envía, la base de datos pone hoy.
+  @IsOptional()
+  @IsDateString()
+  date?: string;
 }

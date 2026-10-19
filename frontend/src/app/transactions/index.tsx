@@ -50,6 +50,8 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [transactionMenu, setTransactionMenu] = useState<Transaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
@@ -116,7 +118,7 @@ export default function Transactions() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [refreshKey]),
   );
 
   return (

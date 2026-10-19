@@ -59,6 +59,10 @@ export class TransactionsService {
         to_user_id: createTransactionDto.to_user_id,
         amount: createTransactionDto.amount,
         category: createTransactionDto.category,
+        // sin fecha, la columna aplica su valor por defecto (hoy)
+        date: createTransactionDto.date
+          ? new Date(createTransactionDto.date)
+          : undefined,
       },
     });
   }
@@ -71,6 +75,8 @@ export class TransactionsService {
         fromUser: true,
         toUser: true,
       },
+      // lo más reciente primero; created_at desempata dos gastos del mismo día
+      orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
     });
   }
 
@@ -93,9 +99,11 @@ export class TransactionsService {
 
   async update(id: string, updateTransactionDto: UpdateTransactionDto) {
     try {
+      const { date, ...rest } = updateTransactionDto;
+
       return await this.prisma.transaction.update({
         where: { id },
-        data: updateTransactionDto,
+        data: date ? { ...rest, date: new Date(date) } : rest,
       });
     } catch (error) {
       this.handlePrismaError(error);

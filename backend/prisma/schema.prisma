@@ -52,6 +52,8 @@ model Transaction {
   to_user_id   String              @db.Uuid
   amount       Decimal             @db.Decimal(12, 2)
   category     TransactionCategory
+  date         DateTime            @default(now()) @db.Date
+  created_at   DateTime            @default(now())
   apartment    Apartment           @relation(fields: [apartment_id], references: [id])
   fromUser     User                @relation("CreatedTransactions", fields: [from_user_id], references: [id])
   toUser       User                @relation("ReceivedTransactions", fields: [to_user_id], references: [id])
@@ -85,6 +87,7 @@ enum TransactionCategory {
   supplies
   payment
   other
+  pending
 }
 
 enum TaskStatus {
