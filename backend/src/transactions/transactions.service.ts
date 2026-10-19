@@ -1,11 +1,14 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { TransactionCategory } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
-
 
 export interface BalanceUsuario {
   userId: string;
@@ -59,8 +62,9 @@ export class TransactionsService {
     });
   }
 
-  findAll() {
+  findAll(apartmentId?: string) {
     return this.prisma.transaction.findMany({
+      where: apartmentId ? { apartment_id: apartmentId } : undefined,
       include: {
         apartment: true,
         fromUser: true,
@@ -86,17 +90,37 @@ export class TransactionsService {
     return transaction;
   }
 
-  update(id: string, updateTransactionDto: UpdateTransactionDto) {
-    return this.prisma.transaction.update({
-      where: { id },
-      data: updateTransactionDto,
-    });
+  async update(id: string, updateTransactionDto: UpdateTransactionDto) {
+    try {
+      return await this.prisma.transaction.update({
+        where: { id },
+        data: updateTransactionDto,
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
   }
 
-  remove(id: string) {
-    return this.prisma.transaction.delete({
-      where: { id },
-    });
+  async remove(id: string) {
+    try {
+      return await this.prisma.transaction.delete({
+        where: { id },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  private handlePrismaError(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Transaction not found');
+      }
+      if (error.code === 'P2003') {
+        throw new BadRequestException('Apartment or user not found');
+      }
+    }
+    throw error;
   }
 
   async getPagoMinimo(apartmentId: string): Promise<Pago[]> {
@@ -115,8 +139,12 @@ export class TransactionsService {
       allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
     );
 
-    const debtsAsDebtor = allPayments.filter((payment) => payment.deudorId === userId);
-    const debtsAsCreditor = allPayments.filter((payment) => payment.acreedorId === userId);
+    const debtsAsDebtor = allPayments.filter(
+      (payment) => payment.deudorId === userId,
+    );
+    const debtsAsCreditor = allPayments.filter(
+      (payment) => payment.acreedorId === userId,
+    );
 
     let mensaje = 'Estás al día en tus pagos.';
     let esDeudor = false;
@@ -159,50 +187,46 @@ export class TransactionsService {
     };
   }
 
-  async getSettleUp(apartmentId: string): Promise<DeudaSettleUp[]> {
-    const allPayments = await this.getPagoMinimo(apartmentId);
-    const userNames = await this.usersService.getUserNames(
-      allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
-    );
-
-    return allPayments.map((payment) => ({
-      deudorId: payment.deudorId,
-      deudor: userNames[payment.deudorId] ?? payment.deudorId,
-      acreedorId: payment.acreedorId,
-      acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
-      monto: payment.monto,
-    }));
-  }
-
-  // Solo el acreedor puede marcar como pagada una deuda que tiene a su favor
-  async settleDebt(apartmentId: string, acreedorId: string, settleDebtDto: SettleDebtDto) {
-    const allPayments = await this.getPagoMinimo(apartmentId);
-    const pago = allPayments.find(
-      (payment) =>
-        payment.deudorId === settleDebtDto.deudor_id && payment.acreedorId === acreedorId,
-    );
-
-    if (!pago) {
-      throw new NotFoundException('No hay ninguna deuda pendiente de este usuario contigo');
+  async getPublicApartmentBalance(inviteCode: string) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        inviteCode,
+      )
+    ) {
+      throw new NotFoundException(
+        'El código introducido no es válido o ha caducado',
+      );
     }
 
-    if (Math.abs(pago.monto - Number(settleDebtDto.amount)) > 0.01) {
-      throw new ConflictException('El balance ha cambiado, recarga la pantalla');
-    }
-
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: apartmentId,
-        from_user_id: pago.deudorId,
-        to_user_id: pago.acreedorId,
-        amount: pago.monto.toFixed(2),
-        category: TransactionCategory.payment,
-      },
+    const apartment = await this.prisma.apartment.findUnique({
+      where: { invite_code: inviteCode },
+      select: { id: true, name: true },
     });
+
+    if (!apartment) {
+      throw new NotFoundException(
+        'El código introducido no es válido o ha caducado',
+      );
+    }
+
+    const payments = await this.getPagoMinimo(apartment.id);
+    const userNames = await this.usersService.getUserNames(
+      payments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
+    );
+
+    return {
+      apartment: { name: apartment.name },
+      globalPayments: payments.map((payment) => ({
+        deudor: userNames[payment.deudorId] ?? payment.deudorId,
+        acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
+        monto: payment.monto,
+      })),
+    };
   }
 
-  private async calcularAllBalances(apartmentId: string): Promise<BalanceUsuario[]> {
-    
+  private async calcularAllBalances(
+    apartmentId: string,
+  ): Promise<BalanceUsuario[]> {
     const pagadores = await this.prisma.transaction.findMany({
       where: { apartment_id: apartmentId },
       select: { from_user_id: true },
@@ -221,7 +245,6 @@ export class TransactionsService {
     const userIds = Array.from(userIdsSet);
 
     const balancePromises = userIds.map(async (userId) => {
-
       const ingresoAgg = await this.prisma.transaction.aggregate({
         _sum: { amount: true },
         where: { apartment_id: apartmentId, from_user_id: userId },
@@ -246,12 +269,12 @@ export class TransactionsService {
 
   private calcularMinimosPagos(balances: BalanceUsuario[]): Pago[] {
     const acreedores = balances
-      .filter((u) => u.balanceNeto > 0.01) 
-      .map((u) => ({ ...u, montoRestante: u.balanceNeto })); 
+      .filter((u) => u.balanceNeto > 0.01)
+      .map((u) => ({ ...u, montoRestante: u.balanceNeto }));
 
     const deudores = balances
       .filter((u) => u.balanceNeto < -0.01)
-      .map((u) => ({ ...u, montoRestante: Math.abs(u.balanceNeto) })); 
+      .map((u) => ({ ...u, montoRestante: Math.abs(u.balanceNeto) }));
 
     acreedores.sort((a, b) => b.montoRestante - a.montoRestante);
     deudores.sort((a, b) => b.montoRestante - a.montoRestante);
@@ -264,20 +287,22 @@ export class TransactionsService {
       const mayorAcreedor = acreedores[iAcr];
       const mayorDeudor = deudores[iDeu];
 
-      const montoASaldar = Math.min(mayorAcreedor.montoRestante, mayorDeudor.montoRestante);
+      const montoASaldar = Math.min(
+        mayorAcreedor.montoRestante,
+        mayorDeudor.montoRestante,
+      );
 
       if (montoASaldar > 0.01) {
         pagosFinales.push({
           deudorId: mayorDeudor.userId,
           acreedorId: mayorAcreedor.userId,
-          monto: parseFloat(montoASaldar.toFixed(2)), 
+          monto: parseFloat(montoASaldar.toFixed(2)),
         });
       }
 
       mayorAcreedor.montoRestante -= montoASaldar;
       mayorDeudor.montoRestante -= montoASaldar;
 
-      
       if (mayorAcreedor.montoRestante <= 0.01) {
         iAcr++;
       }
@@ -288,5 +313,4 @@ export class TransactionsService {
 
     return pagosFinales;
   }
-
 }

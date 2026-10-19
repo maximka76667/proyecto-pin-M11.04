@@ -11,13 +11,13 @@ import { Apartment, api, errorMessage } from '@/lib/api';
 type Mode = 'create' | 'join';
 
 export default function Household() {
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; inviteCode?: string }>();
   const [mode, setMode] = useState<Mode>(params.mode === 'join' ? 'join' : 'create');
 
   const [yourName, setYourName] = useState('');
   const [householdName, setHouseholdName] = useState('');
   const [address, setAddress] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(params.inviteCode ?? '');
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,7 +50,12 @@ export default function Household() {
       });
       router.replace({
         pathname: '/household-created',
-        params: { name: apartment.name, address: apartment.address },
+        params: {
+          id: apartment.id,
+          name: apartment.name,
+          address: apartment.address,
+          inviteCode: apartment.invite_code,
+        },
       });
     } catch (e) {
       setError(errorMessage(e));
@@ -59,9 +64,25 @@ export default function Household() {
     }
   };
 
-  // Invitations are not implemented in the backend yet
-  const joinHousehold = () => {
-    setError('Joining with an invite code is not available yet.');
+  const joinHousehold = async () => {
+    if (!yourName.trim() || !inviteCode.trim()) {
+      setError('Please enter your name and an invite code.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      await api('POST', '/apartments/join', {
+        full_name: yourName.trim(),
+        invite_code: inviteCode.trim(),
+      });
+      router.replace('/');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -92,7 +113,7 @@ export default function Household() {
 
         <View style={styles.form}>
           <Field
-            label="Your name (not saved in DB yet)"
+            label={mode === 'join' ? 'Your name' : 'Your name (not saved in DB yet)'}
             placeholder="e.g. Alex"
             value={yourName}
             onChangeText={setYourName}
@@ -131,7 +152,7 @@ export default function Household() {
         {mode === 'create' ? (
           <PrimaryButton title="Continue" onPress={createHousehold} loading={loading} />
         ) : (
-          <PrimaryButton title="Join household" onPress={joinHousehold} />
+          <PrimaryButton title="Join household" onPress={joinHousehold} loading={loading} />
         )}
       </ScrollView>
     </SafeAreaView>

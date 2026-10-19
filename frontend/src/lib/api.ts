@@ -5,6 +5,18 @@ export type Apartment = {
   name: string;
   address: string;
   landlord_id: string | null;
+  invite_code: string;
+};
+
+export type TransactionCategory = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other';
+
+export type Transaction = {
+  id: string;
+  apartment_id: string;
+  from_user_id: string;
+  to_user_id: string;
+  amount: string;
+  category: TransactionCategory;
 };
 
 // Sends the request and throws an Error with the backend message if it fails

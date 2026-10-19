@@ -10,7 +10,7 @@ datasource db {
 
 model User {
   id                   String           @id @default(uuid()) @db.Uuid
-  email                String           @unique
+  email                String?          @unique
   full_name            String
   is_landlord          Boolean
   user_apartments      UserApartment[]
@@ -24,6 +24,7 @@ model Apartment {
   id              String          @id @default(uuid()) @db.Uuid
   address         String
   name            String
+  invite_code     String          @unique @default(uuid()) @db.Uuid
   landlord_id     String?         @db.Uuid
   landlord        User?           @relation("LandlordApartments", fields: [landlord_id], references: [id])
   transactions    Transaction[]

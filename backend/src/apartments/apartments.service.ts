@@ -4,10 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
+import { JoinApartmentDto } from './dto/join-apartment.dto';
 
 @Injectable()
 export class ApartmentsService {
@@ -21,16 +23,89 @@ export class ApartmentsService {
     }
 
     try {
-      return await this.prisma.apartment.create({
-        data: {
-          name,
-          address,
-          landlord_id,
-        },
+      return await this.prisma.$transaction(async (transaction) => {
+        const apartment = await transaction.apartment.create({
+          data: {
+            name,
+            address,
+            landlord_id,
+          },
+        });
+
+        if (landlord_id) {
+          await transaction.userApartment.create({
+            data: { user_id: landlord_id, apartment_id: apartment.id },
+          });
+        }
+
+        return apartment;
       });
     } catch (error) {
       this.handlePrismaError(error);
     }
+  }
+
+  async generateInvitation(id: string) {
+    try {
+      return await this.prisma.apartment.update({
+        where: { id },
+        data: { invite_code: randomUUID() } as unknown as Prisma.ApartmentUpdateInput,
+        select: { id: true, invite_code: true },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  async join({ invite_code, full_name }: JoinApartmentDto) {
+    if (typeof full_name !== 'string' || !full_name.trim()) {
+      throw new BadRequestException('Your name is required');
+    }
+
+    if (typeof invite_code !== 'string') {
+      throw new NotFoundException(
+        'El código introducido no es válido o ha caducado',
+      );
+    }
+
+    const normalizedCode = invite_code.trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        normalizedCode,
+      )
+    ) {
+      throw new NotFoundException(
+        'El código introducido no es válido o ha caducado',
+      );
+    }
+
+    const apartment = await this.prisma.apartment.findUnique({
+      where: { invite_code: normalizedCode },
+      select: { id: true, name: true, address: true },
+    });
+
+    if (!apartment) {
+      throw new NotFoundException(
+        'El código introducido no es válido o ha caducado',
+      );
+    }
+
+    const guest = await this.prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.create({
+        data: {
+          full_name: full_name.trim(),
+          email: null,
+          is_landlord: false,
+        },
+        select: { id: true, full_name: true },
+      });
+      await transaction.userApartment.create({
+        data: { user_id: user.id, apartment_id: apartment.id },
+      });
+      return user;
+    });
+
+    return { apartment, user: guest };
   }
 
   findAll() {
