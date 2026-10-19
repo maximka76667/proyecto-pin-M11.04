@@ -1,11 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
 
 // El mismo usuario que el controlador tiene fijado mientras no haya autenticación
-const USUARIO_LOGUEADO = '22222222-2222-2222-2222-222222222222';
+const USUARIO_LOGUEADO = '11111111-1111-1111-1111-111111111111';
 
 describe('TransactionsController', () => {
   let controller: TransactionsController;
@@ -22,9 +20,7 @@ describe('TransactionsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TransactionsController],
       providers: [
-        TransactionsService,
-        { provide: PrismaService, useValue: {} },
-        { provide: UsersService, useValue: {} },
+        { provide: TransactionsService, useValue: transactionsService },
       ],
     }).compile();
 

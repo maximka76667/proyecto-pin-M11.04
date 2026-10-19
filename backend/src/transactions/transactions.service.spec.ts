@@ -376,14 +376,6 @@ function prismaError(code: string) {
 }
 
 describe('TransactionsService', () => {
-  const prisma = {
-    transaction: {
-      create: jest.fn(),
-    },
-  };
-  const usersService = {
-    getUserNames: jest.fn(),
-  };
   let service: TransactionsService;
 
   // Only the Prisma methods used by update/remove are mocked
