@@ -382,14 +382,6 @@ function prismaError(code: string) {
 }
 
 describe('TransactionsService', () => {
-  const prisma = {
-    transaction: {
-      create: jest.fn(),
-    },
-  };
-  const usersService = {
-    getUserNames: jest.fn(),
-  };
   let service: TransactionsService;
 
 <<<<<<< HEAD
