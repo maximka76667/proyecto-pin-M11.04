@@ -25,8 +25,11 @@ export class TransactionsController {
   }
 
   @Get()
-  findAll(@Query('apartment_id') apartmentId?: string) {
-    return this.transactionsService.findAll(apartmentId);
+  findUsersTransactions(
+    @Query('apartment_id') apartmentId: string | undefined,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.findUsersTransactions(apartmentId, userId);
   }
 
   @Get('public-balance/:inviteCode')

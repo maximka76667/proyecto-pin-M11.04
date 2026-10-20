@@ -17,7 +17,6 @@ import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
 const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const USER_ID = '11111111-1111-1111-1111-111111111111';
 
 type PersonalSummary = {
   miResumen: {
@@ -35,6 +34,8 @@ type Transaction = {
   to_user_id: string;
   amount: number | string;
   category: string;
+  date: string;
+  paidByCurrentUser: boolean;
   fromUser: {
     full_name: string;
   };
@@ -93,8 +94,9 @@ export default function Transactions() {
 
         if (active) {
           setTransactions(
-            apartmentTransactions.filter((transaction) =>
-              transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID),
+            apartmentTransactions.filter(
+              (transaction) => transaction.category !== 'pending',
+            )
           );
         }
 
@@ -168,7 +170,7 @@ export default function Transactions() {
           <View style={styles.transactionList}>
             {transactions.map((transaction) => {
               const amount = Number(transaction.amount);
-              const paidByMe = transaction.from_user_id === USER_ID;
+              const paidByMe = transaction.paidByCurrentUser;
               const pendiente = transaction.category === 'pending';
               // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
               const editable = transaction.category !== 'payment' && !pendiente;
@@ -187,6 +189,9 @@ export default function Transactions() {
                     <Text style={styles.transactionStatus}>
                       {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
                       {pendiente ? ' · pendiente de confirmar' : ''}
+                    </Text>
+                    <Text style={styles.transactionDate}>
+                      {new Date(transaction.date).toLocaleDateString('es-ES')}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
@@ -383,6 +388,7 @@ const styles = StyleSheet.create({
   transactionInfo: { flex: 1, gap: 3 },
   transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
+  transactionDate: { fontSize: 11, color: Palette.textSecondary },
   transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   transactionActions: { alignItems: 'flex-end', gap: 8 },
   menuButton: {

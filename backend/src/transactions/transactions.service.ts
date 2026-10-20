@@ -12,27 +12,30 @@ import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import {
+  BalanceUsuario,
+  calcularMinimosPagos,
+  Pago,
+} from './balance-calculator';
 
 // Un aviso de pago no cuenta en el balance hasta que el acreedor lo confirma
 const SOLO_CONFIRMADAS = { not: TransactionCategory.pending };
 
-export interface BalanceUsuario {
-  userId: string;
-  balanceNeto: number;
+interface AvisoPago {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  amount: Prisma.Decimal;
 }
 
-export interface Pago {
+interface FilaDeuda {
   deudorId: string;
   acreedorId: string;
   monto: number;
+  pagoPendienteId: string | null;
 }
 
 export interface RespuestaMiBalancePersonal {
-  globalPayments: {
-    deudor: string;
-    acreedor: string;
-    monto: number;
-  }[];
   miResumen: {
     esDeudor: boolean;
     monto: number;
@@ -80,9 +83,9 @@ export class TransactionsService {
     });
   }
 
-  findAll(apartmentId?: string) {
-    return this.prisma.transaction.findMany({
-      where: apartmentId ? { apartment_id: apartmentId } : undefined,
+  async findUsersTransactions(apartmentId: string | undefined, userId: string) {
+    const transactions = await this.prisma.transaction.findMany({
+      where: this.userTransactionsFilter(apartmentId, userId),
       include: {
         apartment: true,
         fromUser: true,
@@ -91,6 +94,11 @@ export class TransactionsService {
       // lo más reciente primero; created_at desempata dos gastos del mismo día
       orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
     });
+
+    return transactions.map((transaction) => ({
+      ...transaction,
+      paidByCurrentUser: transaction.from_user_id === userId,
+    }));
   }
 
   async findOne(id: string) {
@@ -150,67 +158,17 @@ export class TransactionsService {
   }
 
   async getPagoMinimo(apartmentId: string): Promise<Pago[]> {
-    const allBalances = await this.calcularAllBalances(apartmentId);
-    const Pagos = this.calcularMinimosPagos(allBalances);
-
-    return Pagos;
+    const balances = await this.calcularAllBalances(apartmentId);
+    return calcularMinimosPagos(balances);
   }
 
   async getPersonalSummary(
     apartmentId: string,
     userId: string,
   ): Promise<RespuestaMiBalancePersonal> {
-    const allPayments = await this.getPagoMinimo(apartmentId);
-    const userNames = await this.usersService.getUserNames(
-      allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
-    );
-
-    const debtsAsDebtor = allPayments.filter(
-      (payment) => payment.deudorId === userId,
-    );
-    const debtsAsCreditor = allPayments.filter(
-      (payment) => payment.acreedorId === userId,
-    );
-
-    let mensaje = 'Estás al día en tus pagos.';
-    let esDeudor = false;
-    let monto = 0;
-    let conceptos: string[] = [];
-
-    if (debtsAsDebtor.length > 0) {
-      esDeudor = true;
-      monto = debtsAsDebtor.reduce((sum, payment) => sum + payment.monto, 0);
-      conceptos = debtsAsDebtor.map(
-        (payment) =>
-          `Debes ${payment.monto}€ a ${
-            userNames[payment.acreedorId] ?? payment.acreedorId
-          }`,
-      );
-      mensaje = `En total, debes ${monto.toFixed(2)}€ para saldar cuentas.`;
-    } else if (debtsAsCreditor.length > 0) {
-      monto = debtsAsCreditor.reduce((sum, payment) => sum + payment.monto, 0);
-      conceptos = debtsAsCreditor.map(
-        (payment) =>
-          `${userNames[payment.deudorId] ?? payment.deudorId} te debe ${
-            payment.monto
-          }€`,
-      );
-      mensaje = `En total, tienes ${monto.toFixed(2)}€ pendientes de cobro.`;
-    }
-
-    return {
-      globalPayments: allPayments.map((payment) => ({
-        deudor: userNames[payment.deudorId] ?? payment.deudorId,
-        acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
-        monto: payment.monto,
-      })),
-      miResumen: {
-        esDeudor,
-        monto: parseFloat(monto.toFixed(2)),
-        conceptos,
-      },
-      mensaje,
-    };
+    const payments = await this.getPagoMinimo(apartmentId);
+    const userNames = await this.getPaymentUserNames(payments);
+    return this.buildPersonalSummary(payments, userId, userNames);
   }
 
   async getPublicApartmentBalance(inviteCode: string) {
@@ -236,9 +194,7 @@ export class TransactionsService {
     }
 
     const payments = await this.getPagoMinimo(apartment.id);
-    const userNames = await this.usersService.getUserNames(
-      payments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
-    );
+    const userNames = await this.getPaymentUserNames(payments);
 
     return {
       apartment: { name: apartment.name },
@@ -258,16 +214,111 @@ export class TransactionsService {
 
     const [deudas, avisos] = await Promise.all([
       this.getPagoMinimo(apartmentId),
-      this.prisma.transaction.findMany({
-        where: {
-          apartment_id: apartmentId,
-          category: TransactionCategory.pending,
-        },
-        select: { id: true, from_user_id: true, to_user_id: true, amount: true },
-      }),
+      this.getPendingPaymentNotices(apartmentId),
     ]);
 
-    // Cada aviso se asocia, como mucho, a la deuda de su mismo par deudor-acreedor
+    const filas = this.combinarDeudasConAvisos(deudas, avisos);
+    const userNames = await this.getPaymentUserNames(filas);
+    return filas.map((fila) => this.toDeudaSettleUp(fila, userId, userNames));
+  }
+
+  private userTransactionsFilter(
+    apartmentId: string | undefined,
+    userId: string,
+  ): Prisma.TransactionWhereInput {
+    return {
+      ...(apartmentId ? { apartment_id: apartmentId } : {}),
+      category: SOLO_CONFIRMADAS,
+      OR: [{ from_user_id: userId }, { to_user_id: userId }],
+    };
+  }
+
+  private async getPaymentUserNames(
+    payments: Array<Pick<Pago, 'deudorId' | 'acreedorId'>>,
+  ): Promise<Record<string, string>> {
+    return this.usersService.getUserNames(
+      payments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
+    );
+  }
+
+  private async getPendingPaymentNotices(
+    apartmentId: string,
+  ): Promise<AvisoPago[]> {
+    return this.prisma.transaction.findMany({
+      where: {
+        apartment_id: apartmentId,
+        category: TransactionCategory.pending,
+      },
+      select: {
+        id: true,
+        from_user_id: true,
+        to_user_id: true,
+        amount: true,
+      },
+    });
+  }
+
+  private buildPersonalSummary(
+    payments: Pago[],
+    userId: string,
+    userNames: Record<string, string>,
+  ): RespuestaMiBalancePersonal {
+    const debtsAsDebtor = payments.filter(
+      (payment) => payment.deudorId === userId,
+    );
+    const debtsAsCreditor = payments.filter(
+      (payment) => payment.acreedorId === userId,
+    );
+
+    if (debtsAsDebtor.length > 0) {
+      const monto = this.totalPayments(debtsAsDebtor);
+      return {
+        miResumen: {
+          esDeudor: true,
+          monto,
+          conceptos: debtsAsDebtor.map(
+            (payment) =>
+              `Debes ${payment.monto}€ a ${
+                userNames[payment.acreedorId] ?? payment.acreedorId
+              }`,
+          ),
+        },
+        mensaje: `En total, debes ${monto.toFixed(2)}€ para saldar cuentas.`,
+      };
+    }
+
+    if (debtsAsCreditor.length > 0) {
+      const monto = this.totalPayments(debtsAsCreditor);
+      return {
+        miResumen: {
+          esDeudor: false,
+          monto,
+          conceptos: debtsAsCreditor.map(
+            (payment) =>
+              `${userNames[payment.deudorId] ?? payment.deudorId} te debe ${
+                payment.monto
+              }€`,
+          ),
+        },
+        mensaje: `En total, tienes ${monto.toFixed(2)}€ pendientes de cobro.`,
+      };
+    }
+
+    return {
+      miResumen: { esDeudor: false, monto: 0, conceptos: [] },
+      mensaje: 'Estás al día en tus pagos.',
+    };
+  }
+
+  private totalPayments(payments: Pago[]): number {
+    const total = payments.reduce((sum, payment) => sum + payment.monto, 0);
+    return parseFloat(total.toFixed(2));
+  }
+
+  private combinarDeudasConAvisos(
+    deudas: Pago[],
+    avisos: AvisoPago[],
+  ): FilaDeuda[] {
     const avisosSinAsignar = [...avisos];
     const filas = deudas.map((deuda) => {
       const indice = avisosSinAsignar.findIndex(
@@ -286,39 +337,37 @@ export class TransactionsService {
       };
     });
 
-    // Avisos que ya no encajan con ninguna deuda, por ejemplo porque un gasto nuevo
-    // reorganizó los pagos mínimos: se muestran igualmente para poder confirmarlos.
-    for (const aviso of avisosSinAsignar) {
-      filas.push({
+    return filas.concat(
+      avisosSinAsignar.map((aviso) => ({
         deudorId: aviso.from_user_id,
         acreedorId: aviso.to_user_id,
         monto: Number(aviso.amount),
         pagoPendienteId: aviso.id,
-      });
-    }
-
-    const userNames = await this.usersService.getUserNames(
-      filas.flatMap((fila) => [fila.deudorId, fila.acreedorId]),
+      })),
     );
+  }
 
-    return filas.map((fila): DeudaSettleUp => {
-      const rol: RolEnDeuda =
-        fila.deudorId === userId
-          ? 'deudor'
-          : fila.acreedorId === userId
-            ? 'acreedor'
-            : 'ajeno';
-      const pendiente = fila.pagoPendienteId !== null;
+  private toDeudaSettleUp(
+    fila: FilaDeuda,
+    userId: string,
+    userNames: Record<string, string>,
+  ): DeudaSettleUp {
+    const rol: RolEnDeuda =
+      fila.deudorId === userId
+        ? 'deudor'
+        : fila.acreedorId === userId
+          ? 'acreedor'
+          : 'ajeno';
+    const pendiente = fila.pagoPendienteId !== null;
 
-      return {
-        ...fila,
-        deudor: userNames[fila.deudorId] ?? fila.deudorId,
-        acreedor: userNames[fila.acreedorId] ?? fila.acreedorId,
-        estado: pendiente ? 'pendiente_confirmacion' : 'por_pagar',
-        rol,
-        acciones: this.accionesDisponibles(rol, pendiente),
-      };
-    });
+    return {
+      ...fila,
+      deudor: userNames[fila.deudorId] ?? fila.deudorId,
+      acreedor: userNames[fila.acreedorId] ?? fila.acreedorId,
+      estado: pendiente ? 'pendiente_confirmacion' : 'por_pagar',
+      rol,
+      acciones: this.accionesDisponibles(rol, pendiente),
+    };
   }
 
   // El deudor avisa de que ha pagado: queda pendiente hasta que el acreedor lo confirme
@@ -516,50 +565,4 @@ export class TransactionsService {
     return Promise.all(balancePromises);
   }
 
-  private calcularMinimosPagos(balances: BalanceUsuario[]): Pago[] {
-    const acreedores = balances
-      .filter((u) => u.balanceNeto > 0.01)
-      .map((u) => ({ ...u, montoRestante: u.balanceNeto }));
-
-    const deudores = balances
-      .filter((u) => u.balanceNeto < -0.01)
-      .map((u) => ({ ...u, montoRestante: Math.abs(u.balanceNeto) }));
-
-    acreedores.sort((a, b) => b.montoRestante - a.montoRestante);
-    deudores.sort((a, b) => b.montoRestante - a.montoRestante);
-
-    const pagosFinales: Pago[] = [];
-    let iAcr = 0;
-    let iDeu = 0;
-
-    while (iAcr < acreedores.length && iDeu < deudores.length) {
-      const mayorAcreedor = acreedores[iAcr];
-      const mayorDeudor = deudores[iDeu];
-
-      const montoASaldar = Math.min(
-        mayorAcreedor.montoRestante,
-        mayorDeudor.montoRestante,
-      );
-
-      if (montoASaldar > 0.01) {
-        pagosFinales.push({
-          deudorId: mayorDeudor.userId,
-          acreedorId: mayorAcreedor.userId,
-          monto: parseFloat(montoASaldar.toFixed(2)),
-        });
-      }
-
-      mayorAcreedor.montoRestante -= montoASaldar;
-      mayorDeudor.montoRestante -= montoASaldar;
-
-      if (mayorAcreedor.montoRestante <= 0.01) {
-        iAcr++;
-      }
-      if (mayorDeudor.montoRestante <= 0.01) {
-        iDeu++;
-      }
-    }
-
-    return pagosFinales;
-  }
 }

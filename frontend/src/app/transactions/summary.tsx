@@ -17,11 +17,6 @@ import { api, errorMessage } from '@/lib/api';
 const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 type PersonalSummary = {
-  // globalPayments: {
-  //   deudor: string;
-  //   acreedor: string;
-  //   monto: number;
-  // }[];
   miResumen: {
     esDeudor: boolean;
     monto: number;
@@ -100,23 +95,6 @@ export default function Transactions() {
               )}
             </View>
 
-            {/* <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Pagos globales</Text>
-              {summary.globalPayments.length > 0 ? (
-                <View style={styles.list}>
-                  {summary.globalPayments.map((payment, index) => (
-                    <View key={`${payment.deudor}-${payment.acreedor}-${index}`} style={styles.payment}>
-                      <Text style={styles.paymentText}>
-                        {payment.deudor} → {payment.acreedor}
-                      </Text>
-                      <Text style={styles.paymentAmount}>{payment.monto.toFixed(2)} €</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.muted}>No hay pagos pendientes.</Text>
-              )}
-            </View> */}
           </>
         ) : null}
       </ScrollView>
