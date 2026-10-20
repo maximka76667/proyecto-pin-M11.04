@@ -12,11 +12,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SettleUpCard } from '@/components/settle-up';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
 const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const USER_ID = '22222222-2222-2222-2222-222222222222';
 
 type PersonalSummary = {
   miResumen: {
@@ -34,6 +34,8 @@ type Transaction = {
   to_user_id: string;
   amount: number | string;
   category: string;
+  date: string;
+  paidByCurrentUser: boolean;
   fromUser: {
     full_name: string;
   };
@@ -49,6 +51,8 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [transactionMenu, setTransactionMenu] = useState<Transaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
@@ -90,8 +94,9 @@ export default function Transactions() {
 
         if (active) {
           setTransactions(
-            apartmentTransactions.filter((transaction) =>
-              transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID),
+            apartmentTransactions.filter(
+              (transaction) => transaction.category !== 'pending',
+            )
           );
         }
 
@@ -115,7 +120,7 @@ export default function Transactions() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [refreshKey]),
   );
 
   return (
@@ -150,6 +155,12 @@ export default function Transactions() {
           </Pressable>
         ) : null}
 
+        <SettleUpCard
+          apartmentId={APARTMENT_ID}
+          refreshKey={refreshKey}
+          onSettled={() => setRefreshKey((key) => key + 1)}
+        />
+
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
           <Text style={styles.sectionCaption}>{transactions.length}</Text>
@@ -159,7 +170,10 @@ export default function Transactions() {
           <View style={styles.transactionList}>
             {transactions.map((transaction) => {
               const amount = Number(transaction.amount);
-              const paidByMe = transaction.from_user_id === USER_ID;
+              const paidByMe = transaction.paidByCurrentUser;
+              const pendiente = transaction.category === 'pending';
+              // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
+              const editable = transaction.category !== 'payment' && !pendiente;
 
               return (
                 <View key={transaction.id} style={styles.transaction}>
@@ -174,18 +188,30 @@ export default function Transactions() {
                     <Text style={styles.transactionCategory}>{transaction.category}</Text>
                     <Text style={styles.transactionStatus}>
                       {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
+                      {pendiente ? ' · pendiente de confirmar' : ''}
+                    </Text>
+                    <Text style={styles.transactionDate}>
+                      {new Date(transaction.date).toLocaleDateString('es-ES')}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
-                    <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
+                    <Text
+                      style={[
+                        styles.transactionAmount,
+                        !paidByMe && styles.negativeAmount,
+                        // todavía no cuenta en el balance
+                        pendiente && styles.pendingAmount,
+                      ]}>
                       {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
                     </Text>
-                    <Pressable
-                      onPress={() => setTransactionMenu(transaction)}
-                      hitSlop={8}
-                      style={styles.menuButton}>
-                      <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
-                    </Pressable>
+                    {editable ? (
+                      <Pressable
+                        onPress={() => setTransactionMenu(transaction)}
+                        hitSlop={8}
+                        style={styles.menuButton}>
+                        <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
+                      </Pressable>
+                    ) : null}
                   </View>
                 </View>
               );
@@ -362,6 +388,7 @@ const styles = StyleSheet.create({
   transactionInfo: { flex: 1, gap: 3 },
   transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
+  transactionDate: { fontSize: 11, color: Palette.textSecondary },
   transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   transactionActions: { alignItems: 'flex-end', gap: 8 },
   menuButton: {
@@ -370,6 +397,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.segment,
   },
   negativeAmount: { color: Palette.error },
+  pendingAmount: { color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   muted: { fontSize: 14, color: Palette.textSecondary },
   actionMenuBackdrop: {

@@ -30,7 +30,6 @@ const categories: { value: Category; label: string; icon: keyof typeof MaterialC
   { value: 'supplies', label: 'Groceries', icon: 'cart-outline' },
   { value: 'utilities', label: 'Utilities', icon: 'flash-outline' },
   { value: 'maintenance', label: 'Home', icon: 'home-outline' },
-  { value: 'payment', label: 'Payment', icon: 'credit-card-outline' },
   { value: 'other', label: 'Other', icon: 'dots-horizontal' },
 ];
 
