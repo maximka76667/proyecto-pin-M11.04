@@ -1,5 +1,6 @@
-import { IsDateString, IsEnum, IsOptional, IsUUID, Matches } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsUUID, Matches } from 'class-validator';
 import { TransactionCategory } from '@prisma/client';
+import { CATEGORIAS_DE_GASTO } from '../categorias';
 
 export class CreateTransactionDto {
   @IsUUID()
@@ -18,7 +19,8 @@ export class CreateTransactionDto {
   })
   amount: string;
 
-  @IsEnum(TransactionCategory)
+  // payment y pending quedan fuera: solo los gestiona el flujo de saldar deudas
+  @IsIn(CATEGORIAS_DE_GASTO)
   category: TransactionCategory;
 
   // Día en que ocurrió el gasto (YYYY-MM-DD). Si no se envía, la base de datos pone hoy.

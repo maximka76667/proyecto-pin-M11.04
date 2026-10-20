@@ -1,15 +1,20 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+
+// Un aviso de pago no cuenta en el balance hasta que el acreedor lo confirma
+const SOLO_CONFIRMADAS = { not: TransactionCategory.pending };
 
 export interface BalanceUsuario {
   userId: string;
@@ -36,12 +41,20 @@ export interface RespuestaMiBalancePersonal {
   mensaje: string;
 }
 
+export type RolEnDeuda = 'deudor' | 'acreedor' | 'ajeno';
+export type AccionSettleUp = 'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
+
 export interface DeudaSettleUp {
   deudorId: string;
   deudor: string;
   acreedorId: string;
   acreedor: string;
+  // si hay un aviso de pago pendiente, es el importe de ese aviso
   monto: number;
+  estado: 'por_pagar' | 'pendiente_confirmacion';
+  pagoPendienteId: string | null;
+  rol: RolEnDeuda;
+  acciones: AccionSettleUp[];
 }
 
 @Injectable()
@@ -98,6 +111,8 @@ export class TransactionsService {
   }
 
   async update(id: string, updateTransactionDto: UpdateTransactionDto) {
+    await this.asegurarEditable(id);
+
     try {
       const { date, ...rest } = updateTransactionDto;
 
@@ -111,6 +126,8 @@ export class TransactionsService {
   }
 
   async remove(id: string) {
+    await this.asegurarEditable(id);
+
     try {
       return await this.prisma.transaction.delete({
         where: { id },
@@ -233,68 +250,232 @@ export class TransactionsService {
     };
   }
 
-  async getSettleUp(apartmentId: string): Promise<DeudaSettleUp[]> {
-    const allPayments = await this.getPagoMinimo(apartmentId);
+  async getSettleUp(
+    apartmentId: string,
+    userId: string,
+  ): Promise<DeudaSettleUp[]> {
+    await this.asegurarMiembro(apartmentId, userId);
+
+    const [deudas, avisos] = await Promise.all([
+      this.getPagoMinimo(apartmentId),
+      this.prisma.transaction.findMany({
+        where: {
+          apartment_id: apartmentId,
+          category: TransactionCategory.pending,
+        },
+        select: { id: true, from_user_id: true, to_user_id: true, amount: true },
+      }),
+    ]);
+
+    // Cada aviso se asocia, como mucho, a la deuda de su mismo par deudor-acreedor
+    const avisosSinAsignar = [...avisos];
+    const filas = deudas.map((deuda) => {
+      const indice = avisosSinAsignar.findIndex(
+        (aviso) =>
+          aviso.from_user_id === deuda.deudorId &&
+          aviso.to_user_id === deuda.acreedorId,
+      );
+      const aviso =
+        indice >= 0 ? avisosSinAsignar.splice(indice, 1)[0] : undefined;
+
+      return {
+        deudorId: deuda.deudorId,
+        acreedorId: deuda.acreedorId,
+        monto: aviso ? Number(aviso.amount) : deuda.monto,
+        pagoPendienteId: aviso?.id ?? null,
+      };
+    });
+
+    // Avisos que ya no encajan con ninguna deuda, por ejemplo porque un gasto nuevo
+    // reorganizó los pagos mínimos: se muestran igualmente para poder confirmarlos.
+    for (const aviso of avisosSinAsignar) {
+      filas.push({
+        deudorId: aviso.from_user_id,
+        acreedorId: aviso.to_user_id,
+        monto: Number(aviso.amount),
+        pagoPendienteId: aviso.id,
+      });
+    }
+
     const userNames = await this.usersService.getUserNames(
-      allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
+      filas.flatMap((fila) => [fila.deudorId, fila.acreedorId]),
     );
 
-    return allPayments.map((payment) => ({
-      deudorId: payment.deudorId,
-      deudor: userNames[payment.deudorId] ?? payment.deudorId,
-      acreedorId: payment.acreedorId,
-      acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
-      monto: payment.monto,
-    }));
+    return filas.map((fila): DeudaSettleUp => {
+      const rol: RolEnDeuda =
+        fila.deudorId === userId
+          ? 'deudor'
+          : fila.acreedorId === userId
+            ? 'acreedor'
+            : 'ajeno';
+      const pendiente = fila.pagoPendienteId !== null;
+
+      return {
+        ...fila,
+        deudor: userNames[fila.deudorId] ?? fila.deudorId,
+        acreedor: userNames[fila.acreedorId] ?? fila.acreedorId,
+        estado: pendiente ? 'pendiente_confirmacion' : 'por_pagar',
+        rol,
+        acciones: this.accionesDisponibles(rol, pendiente),
+      };
+    });
   }
 
-  // Solo el acreedor puede marcar como pagada una deuda que tiene a su favor
-  async settleDebt(
+  // El deudor avisa de que ha pagado: queda pendiente hasta que el acreedor lo confirme
+  async markAsPaid(
     apartmentId: string,
-    acreedorId: string,
+    deudorId: string,
     settleDebtDto: SettleDebtDto,
   ) {
-    const allPayments = await this.getPagoMinimo(apartmentId);
-    const pago = allPayments.find(
-      (payment) =>
-        payment.deudorId === settleDebtDto.deudor_id &&
-        payment.acreedorId === acreedorId,
+    await this.asegurarMiembro(apartmentId, deudorId);
+
+    const deudas = await this.getPagoMinimo(apartmentId);
+    const deuda = deudas.find(
+      (pago) =>
+        pago.deudorId === deudorId &&
+        pago.acreedorId === settleDebtDto.acreedor_id,
     );
 
-    if (!pago) {
+    if (!deuda) {
       throw new NotFoundException(
-        'No hay ninguna deuda pendiente de este usuario contigo',
+        'No tienes ninguna deuda pendiente con este usuario',
       );
     }
 
-    if (Math.abs(pago.monto - Number(settleDebtDto.amount)) > 0.01) {
+    if (Math.abs(deuda.monto - Number(settleDebtDto.amount)) > 0.01) {
       throw new ConflictException(
         'El balance ha cambiado, recarga la pantalla',
+      );
+    }
+
+    const avisoPrevio = await this.prisma.transaction.findFirst({
+      where: {
+        apartment_id: apartmentId,
+        from_user_id: deudorId,
+        to_user_id: deuda.acreedorId,
+        category: TransactionCategory.pending,
+      },
+      select: { id: true },
+    });
+
+    if (avisoPrevio) {
+      throw new ConflictException(
+        'Ya has avisado de este pago; falta que lo confirme',
       );
     }
 
     return this.prisma.transaction.create({
       data: {
         apartment_id: apartmentId,
-        from_user_id: pago.deudorId,
-        to_user_id: pago.acreedorId,
-        amount: pago.monto.toFixed(2),
-        category: TransactionCategory.payment,
+        from_user_id: deudorId,
+        to_user_id: deuda.acreedorId,
+        amount: deuda.monto.toFixed(2),
+        category: TransactionCategory.pending,
       },
     });
+  }
+
+  // El acreedor confirma que le ha llegado el dinero: el aviso pasa a ser un pago
+  async confirmPayment(transactionId: string, userId: string) {
+    await this.asegurarAvisoDelAcreedor(transactionId, userId);
+
+    try {
+      return await this.prisma.transaction.update({
+        where: { id: transactionId },
+        data: { category: TransactionCategory.payment },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  // El acreedor dice que no le ha llegado: se descarta el aviso y la deuda sigue en pie
+  async rejectPayment(transactionId: string, userId: string) {
+    await this.asegurarAvisoDelAcreedor(transactionId, userId);
+
+    try {
+      return await this.prisma.transaction.delete({
+        where: { id: transactionId },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  private accionesDisponibles(
+    rol: RolEnDeuda,
+    pendiente: boolean,
+  ): AccionSettleUp[] {
+    if (rol === 'deudor' && !pendiente) return ['marcar_pagado'];
+    if (rol === 'acreedor' && pendiente) {
+      return ['confirmar_pago', 'rechazar_pago'];
+    }
+    return [];
+  }
+
+  private async asegurarMiembro(apartmentId: string, userId: string) {
+    const miembro = await this.prisma.userApartment.findUnique({
+      where: {
+        user_id_apartment_id: { user_id: userId, apartment_id: apartmentId },
+      },
+      select: { user_id: true },
+    });
+
+    if (!miembro) {
+      throw new ForbiddenException('No perteneces a este piso');
+    }
+  }
+
+  private async asegurarAvisoDelAcreedor(transactionId: string, userId: string) {
+    const aviso = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: { category: true, to_user_id: true },
+    });
+
+    if (!aviso) {
+      throw new NotFoundException('Transaction not found');
+    }
+    if (aviso.category !== TransactionCategory.pending) {
+      throw new ConflictException(
+        'Este pago ya no está pendiente de confirmar',
+      );
+    }
+    if (aviso.to_user_id !== userId) {
+      throw new ForbiddenException(
+        'Solo quien recibe el dinero puede confirmar el pago',
+      );
+    }
+  }
+
+  // Los pagos y los avisos solo se gestionan desde el flujo de saldar deudas:
+  // editar o borrar un pago confirmado resucitaría la deuda.
+  private async asegurarEditable(id: string) {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id },
+      select: { category: true },
+    });
+
+    if (!transaction) {
+      throw new NotFoundException('Transaction not found');
+    }
+    if (CATEGORIAS_DE_LIQUIDACION.includes(transaction.category)) {
+      throw new ConflictException(
+        'Los pagos de deudas no se pueden editar ni borrar desde aquí',
+      );
+    }
   }
 
   private async calcularAllBalances(
     apartmentId: string,
   ): Promise<BalanceUsuario[]> {
     const pagadores = await this.prisma.transaction.findMany({
-      where: { apartment_id: apartmentId },
+      where: { apartment_id: apartmentId, category: SOLO_CONFIRMADAS },
       select: { from_user_id: true },
       distinct: ['from_user_id'],
     });
 
     const deudores = await this.prisma.transaction.findMany({
-      where: { apartment_id: apartmentId },
+      where: { apartment_id: apartmentId, category: SOLO_CONFIRMADAS },
       select: { to_user_id: true },
       distinct: ['to_user_id'],
     });
@@ -307,12 +488,20 @@ export class TransactionsService {
     const balancePromises = userIds.map(async (userId) => {
       const ingresoAgg = await this.prisma.transaction.aggregate({
         _sum: { amount: true },
-        where: { apartment_id: apartmentId, from_user_id: userId },
+        where: {
+          apartment_id: apartmentId,
+          from_user_id: userId,
+          category: SOLO_CONFIRMADAS,
+        },
       });
 
       const gastoAgg = await this.prisma.transaction.aggregate({
         _sum: { amount: true },
-        where: { apartment_id: apartmentId, to_user_id: userId },
+        where: {
+          apartment_id: apartmentId,
+          to_user_id: userId,
+          category: SOLO_CONFIRMADAS,
+        },
       });
 
       const totalPagado = Number(ingresoAgg._sum.amount ?? 0);
