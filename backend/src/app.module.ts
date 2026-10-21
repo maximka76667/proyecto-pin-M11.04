@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ApartmentsModule } from './apartments/apartments.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ScannerModule } from './scanner/scanner.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -19,6 +20,7 @@ import { TasksModule } from './tasks/tasks.module';
     TransactionsModule,
     ApartmentsModule,
     TasksModule,
+    ScannerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
