@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, Matches, MaxLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { TaskCategory, TaskFrequency } from '@prisma/client';
 
 export class CreateTaskDto {
@@ -11,6 +11,11 @@ export class CreateTaskDto {
   @IsNotEmpty()
   @MaxLength(120)
   title: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
 
   @IsEnum(TaskFrequency)
   frequency: TaskFrequency;
