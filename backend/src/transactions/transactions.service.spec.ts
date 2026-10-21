@@ -381,6 +381,7 @@ describe('TransactionsService', () => {
   // Only the Prisma methods used by update/remove are mocked
   const prisma = {
     transaction: {
+      findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
@@ -397,6 +398,7 @@ describe('TransactionsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prisma.transaction.findUnique.mockResolvedValue({ category: 'supplies' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -438,6 +440,7 @@ describe('TransactionsService', () => {
     });
 
     it('returns 404 when the expense does not exist', async () => {
+      prisma.transaction.findUnique.mockResolvedValue(null);
       prisma.transaction.update.mockRejectedValue(prismaError('P2025'));
 
       await expect(service.update('missing', { amount: '10.00' })).rejects.toThrow(
@@ -474,6 +477,7 @@ describe('TransactionsService', () => {
     });
 
     it('returns 404 when the expense does not exist', async () => {
+      prisma.transaction.findUnique.mockResolvedValue(null);
       prisma.transaction.delete.mockRejectedValue(prismaError('P2025'));
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);

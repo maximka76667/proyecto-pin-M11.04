@@ -1,6 +1,5 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { configureApp } from '../app.setup';
@@ -17,6 +16,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
 
   const prisma = {
     transaction: {
+      findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
@@ -46,6 +46,8 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Editable expense by default; set here because clearAllMocks keeps mocked values
+    prisma.transaction.findUnique.mockResolvedValue({ category: 'utilities' });
   });
 
   it('modifies the expense when the data is valid', async () => {
@@ -91,12 +93,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
   });
 
   it('returns 404 when the expense does not exist', async () => {
-    prisma.transaction.update.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('Record not found', {
-        code: 'P2025',
-        clientVersion: Prisma.prismaVersion.client,
-      }),
-    );
+    prisma.transaction.findUnique.mockResolvedValue(null);
 
     const response = await request(app.getHttpServer())
       .patch(`/transactions/${id}`)

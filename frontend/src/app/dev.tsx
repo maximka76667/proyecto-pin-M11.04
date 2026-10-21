@@ -14,7 +14,7 @@ import {
   TransactionCategory,
 } from '@/lib/api';
 
-const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'payment', 'other'];
+const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'pending', 'payment', 'other'];
 
 type Tab = 'apartments' | 'expenses';
 

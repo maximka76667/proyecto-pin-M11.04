@@ -56,7 +56,7 @@ export class TasksService {
         data: {
           apartment_id: createTaskDto.apartment_id,
           title,
-          description: createTaskDto.description?.trim() || null,
+          description: createTaskDto.description?.trim() || undefined,
           frequency: createTaskDto.frequency,
           status: TaskStatus.pending,
           category: createTaskDto.category ?? TaskCategory.other,

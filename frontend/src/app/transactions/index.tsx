@@ -16,7 +16,7 @@ import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
 const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const USER_ID = '22222222-2222-2222-2222-222222222222';
+const CURRENT_USER_ID = '22222222-2222-2222-2222-222222222222';
 
 type PersonalSummary = {
   miResumen: {
@@ -34,6 +34,8 @@ type Transaction = {
   to_user_id: string;
   amount: number | string;
   category: string;
+  date: string;
+  paidByCurrentUser: boolean;
   fromUser: {
     full_name: string;
   };
@@ -49,6 +51,8 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [transactionMenu, setTransactionMenu] = useState<Transaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
@@ -90,8 +94,9 @@ export default function Transactions() {
 
         if (active) {
           setTransactions(
-            apartmentTransactions.filter((transaction) =>
-              transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID),
+            apartmentTransactions.filter(
+              (transaction) => transaction.category !== 'pending',
+            )
           );
         }
 
@@ -115,7 +120,7 @@ export default function Transactions() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [refreshKey]),
   );
 
   return (
@@ -134,21 +139,51 @@ export default function Transactions() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         {summary ? (
-          <Pressable
-            onPress={() => router.push('/transactions/summary')}
-            style={({ pressed }) => [styles.balanceCard, pressed && styles.pressed]}>
-            <Text style={styles.balanceLabel}>MI BALANCE</Text>
-            <Text style={styles.balanceAmount}>
-              {summary.miResumen.esDeudor ? '-' : '+'}
-              {summary.miResumen.monto.toFixed(2)} €
-            </Text>
-            <Text style={styles.balanceMessage}>{summary.mensaje}</Text>
-            <View style={styles.balanceFooter}>
-              <Text style={styles.balanceHint}>Ver detalle del balance</Text>
-              <MaterialCommunityIcons name="arrow-right" size={20} color={Palette.onPrimary} />
+          <>
+            <Pressable
+              onPress={() => router.push('/transactions/summary')}
+              style={({ pressed }) => [styles.balanceCard, pressed && styles.pressed]}>
+              <Text style={styles.balanceLabel}>MI BALANCE</Text>
+              <Text style={styles.balanceAmount}>
+                {summary.miResumen.esDeudor ? '-' : '+'}
+                {summary.miResumen.monto.toFixed(2)} €
+              </Text>
+              <Text style={styles.balanceMessage}>{summary.mensaje}</Text>
+              <View style={styles.balanceFooter}>
+                <Text style={styles.balanceHint}>Ver detalle del balance</Text>
+                <MaterialCommunityIcons name="arrow-right" size={20} color={Palette.onPrimary} />
+              </View>
+            </Pressable>
+
+            <View style={styles.summaryRow}>
+              <View style={styles.miniCard}>
+                <Text style={styles.miniCardLabel}>You are owed</Text>
+                <Text style={styles.miniCardValue}>
+                  {summary.miResumen.esDeudor ? '—' : `${summary.miResumen.monto.toFixed(2)} €`}
+                </Text>
+              </View>
+              <View style={styles.miniCard}>
+                <Text style={styles.miniCardLabel}>You paid</Text>
+                <Text style={styles.miniCardValue}>
+                  {summary.miResumen.esDeudor ? `${summary.miResumen.monto.toFixed(2)} €` : '—'}
+                </Text>
+              </View>
+              <View style={styles.miniCard}>
+                <Text style={styles.miniCardLabel}>Owed to you</Text>
+                <Text style={styles.miniCardValue}>
+                  {!summary.miResumen.esDeudor ? `${summary.miResumen.monto.toFixed(2)} €` : '—'}
+                </Text>
+              </View>
             </View>
-          </Pressable>
+          </>
         ) : null}
+
+        <Pressable
+          onPress={() => router.push('/transactions/settle-up')}
+          style={({ pressed }) => [styles.settleUpButton, pressed && styles.pressed]}>
+          <MaterialCommunityIcons name="hand-coin-outline" size={18} color={Palette.primary} />
+          <Text style={styles.settleUpButtonText}>Saldar deudas</Text>
+        </Pressable>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
@@ -159,7 +194,12 @@ export default function Transactions() {
           <View style={styles.transactionList}>
             {transactions.map((transaction) => {
               const amount = Number(transaction.amount);
-              const paidByMe = transaction.from_user_id === USER_ID;
+              const paidByMe = transaction.paidByCurrentUser;
+              const pendiente = transaction.category === 'pending';
+              const editable =
+                transaction.from_user_id === CURRENT_USER_ID &&
+                transaction.category !== 'payment' &&
+                !pendiente;
 
               return (
                 <View key={transaction.id} style={styles.transaction}>
@@ -174,18 +214,30 @@ export default function Transactions() {
                     <Text style={styles.transactionCategory}>{transaction.category}</Text>
                     <Text style={styles.transactionStatus}>
                       {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
+                      {pendiente ? ' · pendiente de confirmar' : ''}
+                    </Text>
+                    <Text style={styles.transactionDate}>
+                      {new Date(transaction.date).toLocaleDateString('es-ES')}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
-                    <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
+                    <Text
+                      style={[
+                        styles.transactionAmount,
+                        !paidByMe && styles.negativeAmount,
+                        // todavía no cuenta en el balance
+                        pendiente && styles.pendingAmount,
+                      ]}>
                       {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
                     </Text>
-                    <Pressable
-                      onPress={() => setTransactionMenu(transaction)}
-                      hitSlop={8}
-                      style={styles.menuButton}>
-                      <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
-                    </Pressable>
+                    {editable ? (
+                      <Pressable
+                        onPress={() => setTransactionMenu(transaction)}
+                        hitSlop={8}
+                        style={styles.menuButton}>
+                        <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
+                      </Pressable>
+                    ) : null}
                   </View>
                 </View>
               );
@@ -317,6 +369,49 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: Palette.primary,
   },
+  settleUpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+  },
+  settleUpButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Palette.primary,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  miniCard: {
+    flex: 1,
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+  },
+  miniCardLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: Palette.textSecondary,
+  },
+  miniCardValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.text,
+  },
   pressed: { opacity: 0.85 },
   balanceLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: Palette.onPrimary },
   balanceAmount: { fontSize: 36, fontWeight: '800', color: Palette.onPrimary },
@@ -362,6 +457,7 @@ const styles = StyleSheet.create({
   transactionInfo: { flex: 1, gap: 3 },
   transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
+  transactionDate: { fontSize: 11, color: Palette.textSecondary },
   transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   transactionActions: { alignItems: 'flex-end', gap: 8 },
   menuButton: {
@@ -370,6 +466,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.segment,
   },
   negativeAmount: { color: Palette.error },
+  pendingAmount: { color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   muted: { fontSize: 14, color: Palette.textSecondary },
   actionMenuBackdrop: {
