@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -11,12 +11,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { APARTMENT_ID, USER_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const USER_ID = '22222222-2222-2222-2222-222222222222';
 
 type PersonalSummary = {
   miResumen: {
@@ -33,6 +30,7 @@ type Transaction = {
   from_user_id: string;
   to_user_id: string;
   amount: number | string;
+  concept?: string | null;
   category: string;
   fromUser: {
     full_name: string;
@@ -42,30 +40,96 @@ type Transaction = {
   };
 };
 
+type DisplayTransaction = {
+  id: string;
+  rawIds: string[];
+  apartment_id: string;
+  from_user_id: string;
+  to_user_ids: string[];
+  amount: number;
+  concept?: string | null;
+  category: string;
+  paidByMe: boolean;
+  fromUser: {
+    full_name: string;
+  };
+  debtorsCount: number;
+};
+
+// Groups split expense transactions created in the same batch into a single visible expense
+function groupTransactions(list: Transaction[], currentUserId: string): DisplayTransaction[] {
+  const result: DisplayTransaction[] = [];
+
+  for (const t of list) {
+    const paidByMe = t.from_user_id === currentUserId;
+    const amountNum = Number(t.amount) || 0;
+
+    const prev = result[result.length - 1];
+    const canMerge =
+      prev &&
+      prev.paidByMe &&
+      paidByMe &&
+      t.concept &&
+      prev.concept === t.concept &&
+      prev.category === t.category &&
+      !prev.to_user_ids.includes(t.to_user_id);
+
+    if (canMerge) {
+      prev.rawIds.push(t.id);
+      prev.to_user_ids.push(t.to_user_id);
+      prev.amount = Number((prev.amount + amountNum).toFixed(2));
+      prev.debtorsCount += 1;
+    } else {
+      result.push({
+        id: t.id,
+        rawIds: [t.id],
+        apartment_id: t.apartment_id,
+        from_user_id: t.from_user_id,
+        to_user_ids: [t.to_user_id],
+        amount: amountNum,
+        concept: t.concept,
+        category: t.category,
+        paidByMe,
+        fromUser: t.fromUser,
+        debtorsCount: 1,
+      });
+    }
+  }
+
+  return result;
+}
+
 export default function Transactions() {
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [transactionMenu, setTransactionMenu] = useState<Transaction | null>(null);
-  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
+  const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
+
+  const displayTransactions = useMemo(
+    () => groupTransactions(transactions, USER_ID),
+    [transactions],
+  );
 
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
 
     try {
-      await api('DELETE', `/transactions/${transactionToDelete.id}`);
-      const deletedId = transactionToDelete.id;
+      await Promise.all(
+        transactionToDelete.rawIds.map((id) => api('DELETE', `/transactions/${id}`)),
+      );
+      const deletedIds = new Set(transactionToDelete.rawIds);
       setTransactionToDelete(null);
       setTransactions((current) =>
-        current.filter(({ id }) => id !== deletedId),
+        current.filter(({ id }) => !deletedIds.has(id)),
       );
 
       try {
-        const updatedSummary = await api(
+        const updatedSummary = (await api(
           'GET',
           `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
-        ) as PersonalSummary;
+        )) as PersonalSummary;
         setSummary(updatedSummary);
       } catch (summaryError) {
         setError(errorMessage(summaryError));
@@ -82,33 +146,35 @@ export default function Transactions() {
       const loadTransactions = async () => {
         setLoading(true);
         setError('');
-      try {
-        const apartmentTransactions = await api(
-          'GET',
-          `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-        ) as Transaction[];
-
-        if (active) {
-          setTransactions(
-            apartmentTransactions.filter((transaction) =>
-              transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID),
-          );
-        }
-
         try {
-          const summaryData = await api(
+          const apartmentTransactions = (await api(
             'GET',
-            `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
-          ) as PersonalSummary;
-          if (active) setSummary(summaryData);
-        } catch (summaryError) {
-          if (active) setError(errorMessage(summaryError));
+            `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+          )) as Transaction[];
+
+          if (active) {
+            setTransactions(
+              apartmentTransactions.filter(
+                (transaction) =>
+                  transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID,
+              ),
+            );
+          }
+
+          try {
+            const summaryData = (await api(
+              'GET',
+              `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
+            )) as PersonalSummary;
+            if (active) setSummary(summaryData);
+          } catch (summaryError) {
+            if (active) setError(errorMessage(summaryError));
+          }
+        } catch (e) {
+          if (active) setError(errorMessage(e));
+        } finally {
+          if (active) setLoading(false);
         }
-      } catch (e) {
-        if (active) setError(errorMessage(e));
-      } finally {
-        if (active) setLoading(false);
-      }
       };
 
       void loadTransactions();
@@ -129,6 +195,13 @@ export default function Transactions() {
           <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
           <Text style={styles.title}>Dinero</Text>
         </View>
+
+        <Pressable
+          onPress={() => router.push('/transactions/new')}
+          style={({ pressed }) => [styles.newExpense, pressed && styles.pressed]}>
+          <MaterialCommunityIcons name="plus" size={20} color={Palette.onPrimary} />
+          <Text style={styles.newExpenseText}>Añadir gasto</Text>
+        </Pressable>
 
         {loading ? <ActivityIndicator color={Palette.primary} size="large" /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -152,14 +225,13 @@ export default function Transactions() {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
-          <Text style={styles.sectionCaption}>{transactions.length}</Text>
+          <Text style={styles.sectionCaption}>{displayTransactions.length}</Text>
         </View>
 
-        {transactions.length > 0 ? (
+        {displayTransactions.length > 0 ? (
           <View style={styles.transactionList}>
-            {transactions.map((transaction) => {
-              const amount = Number(transaction.amount);
-              const paidByMe = transaction.from_user_id === USER_ID;
+            {displayTransactions.map((transaction) => {
+              const paidByMe = transaction.paidByMe;
 
               return (
                 <View key={transaction.id} style={styles.transaction}>
@@ -171,14 +243,20 @@ export default function Transactions() {
                     />
                   </View>
                   <View style={styles.transactionInfo}>
-                    <Text style={styles.transactionCategory}>{transaction.category}</Text>
+                    <Text style={styles.transactionCategory}>
+                      {transaction.concept || transaction.category}
+                    </Text>
                     <Text style={styles.transactionStatus}>
-                      {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
+                      {paidByMe
+                        ? transaction.debtorsCount > 1
+                          ? `Pagaste tú · ${transaction.debtorsCount} compañeros`
+                          : 'Pagaste tú'
+                        : `Pagó ${transaction.fromUser.full_name}`}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
                     <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
-                      {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
+                      {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
                     </Text>
                     <Pressable
                       onPress={() => setTransactionMenu(transaction)}
@@ -212,11 +290,11 @@ export default function Transactions() {
               <View style={styles.actionMenuHeaderText}>
                 <Text style={styles.actionMenuEyebrow}>OPCIONES DEL GASTO</Text>
                 <Text style={styles.actionMenuTitle}>
-                  {transactionMenu?.category ?? 'Gasto'}
+                  {transactionMenu?.concept || transactionMenu?.category || 'Gasto'}
                 </Text>
               </View>
               <Text style={styles.actionMenuAmount}>
-                {transactionMenu ? `${Number(transactionMenu.amount).toFixed(2)} €` : ''}
+                {transactionMenu ? `${transactionMenu.amount.toFixed(2)} €` : ''}
               </Text>
             </View>
             <Pressable
@@ -270,7 +348,7 @@ export default function Transactions() {
             <Text style={styles.confirmationMessage}>
               ¿Quieres eliminar{' '}
               {transactionToDelete
-                ? `${Number(transactionToDelete.amount).toFixed(2)} € de ${transactionToDelete.category}`
+                ? `${transactionToDelete.amount.toFixed(2)} € de ${transactionToDelete.concept || transactionToDelete.category}`
                 : 'este gasto'}
               ?
             </Text>
@@ -318,6 +396,16 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
   },
   pressed: { opacity: 0.85 },
+  newExpense: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: Palette.primary,
+  },
+  newExpenseText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
   balanceLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: Palette.onPrimary },
   balanceAmount: { fontSize: 36, fontWeight: '800', color: Palette.onPrimary },
   balanceMessage: { fontSize: 14, lineHeight: 20, color: Palette.onPrimary },

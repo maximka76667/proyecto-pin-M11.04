@@ -94,6 +94,34 @@ export class ApartmentsService {
     return { apartment, user: guest };
   }
 
+  async findMembers(id: string) {
+          const apartment = await this.prisma.apartment.findUnique({
+            where: { id },
+              select: {
+                landlord: { select: { id: true, full_name: true } },
+                user_apartments: {
+                    select: { user: { select: { id: true, full_name: true } } },
+                },
+              },
+          });
+
+      if (!apartment) {
+          throw new NotFoundException('Apartment not found');
+        }
+
+      const members = new Map<string, { id: string; full_name: string }>();
+    if (apartment.landlord) {
+        members.set(apartment.landlord.id, apartment.landlord);
+      }
+    for (const { user } of apartment.user_apartments) {
+        members.set(user.id, user);
+      }
+
+      return [...members.values()].sort((a, b) =>
+          a.full_name.localeCompare(b.full_name),
+        );
+  }
+
   findAll() {
     return this.prisma.apartment.findMany({
       orderBy: { name: 'asc' },

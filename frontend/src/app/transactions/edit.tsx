@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api, errorMessage } from '@/lib/api';
 import { Palette, Radius } from '@/constants/onboarding';
+import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
 type Category = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other';
 
@@ -66,8 +67,8 @@ export default function EditExpenseScreen() {
 
   const save = async () => {
     const normalizedAmount = amount.trim().replace(',', '.');
-    if (!/^\d+(\.\d{1,2})?$/.test(normalizedAmount) || Number(normalizedAmount) <= 0) {
-      setError('Enter a valid positive amount.');
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(normalizedAmount) || Number(normalizedAmount) <= 0) {
+      setError('Enter a valid positive amount (up to 6 integer digits and 2 decimals).');
       return;
     }
     if (!transaction) return;
@@ -126,7 +127,7 @@ export default function EditExpenseScreen() {
           <Text style={styles.currency}>€</Text>
           <TextInput
             value={amount}
-            onChangeText={setAmount}
+            onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
             keyboardType="decimal-pad"
             style={styles.amountInput}
             placeholder="0.00"

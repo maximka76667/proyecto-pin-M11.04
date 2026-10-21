@@ -41,16 +41,64 @@ export class TransactionsService {
     private readonly usersService: UsersService,
   ) {}
 
-  create(createTransactionDto: CreateTransactionDto) {
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: createTransactionDto.apartment_id,
-        from_user_id: createTransactionDto.from_user_id,
-        to_user_id: createTransactionDto.to_user_id,
-        amount: createTransactionDto.amount,
-        category: createTransactionDto.category,
-      },
-    });
+  async create(createTransactionDto: CreateTransactionDto) {
+    const debtorIds = createTransactionDto.to_user_ids?.length
+      ? Array.from(new Set(createTransactionDto.to_user_ids))
+      : createTransactionDto.to_user_id
+        ? [createTransactionDto.to_user_id]
+        : [];
+
+    if (debtorIds.length === 0) {
+      throw new BadRequestException('At least one debtor must be specified');
+    }
+
+    if (debtorIds.includes(createTransactionDto.from_user_id)) {
+      throw new BadRequestException('The payer and the debtor must be different');
+    }
+
+    try {
+      if (debtorIds.length === 1) {
+        return await this.prisma.transaction.create({
+          data: {
+            apartment_id: createTransactionDto.apartment_id,
+            from_user_id: createTransactionDto.from_user_id,
+            to_user_id: debtorIds[0],
+            amount: createTransactionDto.amount,
+            concept: createTransactionDto.concept,
+            category: createTransactionDto.category,
+          },
+        });
+      }
+
+      // Split total amount among debtors equally (using cents to handle exact rounding)
+      const totalAmount = Number(createTransactionDto.amount);
+      const totalCents = Math.round(totalAmount * 100);
+      const baseCents = Math.floor(totalCents / debtorIds.length);
+      const remainder = totalCents % debtorIds.length;
+
+      const creates = debtorIds.map((debtorId, index) => {
+        const shareCents = baseCents + (index < remainder ? 1 : 0);
+        const shareAmount = (shareCents / 100).toFixed(2);
+
+        return this.prisma.transaction.create({
+          data: {
+            apartment_id: createTransactionDto.apartment_id,
+            from_user_id: createTransactionDto.from_user_id,
+            to_user_id: debtorId,
+            amount: shareAmount,
+            concept: createTransactionDto.concept,
+            category: createTransactionDto.category,
+          },
+        });
+      });
+
+      if (typeof (this.prisma as unknown as { $transaction?: unknown }).$transaction === 'function') {
+        return await this.prisma.$transaction(creates);
+      }
+      return await Promise.all(creates);
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
   }
 
   findAll(apartmentId?: string) {
