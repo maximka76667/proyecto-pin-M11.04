@@ -131,8 +131,16 @@ export default function Transactions() {
         </Pressable>
 
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
-          <Text style={styles.title}>Dinero</Text>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
+              <Text style={styles.title}>Dinero</Text>
+            </View>
+            <Pressable onPress={() => router.push('/escanearticket')} style={styles.scanButton}>
+              <MaterialCommunityIcons name="line-scan" size={20} color={Palette.onPrimary} />
+              <Text style={styles.scanButtonText}>Ticket</Text>
+            </Pressable>
+          </View>
         </View>
 
         {loading ? <ActivityIndicator color={Palette.primary} size="large" /> : null}
@@ -330,6 +338,9 @@ const styles = StyleSheet.create({
   },
   back: { alignSelf: 'flex-start', paddingTop: 8 },
   header: { gap: 6 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  scanButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: Palette.primary },
+  scanButtonText: { fontSize: 12, fontWeight: '800', color: Palette.onPrimary },
   eyebrow: {
     fontSize: 12,
     fontWeight: '800',

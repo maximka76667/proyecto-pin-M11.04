@@ -14,6 +14,7 @@ import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import { CreateReceiptTransactionDto } from './dto/create-receipt-transaction.dto';
 
 @Controller('transactions')
 export class TransactionsController {
@@ -22,6 +23,14 @@ export class TransactionsController {
   @Post()
   create(@Body() createTransactionDto: CreateTransactionDto) {
     return this.transactionsService.create(createTransactionDto);
+  }
+
+  @Post('from-receipt')
+  createFromReceipt(
+    @Body() dto: CreateReceiptTransactionDto,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.createFromReceipt(dto, userId);
   }
 
   @Get()
