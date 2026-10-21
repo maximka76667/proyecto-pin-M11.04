@@ -28,14 +28,12 @@ const categories = [
   { value: 'other', label: 'Other', icon: 'dots-horizontal' },
 ] as const;
 
-const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
 export default function CreateChoreScreen() {
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [category, setCategory] =
     useState<(typeof categories)[number]['value']>('other');
   const [frequency, setFrequency] = useState<(typeof frequencies)[number]['value']>('weekly');
-  const [bestDay, setBestDay] = useState('Wed');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -59,10 +57,12 @@ export default function CreateChoreScreen() {
       await api('POST', '/tasks', {
         apartment_id: APARTMENT_ID,
         title: title.trim(),
+        description: description.trim() || undefined,
         frequency: frequency === 'once' ? 'none' : frequency,
         category,
       });
-      router.replace('/chores');
+
+      router.replace({ pathname: '/chores', params: { created: '1' } });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -101,6 +101,18 @@ export default function CreateChoreScreen() {
           style={styles.input}
           accessibilityLabel="Chore name"
           returnKeyType="done"
+        />
+
+        <Text style={styles.label}>Details (optional)</Text>
+        <TextInput
+          value={description}
+          onChangeText={setDescription}
+          placeholder="e.g. Use the blue cleaning products"
+          placeholderTextColor={Palette.textSecondary}
+          style={[styles.input, styles.descriptionInput]}
+          accessibilityLabel="Chore details"
+          multiline
+          textAlignVertical="top"
         />
 
         <Text style={styles.label}>Category</Text>
@@ -144,24 +156,10 @@ export default function CreateChoreScreen() {
           ))}
         </View>
 
-        <Text style={styles.label}>Best day</Text>
-        <View style={styles.daysRow}>
-          {days.map((day) => (
-            <Pressable
-              key={day}
-              onPress={() => setBestDay(day)}
-              style={[styles.day, bestDay === day && styles.daySelected]}>
-              <Text style={[styles.dayText, bestDay === day && styles.dayTextSelected]}>
-                {day}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
         <View style={styles.infoCard}>
           <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
           <Text style={styles.infoText}>
-            Room8 will schedule this fairly based on everyone&apos;s availability and balance.
+            Assignments will be added later when the household schedule is ready.
           </Text>
         </View>
 
@@ -206,6 +204,7 @@ const styles = StyleSheet.create({
     color: Palette.text,
     fontSize: 15,
   },
+  descriptionInput: { minHeight: 88, paddingTop: 14 },
   frequencyRow: { flexDirection: 'row', gap: 8 },
   categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   category: {
@@ -235,17 +234,6 @@ const styles = StyleSheet.create({
   frequencySelected: { borderColor: Palette.primary, backgroundColor: Palette.mint },
   frequencyText: { fontSize: 13, fontWeight: '700', color: Palette.textSecondary },
   frequencyTextSelected: { color: Palette.primary },
-  daysRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
-  day: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: Radius.input,
-    backgroundColor: Palette.surface,
-  },
-  daySelected: { backgroundColor: Palette.primary },
-  dayText: { fontSize: 12, fontWeight: '700', color: Palette.text },
-  dayTextSelected: { color: Palette.onPrimary },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'center',

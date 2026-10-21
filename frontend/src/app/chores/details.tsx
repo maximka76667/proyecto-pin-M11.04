@@ -16,6 +16,7 @@ import { api, errorMessage } from '@/lib/api';
 
 type TaskDetails = {
   title: string;
+  description: string | null;
   frequency: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
   status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
   assignments: {
@@ -55,12 +56,11 @@ export default function ChoreDetailsScreen() {
   }, [taskId]);
 
   const assignment = task?.assignments[0];
-  // A task can exist before the future scheduler creates its assignment.
   const assignmentDate = assignment
     ? new Date(`${assignment.due_date}T00:00:00`).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      })
+      month: 'short',
+      day: 'numeric',
+    })
     : null;
 
   return (
@@ -83,15 +83,26 @@ export default function ChoreDetailsScreen() {
           <Text style={styles.meta}>
             {task.frequency} · {assignmentDate ?? 'Anytime'}
           </Text>
+          {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
         </View> : null}
 
         {task ? <View style={styles.assignmentCard}>
           <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
-          <Text style={styles.assignment}>
-            {assignment
-              ? `Assigned to ${assignment.user.full_name}.`
-              : 'This chore has not been assigned yet.'}
-          </Text>
+          <View style={styles.assignmentList}>
+            <Text style={styles.assignmentLabel}>ASSIGNMENTS</Text>
+            {task.assignments.length > 0 ? (
+              task.assignments.map((item) => (
+                <Text key={`${item.user.full_name}-${item.due_date}`} style={styles.assignment}>
+                  {item.user.full_name} · {new Date(`${item.due_date}T00:00:00`).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                  })} · {item.status}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.assignment}>This chore has not been assigned yet.</Text>
+            )}
+          </View>
         </View> : null}
 
         {task ? <>
@@ -143,6 +154,7 @@ const styles = StyleSheet.create({
   },
   choreTitle: { marginTop: 4, fontSize: 20, fontWeight: '800', color: Palette.text },
   meta: { fontSize: 12, color: Palette.textSecondary },
+  description: { marginTop: 8, maxWidth: '90%', fontSize: 13, textAlign: 'center', color: Palette.textSecondary },
   error: { fontSize: 14, textAlign: 'center', color: Palette.error },
   assignmentCard: {
     flexDirection: 'row',
@@ -154,6 +166,8 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
   },
   assignment: { flex: 1, fontSize: 13, lineHeight: 18, color: Palette.text },
+  assignmentList: { flex: 1, gap: 4 },
+  assignmentLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: Palette.primary },
   sectionLabel: {
     marginTop: 6,
     fontSize: 11,

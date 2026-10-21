@@ -4,13 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TaskCategory, TaskPriority, TaskStatus } from '@prisma/client';
+import {
+  AssignmentStatus,
+  Prisma,
+  TaskCategory,
+  TaskPriority,
+  TaskStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   findAll(apartmentId?: string) {
     return this.prisma.task.findMany({
@@ -49,6 +56,7 @@ export class TasksService {
         data: {
           apartment_id: createTaskDto.apartment_id,
           title,
+          description: createTaskDto.description?.trim() || null,
           frequency: createTaskDto.frequency,
           status: TaskStatus.pending,
           category: createTaskDto.category ?? TaskCategory.other,
@@ -77,6 +85,27 @@ export class TasksService {
     }
 
     return task;
+  }
+
+  async createAssignment(
+    taskId: string,
+    createTaskAssignmentDto: CreateTaskAssignmentDto,
+  ) {
+    try {
+      return await this.prisma.taskAssignment.create({
+        data: {
+          task_id: taskId,
+          user_id: createTaskAssignmentDto.user_id,
+          due_date: new Date(`${createTaskAssignmentDto.due_date}T00:00:00.000Z`),
+          status: AssignmentStatus.pending,
+        },
+        include: {
+          user: { select: { id: true, full_name: true } },
+        },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
   }
 
   private handlePrismaError(error: unknown): never {
