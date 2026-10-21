@@ -484,31 +484,50 @@ export class TransactionsService {
       );
     }
 
-    const avisoPrevio = await this.prisma.transaction.findFirst({
-      where: {
-        apartment_id: apartmentId,
-        from_user_id: deudorId,
-        to_user_id: deuda.acreedorId,
-        category: TransactionCategory.pending,
-      },
-      select: { id: true },
-    });
+    // Comprobar que no hay aviso y crearlo van en una transacción Serializable: si llegan
+    // dos peticiones a la vez, Postgres aborta una (P2034) en lugar de crear dos avisos
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const avisoPrevio = await tx.transaction.findFirst({
+            where: {
+              apartment_id: apartmentId,
+              from_user_id: deudorId,
+              to_user_id: deuda.acreedorId,
+              category: TransactionCategory.pending,
+            },
+            select: { id: true },
+          });
 
-    if (avisoPrevio) {
-      throw new ConflictException(
-        'Ya has avisado de este pago; falta que lo confirme',
+          if (avisoPrevio) {
+            throw new ConflictException(
+              'Ya has avisado de este pago; falta que lo confirme',
+            );
+          }
+
+          return tx.transaction.create({
+            data: {
+              apartment_id: apartmentId,
+              from_user_id: deudorId,
+              to_user_id: deuda.acreedorId,
+              amount: deuda.monto.toFixed(2),
+              category: TransactionCategory.pending,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034'
+      ) {
+        throw new ConflictException(
+          'Ya has avisado de este pago; falta que lo confirme',
+        );
+      }
+      throw error;
     }
-
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: apartmentId,
-        from_user_id: deudorId,
-        to_user_id: deuda.acreedorId,
-        amount: deuda.monto.toFixed(2),
-        category: TransactionCategory.pending,
-      },
-    });
   }
 
   // El acreedor confirma que le ha llegado el dinero: el aviso pasa a ser un pago
@@ -517,10 +536,24 @@ export class TransactionsService {
 
     try {
       return await this.prisma.transaction.update({
-        where: { id: transactionId },
+        // Las condiciones van también en la escritura para que sea atómica: si otra petición
+        // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025)
+        where: {
+          id: transactionId,
+          category: TransactionCategory.pending,
+          to_user_id: userId,
+        },
         data: { category: TransactionCategory.payment },
       });
     } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new ConflictException(
+          'Este pago ya no está pendiente de confirmar',
+        );
+      }
       this.handlePrismaError(error);
     }
   }
@@ -531,9 +564,22 @@ export class TransactionsService {
 
     try {
       return await this.prisma.transaction.delete({
-        where: { id: transactionId },
+        // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente
+        where: {
+          id: transactionId,
+          category: TransactionCategory.pending,
+          to_user_id: userId,
+        },
       });
     } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new ConflictException(
+          'Este pago ya no está pendiente de confirmar',
+        );
+      }
       this.handlePrismaError(error);
     }
   }
