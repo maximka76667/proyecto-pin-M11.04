@@ -51,6 +51,7 @@ export class TransactionsService {
     private readonly usersService: UsersService,
   ) {}
 
+
   async create(createTransactionDto: CreateTransactionDto) {
     const debtorIds = createTransactionDto.to_user_ids?.length
       ? Array.from(new Set(createTransactionDto.to_user_ids))
@@ -109,7 +110,7 @@ export class TransactionsService {
     } catch (error) {
       this.handlePrismaError(error);
     }
-  }
+}
 
   findAll(apartmentId?: string) {
     return this.prisma.transaction.findMany({
@@ -119,6 +120,8 @@ export class TransactionsService {
         fromUser: true,
         toUser: true,
       },
+      // lo más reciente primero; created_at desempata dos gastos del mismo día
+      orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
     });
   }
 
@@ -141,9 +144,11 @@ export class TransactionsService {
 
   async update(id: string, updateTransactionDto: UpdateTransactionDto) {
     try {
+      const { date, ...rest } = updateTransactionDto;
+
       return await this.prisma.transaction.update({
         where: { id },
-        data: updateTransactionDto,
+        data: date ? { ...rest, date: new Date(date) } : rest,
       });
     } catch (error) {
       this.handlePrismaError(error);
@@ -236,7 +241,7 @@ export class TransactionsService {
     };
   }
 
-  async getSettleUp(apartmentId: string): Promise<DeudaSettleUp[]> {
+  /*async getSettleUp(apartmentId: string): Promise<DeudaSettleUp[]> {
     const allPayments = await this.getPagoMinimo(apartmentId);
     const userNames = await this.usersService.getUserNames(
       allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
@@ -276,7 +281,7 @@ export class TransactionsService {
         category: TransactionCategory.payment,
       },
     });
-  }
+  }*/
 
   async getPublicApartmentBalance(inviteCode: string) {
     if (

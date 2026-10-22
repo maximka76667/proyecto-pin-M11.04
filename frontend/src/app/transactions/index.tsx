@@ -109,6 +109,7 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+
   const [refreshKey, setRefreshKey] = useState(0);
   const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);

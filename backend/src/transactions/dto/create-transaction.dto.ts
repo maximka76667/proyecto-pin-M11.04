@@ -7,8 +7,11 @@ import {
   IsOptional,
   IsString,
   Matches,
+  IsUUID,
+  IsDateString,
   MaxLength,
 } from 'class-validator';
+
 import { TransactionCategory } from '@prisma/client';
 
 // Accepts RFC 4122 UUIDs and general PostgreSQL 32-hex UUIDs (e.g. seed data)
@@ -64,4 +67,9 @@ export class CreateTransactionDto {
 
   @IsEnum(TransactionCategory)
   category: TransactionCategory;
+
+  // Día en que ocurrió el gasto (YYYY-MM-DD). Si no se envía, la base de datos pone hoy.
+  @IsOptional()
+  @IsDateString()
+  date?: string;
 }
