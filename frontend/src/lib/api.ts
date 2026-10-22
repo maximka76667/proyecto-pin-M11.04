@@ -19,6 +19,22 @@ export type Transaction = {
   category: TransactionCategory;
 };
 
+// What POST /scanner/ticket returns. unit_price is null when the price could not be read
+export type ScannedItem = {
+  name: string;
+  quantity: number;
+  unit_price: string | null;
+  category: TransactionCategory;
+};
+
+export type ScannedTicket = {
+  comercio: string | null;
+  items: ScannedItem[];
+};
+
+// file is only set on web (the picker gives a real File); on native React Native uploads { uri, name, type }
+export type UploadFile = { uri: string; name: string; type: string; file?: Blob };
+
 // Sends the request and throws an Error with the backend message if it fails
 export async function api(method: string, path: string, body?: object) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -26,6 +42,22 @@ export async function api(method: string, path: string, body?: object) {
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
+  return readResponse(response);
+}
+
+// Uploads a file as multipart/form-data in the given field.
+// No Content-Type header: fetch sets it with the multipart boundary
+export async function apiUpload(path: string, field: string, upload: UploadFile) {
+  const form = new FormData();
+  form.append(
+    field,
+    upload.file ?? ({ uri: upload.uri, name: upload.name, type: upload.type } as unknown as Blob),
+  );
+  const response = await fetch(`${API_URL}${path}`, { method: 'POST', body: form });
+  return readResponse(response);
+}
+
+async function readResponse(response: Response) {
   const data = await response.json();
   if (!response.ok) {
     const message = Array.isArray(data.message) ? data.message.join('\n') : data.message;
