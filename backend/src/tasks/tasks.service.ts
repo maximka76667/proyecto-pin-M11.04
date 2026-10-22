@@ -88,18 +88,11 @@ export class TasksService {
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto, userId: string) {
+    // Los datos se validan antes de consultar la base de datos
+    const data = this.datosEditados(updateTaskDto);
+
     const task = await this.buscarTarea(id);
     await this.asegurarMiembro(task.apartment_id, userId);
-
-    // Con @IsOptional un null pasa la validación igual que un campo no enviado:
-    // se trata como "sin cambios" para no intentar guardar null en columnas obligatorias
-    const { title, frequency, category } = updateTaskDto;
-    const data: Prisma.TaskUpdateInput = {};
-    if (frequency != null) data.frequency = frequency;
-    if (category != null) data.category = category;
-    if (title != null) {
-      data.title = this.limpiarTitulo(title);
-    }
 
     try {
       return await this.prisma.task.update({
@@ -159,6 +152,31 @@ export class TasksService {
     if (!miembro) {
       throw new ForbiddenException('No perteneces a este piso');
     }
+  }
+
+  // Un campo que no se envía no se toca. @IsOptional deja pasar null, pero el nombre,
+  // la frecuencia y la categoría son obligatorios: null no puede vaciarlos
+  private datosEditados(updateTaskDto: UpdateTaskDto) {
+    const { title, description, frequency, category } = updateTaskDto;
+    if (title === null) {
+      throw new BadRequestException('El nombre de la tarea es obligatorio');
+    }
+    if (frequency === null) {
+      throw new BadRequestException('La frecuencia es obligatoria');
+    }
+    if (category === null) {
+      throw new BadRequestException('La categoría es obligatoria');
+    }
+
+    const data: Prisma.TaskUpdateInput = {};
+    if (title !== undefined) data.title = this.limpiarTitulo(title);
+    // una descripción vacía o null borra la que hubiera, igual que al crear la tarea
+    if (description !== undefined) {
+      data.description = description?.trim() || null;
+    }
+    if (frequency !== undefined) data.frequency = frequency;
+    if (category !== undefined) data.category = category;
+    return data;
   }
 
   // Mismas reglas que al crear una tarea: sin espacios sobrantes y no vacío

@@ -29,7 +29,7 @@ export async function api(method: string, path: string, body?: object) {
   const data = await response.json();
   if (!response.ok) {
     const message = Array.isArray(data.message) ? data.message.join('\n') : data.message;
-    throw new Error(`${response.status}: ${message}`);
+    throw new Error(message);
   }
   return data;
 }
