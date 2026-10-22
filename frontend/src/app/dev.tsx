@@ -15,7 +15,7 @@ import {
 } from '@/lib/api';
 import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
-const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'payment', 'other'];
+const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'other'];
 
 type Tab = 'apartments' | 'expenses';
 

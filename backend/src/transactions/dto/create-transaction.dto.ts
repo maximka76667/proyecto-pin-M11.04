@@ -1,3 +1,4 @@
+
 import { Transform } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -8,11 +9,13 @@ import {
   IsString,
   Matches,
   IsUUID,
+  IsIn,
   IsDateString,
   MaxLength,
 } from 'class-validator';
 
 import { TransactionCategory } from '@prisma/client';
+import { CATEGORIAS_DE_GASTO } from '../categorias';
 
 // Accepts RFC 4122 UUIDs and general PostgreSQL 32-hex UUIDs (e.g. seed data)
 const UUID_REGEX =
@@ -54,6 +57,7 @@ export class CreateTransactionDto {
   })
   amount: string;
 
+
   // What the expense was for (e.g. "Compra del súper"). Optional in the API so older
   // clients keep working, but the "new expense" form always sends it.
   @IsOptional()
@@ -66,6 +70,9 @@ export class CreateTransactionDto {
   concept?: string;
 
   @IsEnum(TransactionCategory)
+
+  // payment y pending quedan fuera: solo los gestiona el flujo de saldar deudas
+  @IsIn(CATEGORIAS_DE_GASTO)
   category: TransactionCategory;
 
   // Día en que ocurrió el gasto (YYYY-MM-DD). Si no se envía, la base de datos pone hoy.

@@ -233,7 +233,6 @@ export default function Transactions() {
 
         <SettleUpCard
           apartmentId={APARTMENT_ID}
-          userId={USER_ID}
           refreshKey={refreshKey}
           onSettled={() => setRefreshKey((key) => key + 1)}
         />
@@ -247,6 +246,9 @@ export default function Transactions() {
           <View style={styles.transactionList}>
             {displayTransactions.map((transaction) => {
               const paidByMe = transaction.paidByMe;
+              const pendiente = transaction.category === 'pending';
+              // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
+              const editable = transaction.category !== 'payment' && !pendiente;
 
               return (
                 <View key={transaction.id} style={styles.transaction}>
@@ -267,18 +269,27 @@ export default function Transactions() {
                           ? `Pagaste tú · ${transaction.debtorsCount} compañeros`
                           : 'Pagaste tú'
                         : `Pagó ${transaction.fromUser.full_name}`}
+                      {pendiente ? ' · pendiente de confirmar' : ''}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
-                    <Text style={[styles.transactionAmount, !paidByMe && styles.negativeAmount]}>
+                    <Text
+                      style={[
+                        styles.transactionAmount,
+                        !paidByMe && styles.negativeAmount,
+                        // todavía no cuenta en el balance
+                        pendiente && styles.pendingAmount,
+                      ]}>
                       {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
                     </Text>
-                    <Pressable
-                      onPress={() => setTransactionMenu(transaction)}
-                      hitSlop={8}
-                      style={styles.menuButton}>
-                      <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
-                    </Pressable>
+                    {editable ? (
+                      <Pressable
+                        onPress={() => setTransactionMenu(transaction)}
+                        hitSlop={8}
+                        style={styles.menuButton}>
+                        <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
+                      </Pressable>
+                    ) : null}
                   </View>
                 </View>
               );
@@ -473,6 +484,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.segment,
   },
   negativeAmount: { color: Palette.error },
+  pendingAmount: { color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   muted: { fontSize: 14, color: Palette.textSecondary },
   actionMenuBackdrop: {

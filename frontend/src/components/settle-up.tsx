@@ -1,24 +1,56 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Dialog, Portal, Snackbar } from 'react-native-paper';
 
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
+type Accion = 'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
+
+// El backend decide el rol del usuario y qué puede hacer en cada deuda: aquí solo se pinta
 type Deuda = {
   deudorId: string;
   deudor: string;
   acreedorId: string;
   acreedor: string;
   monto: number;
+  estado: 'por_pagar' | 'pendiente_confirmacion';
+  pagoPendienteId: string | null;
+  rol: 'deudor' | 'acreedor' | 'ajeno';
+  acciones: Accion[];
 };
 
 // Sin Palette.mint: es el fondo de la fila y el avatar desaparecería
 const AVATAR_COLORS = [Palette.peach, Palette.sun, Palette.surface];
 
+const TEXTOS: Record<
+  Accion,
+  { boton: string; titulo: string; confirmar: string; hecho: string }
+> = {
+  marcar_pagado: {
+    boton: 'He realizado el pago',
+    titulo: '¿Has realizado el pago?',
+    confirmar: 'Sí, lo he pagado',
+    hecho: 'Aviso enviado',
+  },
+  confirmar_pago: {
+    boton: 'Confirmar pago recibido',
+    titulo: '¿Confirmas que has recibido el pago?',
+    confirmar: 'Confirmar',
+    hecho: 'Pago confirmado ✓',
+  },
+  rechazar_pago: {
+    boton: 'No lo he recibido',
+    titulo: '¿No te ha llegado el pago?',
+    confirmar: 'Rechazar',
+    hecho: 'Pago rechazado',
+  },
+};
+
+// Un par deudor-acreedor puede tener a la vez su deuda y un aviso que ya no encaja con ella
 function debtKey(deuda: Deuda) {
-  return `${deuda.deudorId}-${deuda.acreedorId}`;
+  return `${deuda.deudorId}-${deuda.acreedorId}-${deuda.pagoPendienteId ?? 'deuda'}`;
 }
 
 function formatEuros(monto: number) {
@@ -36,37 +68,73 @@ function Avatar({ id, name }: { id: string; name: string }) {
   );
 }
 
-function DebtText({ deuda, userId }: { deuda: Deuda; userId: string }) {
-  if (deuda.deudorId === userId) {
+function DebtText({ deuda }: { deuda: Deuda }) {
+  const pendiente = deuda.estado === 'pendiente_confirmacion';
+  const deudor = <Text style={styles.bold}>{deuda.deudor}</Text>;
+  const acreedor = <Text style={styles.bold}>{deuda.acreedor}</Text>;
+
+  let frase: ReactNode;
+  let estado: string | null;
+
+  if (deuda.rol === 'deudor') {
+    frase = pendiente ? <>Has pagado a {acreedor}</> : <>Pagas a {acreedor}</>;
+    estado = pendiente ? 'Pendiente de que lo confirme' : null;
+  } else if (deuda.rol === 'acreedor') {
+    frase = pendiente ? <>{deudor} te ha pagado</> : <>{deudor} te paga</>;
+    estado = pendiente ? 'Confírmalo cuando lo recibas' : 'Esperando su pago';
+  } else {
+    frase = <>{deudor} paga a {acreedor}</>;
+    estado = pendiente ? 'Pendiente de confirmar' : null;
+  }
+
+  return (
+    <View style={styles.rowInfo}>
+      <Text style={styles.rowText}>{frase}</Text>
+      {estado ? (
+        <View style={styles.statusRow}>
+          {pendiente ? (
+            <MaterialCommunityIcons name="clock-outline" size={13} color={Palette.textSecondary} />
+          ) : null}
+          <Text style={styles.rowStatus}>{estado}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function DialogText({ accion, deuda }: { accion: Accion; deuda: Deuda }) {
+  const monto = <Text style={styles.bold}>{formatEuros(deuda.monto)}</Text>;
+
+  if (accion === 'marcar_pagado') {
     return (
-      <Text style={styles.rowText}>
-        Pagas a <Text style={styles.bold}>{deuda.acreedor}</Text>
+      <Text style={styles.dialogText}>
+        Vas a avisar a <Text style={styles.bold}>{deuda.acreedor}</Text> de que le has pagado{' '}
+        {monto}. Quedará pendiente hasta que lo confirme.
       </Text>
     );
   }
-  if (deuda.acreedorId === userId) {
+  if (accion === 'confirmar_pago') {
     return (
-      <Text style={styles.rowText}>
-        <Text style={styles.bold}>{deuda.deudor}</Text> te paga
+      <Text style={styles.dialogText}>
+        <Text style={styles.bold}>{deuda.deudor}</Text> te ha pagado {monto}. El balance del
+        hogar se actualizará.
       </Text>
     );
   }
   return (
-    <Text style={styles.rowText}>
-      <Text style={styles.bold}>{deuda.deudor}</Text> paga a{' '}
-      <Text style={styles.bold}>{deuda.acreedor}</Text>
+    <Text style={styles.dialogText}>
+      Se descartará el aviso de <Text style={styles.bold}>{deuda.deudor}</Text> y la deuda volverá
+      a estar pendiente de pago.
     </Text>
   );
 }
 
 export function SettleUpCard({
   apartmentId,
-  userId,
   refreshKey,
   onSettled,
 }: {
   apartmentId: string;
-  userId: string;
   refreshKey: number;
   onSettled: () => void;
 }) {
@@ -75,9 +143,12 @@ export function SettleUpCard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [confirmVisible, setConfirmVisible] = useState(false);
-  const [settling, setSettling] = useState(false);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  // Se guarda la deuda al abrir el diálogo para que su contenido no cambie mientras
+  // se cierra ni cuando la lista se recarga después de confirmar
+  const [dialogo, setDialogo] = useState<{ accion: Accion; deuda: Deuda } | null>(null);
+  const [dialogoVisible, setDialogoVisible] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   useEffect(() => {
     const loadDeudas = async () => {
@@ -87,9 +158,9 @@ export function SettleUpCard({
           `/transactions/${encodeURIComponent(apartmentId)}/settle-up`,
         );
         setDeudas(data);
-        // Solo el acreedor puede confirmar el pago; si solo hay una opción, se preselecciona
-        const selectable = data.filter((deuda) => deuda.acreedorId === userId);
-        setSelectedKey(selectable.length === 1 ? debtKey(selectable[0]) : null);
+        // si solo hay una deuda con la que puedas hacer algo, se preselecciona
+        const accionables = data.filter((deuda) => deuda.acciones.length > 0);
+        setSelectedKey(accionables.length === 1 ? debtKey(accionables[0]) : null);
         setError('');
       } catch (e) {
         // sin lista no se puede dar por hecho que las cuentas estén saldadas
@@ -101,28 +172,37 @@ export function SettleUpCard({
     };
 
     loadDeudas();
-  }, [apartmentId, userId, refreshKey]);
+  }, [apartmentId, refreshKey]);
 
   const listaDeudas = deudas ?? [];
   const selected = listaDeudas.find((deuda) => debtKey(deuda) === selectedKey) ?? null;
-  const canSettleAny = listaDeudas.some((deuda) => deuda.acreedorId === userId);
+  const hayAccionables = listaDeudas.some((deuda) => deuda.acciones.length > 0);
 
-  const settle = async () => {
-    if (!selected) return;
-    setSettling(true);
+  const ejecutar = async () => {
+    if (!dialogo) return;
+    const { accion, deuda } = dialogo;
+    setEnviando(true);
     try {
-      await api('POST', `/transactions/${encodeURIComponent(apartmentId)}/settle`, {
-        deudor_id: selected.deudorId,
-        amount: selected.monto.toFixed(2),
-      });
-      setConfirmVisible(false);
-      setSnackbarVisible(true);
+      if (accion === 'marcar_pagado') {
+        await api('POST', `/transactions/${encodeURIComponent(apartmentId)}/settle`, {
+          acreedor_id: deuda.acreedorId,
+          amount: deuda.monto.toFixed(2),
+        });
+      } else if (deuda.pagoPendienteId) {
+        const paso = accion === 'confirmar_pago' ? 'confirm' : 'reject';
+        await api(
+          'POST',
+          `/transactions/${encodeURIComponent(deuda.pagoPendienteId)}/${paso}`,
+        );
+      }
+      setAviso(TEXTOS[accion].hecho);
+      setDialogoVisible(false);
       onSettled();
     } catch (e) {
-      setConfirmVisible(false);
+      setDialogoVisible(false);
       setError(errorMessage(e));
     } finally {
-      setSettling(false);
+      setEnviando(false);
     }
   };
 
@@ -155,7 +235,7 @@ export function SettleUpCard({
           <View style={styles.list}>
             {listaDeudas.map((deuda) => {
               const key = debtKey(deuda);
-              const selectable = deuda.acreedorId === userId;
+              const selectable = deuda.acciones.length > 0;
               const isSelected = key === selectedKey;
 
               return (
@@ -172,70 +252,90 @@ export function SettleUpCard({
                   <Avatar id={deuda.deudorId} name={deuda.deudor} />
                   <MaterialCommunityIcons name="chevron-right" size={20} color={Palette.primary} />
                   <Avatar id={deuda.acreedorId} name={deuda.acreedor} />
-                  <DebtText deuda={deuda} userId={userId} />
+                  <DebtText deuda={deuda} />
                   <Text style={styles.amount}>{formatEuros(deuda.monto)}</Text>
                 </Pressable>
               );
             })}
           </View>
 
-          {canSettleAny ? (
-            <Pressable
-              onPress={() => setConfirmVisible(true)}
-              disabled={!selected || settling}
-              style={({ pressed }) => [
-                styles.button,
-                (!selected || settling) && styles.buttonDisabled,
-                pressed && styles.pressed,
-              ]}>
-              {settling ? (
-                <ActivityIndicator color={Palette.onPrimary} />
+          {hayAccionables ? (
+            <View style={styles.actions}>
+              {selected ? (
+                selected.acciones.map((accion) => {
+                  const secundaria = accion === 'rechazar_pago';
+
+                  return (
+                    <Pressable
+                      key={accion}
+                      onPress={() => {
+                        setDialogo({ accion, deuda: selected });
+                        setDialogoVisible(true);
+                      }}
+                      disabled={enviando}
+                      style={({ pressed }) => [
+                        secundaria ? styles.secondaryButton : styles.button,
+                        enviando && styles.buttonDisabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      {enviando && dialogo?.accion === accion ? (
+                        <ActivityIndicator
+                          color={secundaria ? Palette.error : Palette.onPrimary}
+                        />
+                      ) : (
+                        <Text style={secundaria ? styles.secondaryButtonText : styles.buttonText}>
+                          {TEXTOS[accion].boton}
+                        </Text>
+                      )}
+                    </Pressable>
+                  );
+                })
               ) : (
-                <Text style={styles.buttonText}>Marcar como pagada</Text>
+                <View style={[styles.button, styles.buttonDisabled]}>
+                  <Text style={styles.buttonText}>Selecciona una deuda</Text>
+                </View>
               )}
-            </Pressable>
+            </View>
           ) : (
-            <Text style={styles.muted}>
-              Solo quien recibe el dinero puede confirmar el pago.
-            </Text>
+            <Text style={styles.muted}>No tienes ningún pago que marcar ni confirmar.</Text>
           )}
         </>
       ) : null}
 
       <Portal>
         <Dialog
-          visible={confirmVisible}
-          onDismiss={() => !settling && setConfirmVisible(false)}
+          visible={dialogoVisible}
+          onDismiss={() => !enviando && setDialogoVisible(false)}
           style={styles.dialog}>
-          <Dialog.Title style={styles.dialogTitle}>¿Confirmas que has recibido el pago?</Dialog.Title>
+          <Dialog.Title style={styles.dialogTitle}>
+            {dialogo ? TEXTOS[dialogo.accion].titulo : ''}
+          </Dialog.Title>
           <Dialog.Content>
-            {selected ? (
-              <Text style={styles.dialogText}>
-                <Text style={styles.bold}>{selected.deudor}</Text> te ha pagado{' '}
-                <Text style={styles.bold}>{formatEuros(selected.monto)}</Text>. El balance del
-                hogar se actualizará.
-              </Text>
-            ) : null}
+            {dialogo ? <DialogText accion={dialogo.accion} deuda={dialogo.deuda} /> : null}
           </Dialog.Content>
           <Dialog.Actions>
             <Button
-              onPress={() => setConfirmVisible(false)}
-              disabled={settling}
+              onPress={() => setDialogoVisible(false)}
+              disabled={enviando}
               textColor={Palette.textSecondary}>
               Cancelar
             </Button>
-            <Button onPress={settle} loading={settling} disabled={settling} textColor={Palette.primary}>
-              Confirmar
+            <Button
+              onPress={ejecutar}
+              loading={enviando}
+              disabled={enviando}
+              textColor={dialogo?.accion === 'rechazar_pago' ? Palette.error : Palette.primary}>
+              {dialogo ? TEXTOS[dialogo.accion].confirmar : ''}
             </Button>
           </Dialog.Actions>
         </Dialog>
 
         <Snackbar
-          visible={snackbarVisible}
-          onDismiss={() => setSnackbarVisible(false)}
+          visible={aviso !== null}
+          onDismiss={() => setAviso(null)}
           duration={3000}
           style={styles.snackbar}>
-          Deuda saldada ✓
+          {aviso ?? ''}
         </Snackbar>
       </Portal>
     </View>
@@ -297,11 +397,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.text,
   },
-  rowText: {
+  rowInfo: {
     flex: 1,
     marginLeft: 4,
+    gap: 2,
+  },
+  rowText: {
     fontSize: 14,
     color: Palette.text,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rowStatus: {
+    fontSize: 12,
+    color: Palette.textSecondary,
   },
   bold: {
     fontWeight: '800',
@@ -310,6 +422,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: Palette.primary,
+  },
+  actions: {
+    gap: 10,
   },
   button: {
     alignItems: 'center',
@@ -325,6 +440,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: Palette.onPrimary,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    borderRadius: Radius.button,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Palette.error,
   },
   empty: {
     flexDirection: 'row',

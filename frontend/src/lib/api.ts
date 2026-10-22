@@ -8,7 +8,7 @@ export type Apartment = {
   invite_code: string;
 };
 
-export type TransactionCategory = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other';
+export type TransactionCategory = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other' | 'pending';
 
 export type Transaction = {
   id: string;

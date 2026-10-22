@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
+import { CurrentUser } from '../common/current-user.decorator';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
@@ -51,34 +52,53 @@ export class TransactionsController {
     return this.transactionsService.remove(id);
   }
 
-<<<<<<< HEAD
-  @Get(':apartmentId/my-summary')
-  getMyPersonalSummary(@Param('apartmentId') apartmentId: string) {
-    const usuarioLogueadoId = '22222222-2222-2222-2222-222222222222';
-=======
-    @Get(':apartmentId/my-summary')
-    getMyPersonalSummary(@Param('apartmentId') apartmentId: string) {
-    const usuarioLogueadoId = '11111111-1111-1111-1111-111111111111';
->>>>>>> 7c8f3c6 (UET: Comprobado test generados, cambios pendientes)
+  
 
-    return this.transactionsService.getPersonalSummary(
-      apartmentId,
-      usuarioLogueadoId,
-    );
+  @Get(':apartmentId/my-summary')
+  getMyPersonalSummary(
+    @Param('apartmentId') apartmentId: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.getPersonalSummary(apartmentId, userId);
   }
 
   @Get(':apartmentId/settle-up')
-  getSettleUp(@Param('apartmentId') apartmentId: string) {
-    return this.transactionsService.getSettleUp(apartmentId);
+  getSettleUp(
+    @Param('apartmentId') apartmentId: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.getSettleUp(apartmentId, userId);
   }
 
+  // El deudor avisa de que ha pagado
   @Post(':apartmentId/settle')
-  settleDebt(
+  markAsPaid(
     @Param('apartmentId') apartmentId: string,
     @Body() settleDebtDto: SettleDebtDto,
+    @CurrentUser() userId: string,
   ) {
-    const usuarioLogueadoId = '11111111-1111-1111-1111-111111111111';
+    return this.transactionsService.markAsPaid(
+      apartmentId,
+      userId,
+      settleDebtDto,
+    );
+  }
 
-    return this.transactionsService.settleDebt(apartmentId, usuarioLogueadoId, settleDebtDto);
+  // El acreedor confirma que ha recibido el pago
+  @Post(':id/confirm')
+  confirmPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.confirmPayment(id, userId);
+  }
+
+  // El acreedor indica que el pago no le ha llegado
+  @Post(':id/reject')
+  rejectPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.rejectPayment(id, userId);
   }
 }
