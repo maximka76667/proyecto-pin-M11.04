@@ -17,6 +17,14 @@ export type ReceiptItem = {
 // Products from a route param or from the scanner
 export type ReceiptItemInput = Partial<ReceiptItem>;
 
+// Copy of the backend limits (CreateReceiptTransactionDto), keep them in sync.
+// Checked here only to warn early: the backend is the one that enforces them
+export const MAX_UNIT_PRICE = 99999.99;
+export const MAX_QUANTITY = 999;
+export const MAX_ITEMS = 100;
+export const LIMIT_MESSAGE =
+  'El importe o la cantidad introducida superan el límite máximo permitido.';
+
 export function toReceiptItems(input: ReceiptItemInput[]): ReceiptItem[] {
   return input.map((item, index) => ({
     id: item.id ?? `${index}`,
@@ -91,6 +99,14 @@ export function ReceiptEditor({
     }
     if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1) {
       setError('La cantidad debe ser un número entero mayor que cero.');
+      return;
+    }
+    if (Number(normalizedPrice) > MAX_UNIT_PRICE || parsedQuantity > MAX_QUANTITY) {
+      setError(LIMIT_MESSAGE);
+      return;
+    }
+    if (!editing && items.length >= MAX_ITEMS) {
+      setError(`Un ticket puede tener como máximo ${MAX_ITEMS} productos.`);
       return;
     }
 

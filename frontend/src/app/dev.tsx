@@ -14,12 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Eyebrow, Field, PrimaryButton, SegmentedControl } from '@/components/onboarding';
-import {
-  ReceiptEditor,
-  ReceiptItem,
-  receiptTotals,
-  toReceiptItems,
-} from '@/components/receipt-editor';
+import { ReceiptEditor, ReceiptItem, toReceiptItems } from '@/components/receipt-editor';
+import { ReceiptExpense, receiptRequestItems, ReceiptSplit } from '@/components/receipt-split';
 import { scanTicket, TicketScanner } from '@/components/ticket-scanner';
 import { Palette, Radius } from '@/constants/onboarding';
 import {
@@ -569,9 +565,13 @@ function DevScanner({ showError }: { showError: ShowError }) {
     }
   };
 
-  // The products escanearticket would send to POST /transactions/from-receipt
-  const { sharedItems } = receiptTotals(items);
-  const wouldSend = sharedItems.map(({ name, quantity, unit_price }) => ({ name, quantity, unit_price }));
+  // Apartment typed in the field; splitApartmentId is set with "Load members"
+  const [apartmentId, setApartmentId] = useState('');
+  const [splitApartmentId, setSplitApartmentId] = useState('');
+  const [created, setCreated] = useState<ReceiptExpense | null>(null);
+  // Stable: ReceiptSplit reloads the members when its callbacks change.
+  // Raw backend error here (not the friendly message), it is more useful for testing
+  const onSplitError = useCallback((e: unknown) => showError('Create expense', e), [showError]);
 
   return (
     <>
@@ -621,7 +621,7 @@ function DevScanner({ showError }: { showError: ShowError }) {
               </Text>
               <Text style={styles.cardTitle}>Items escanearticket would send</Text>
               <Text selectable style={styles.json}>
-                {JSON.stringify(wouldSend, null, 2)}
+                {JSON.stringify(receiptRequestItems(items), null, 2)}
               </Text>
             </>
           ) : null}
@@ -636,7 +636,58 @@ function DevScanner({ showError }: { showError: ShowError }) {
 
       {/* Same component as escanearticket, so the product review can be tested here */}
       {result && (items.length > 0 || result.items.length > 0) ? (
-        <ReceiptEditor items={items} onChange={setItems} />
+        <>
+          <ReceiptEditor items={items} onChange={setItems} />
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Create expense</Text>
+            <Text style={styles.subtitle}>
+              Same split as escanearticket: the current user pays and the shared products are
+              split with the selected members. No frontend checks here, so invalid data reaches
+              the backend validation.
+            </Text>
+            <View style={styles.row}>
+              <View style={styles.flex}>
+                <Field
+                  label="Apartment ID"
+                  placeholder="Apartment uuid"
+                  value={apartmentId}
+                  onChangeText={setApartmentId}
+                  autoCapitalize="none"
+                />
+              </View>
+              <IconButton
+                icon="account-multiple-outline"
+                label="Load members"
+                onPress={() => {
+                  setCreated(null);
+                  setSplitApartmentId(apartmentId.trim());
+                }}
+              />
+            </View>
+            {/* Same component as escanearticket. key: another apartment starts from scratch */}
+            {splitApartmentId ? (
+              <ReceiptSplit
+                key={splitApartmentId}
+                apartmentId={splitApartmentId}
+                items={items}
+                onCreated={setCreated}
+                onError={onSplitError}
+              />
+            ) : null}
+          </View>
+
+          {created ? (
+            <>
+              <Text style={styles.listTitle}>
+                Created <Text style={styles.count}>({created.transactions.length} debts)</Text>
+              </Text>
+              <Text selectable style={styles.json}>
+                {JSON.stringify(created, null, 2)}
+              </Text>
+            </>
+          ) : null}
+        </>
       ) : null}
     </>
   );
