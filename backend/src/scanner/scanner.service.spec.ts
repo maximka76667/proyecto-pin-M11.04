@@ -35,26 +35,22 @@ function respuestaDeGemini(datos: unknown) {
 describe('ScannerService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // El servicio registra los errores de Gemini; en los tests solo ensuciaría la salida
-    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    // El servicio registra cada escaneo y los errores de Gemini; en los tests solo ensuciaría la salida
+    for (const nivel of ['log', 'debug', 'error'] as const) {
+      jest.spyOn(Logger.prototype, nivel).mockImplementation(() => undefined);
+    }
   });
 
-  it('devuelve los datos del ticket leídos por Gemini', async () => {
-    respuestaDeGemini({
-      comercio: 'Mercadona',
-      amount: '23.45',
-      date: '2026-10-20',
-      category: 'supplies',
-    });
+  it('devuelve los productos del ticket leídos por Gemini', async () => {
+    const productos = [
+      { name: 'Leche entera', quantity: 2, unit_price: '0.95', category: 'supplies' },
+      { name: 'Bombilla LED', quantity: 1, unit_price: '3.50', category: 'maintenance' },
+    ];
+    respuestaDeGemini({ comercio: 'Mercadona', items: productos });
 
     const resultado = await crearServicio().escanearTicket(crearImagen());
 
-    expect(resultado).toEqual({
-      comercio: 'Mercadona',
-      amount: '23.45',
-      date: '2026-10-20',
-      category: 'supplies',
-    });
+    expect(resultado).toEqual({ comercio: 'Mercadona', items: productos });
     const peticion = generateContent.mock.calls[0][0];
     expect(peticion.contents[0].parts[0].inlineData).toEqual({
       mimeType: 'image/jpeg',
@@ -62,30 +58,38 @@ describe('ScannerService', () => {
     });
   });
 
-  it('normaliza el importe y descarta fechas y categorías no válidas', async () => {
+  it('corrige precios, cantidades y categorías que no tienen el formato esperado', async () => {
     respuestaDeGemini({
       comercio: '  ',
-      amount: '12,5 €',
-      date: '2026-02-30',
-      category: 'payment',
+      items: [
+        { name: ' Pan ', quantity: 0, unit_price: '1,5 €', category: 'payment' },
+        { name: '', quantity: 1.5, unit_price: '2.00', category: 'supplies' },
+        { name: 'Ilegible', quantity: 1, unit_price: '0', category: 'supplies' },
+      ],
     });
 
     const resultado = await crearServicio().escanearTicket(crearImagen());
 
     expect(resultado).toEqual({
       comercio: null,
-      amount: '12.50',
-      date: null,
-      category: 'other',
+      items: [
+        { name: 'Pan', quantity: 1, unit_price: '1.50', category: 'other' },
+        { name: 'Producto 2', quantity: 1, unit_price: '2.00', category: 'supplies' },
+        // El precio a null se deja para que el usuario lo complete al revisar
+        { name: 'Ilegible', quantity: 1, unit_price: null, category: 'supplies' },
+      ],
     });
   });
 
-  it('deja a null un importe ilegible o a cero', async () => {
-    respuestaDeGemini({ comercio: null, amount: '0', date: null, category: 'other' });
+  it('descarta líneas sin nombre ni precio y respuestas sin lista de productos', async () => {
+    respuestaDeGemini({
+      comercio: 'Bar',
+      items: [{ name: ' ', quantity: 1, unit_price: null, category: 'other' }, 'basura'],
+    });
+    expect((await crearServicio().escanearTicket(crearImagen())).items).toEqual([]);
 
-    const resultado = await crearServicio().escanearTicket(crearImagen());
-
-    expect(resultado.amount).toBeNull();
+    respuestaDeGemini({ comercio: 'Bar' });
+    expect((await crearServicio().escanearTicket(crearImagen())).items).toEqual([]);
   });
 
   it('rechaza la petición si no hay imagen o no es un formato admitido', async () => {

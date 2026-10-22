@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TransactionCategory } from '@prisma/client';
-import { ApiError, GoogleGenAI, Type } from '@google/genai';
+import { ApiError, GenerateContentResponse, GoogleGenAI, Type } from '@google/genai';
 import { CATEGORIAS_DE_GASTO } from '../transactions/categorias';
 
 // Formatos de imagen que acepta Gemini
@@ -25,36 +25,58 @@ export const PESO_MAXIMO_IMAGEN = 8 * 1024 * 1024; // 8 MB
 
 const MODELO_POR_DEFECTO = 'gemini-3-flash-preview';
 
-// Lo que se devuelve a la app para rellenar el formulario. No se guarda nada:
-// el usuario revisa y corrige los datos antes de crear la transacción.
-// amount, date y category se llaman como en CreateTransactionDto para pasarlos tal cual.
-// Los campos que no se han podido leer del ticket vienen a null.
-export interface TicketEscaneado {
-  comercio: string | null;
-  amount: string | null;
-  date: string | null;
+// Ningún ticket real tiene más; evita devolver miles si Gemini responde algo raro
+export const MAXIMO_PRODUCTOS = 100;
+
+// name, quantity y unit_price se llaman como en ReceiptItemDto para pasarlos tal cual.
+// unit_price viene a null si no se ha podido leer: el usuario lo completa al revisar.
+export interface ProductoEscaneado {
+  name: string;
+  quantity: number;
+  unit_price: string | null;
   category: TransactionCategory;
 }
 
-const PROMPT = `Eres un lector de tickets y facturas de gastos de un piso compartido.
+// Lo que se devuelve a la app para rellenar la pantalla de revisión. No se guarda nada:
+// el usuario elige qué productos comparte y corrige los datos antes de crear el gasto.
+export interface TicketEscaneado {
+  comercio: string | null;
+  items: ProductoEscaneado[];
+}
+
+const PROMPT = `Eres un lector de tickets de compra de un piso compartido.
 Extrae de la imagen:
-- comercio: nombre del comercio o empresa.
-- amount: importe TOTAL final pagado (con impuestos), con punto decimal y 2 decimales, p. ej. "12.50".
-- date: fecha del ticket en formato YYYY-MM-DD.
-- category: utilities (luz, agua, gas, internet), maintenance (reparaciones, fontanero...),
-  supplies (supermercado, limpieza, productos para la casa) u other.
-Si un dato no se puede leer con seguridad, devuelve null en ese campo. No inventes datos.
-Si la imagen no es un ticket, devuelve todos los campos a null y category "other".`;
+- comercio: nombre del comercio o empresa (null si no se lee).
+- items: una entrada por cada línea de producto del ticket, con:
+  - name: nombre del producto tal y como aparece, sin abreviaturas raras si se entienden.
+  - quantity: número entero de unidades. Si el producto va al peso (kg, g), usa 1.
+  - unit_price: precio de UNA unidad, con punto decimal y 2 decimales, p. ej. "1.25".
+    Si va al peso, el importe total de esa línea. Si hay un descuento aplicado a ese
+    producto, réstalo del precio. null si no se lee con seguridad.
+  - category: utilities (luz, agua, gas, internet), maintenance (reparaciones, herramientas,
+    bombillas, piezas), supplies (comida, bebida, limpieza, higiene, cosas de casa) u other.
+No incluyas como productos el total, subtotales, impuestos, cambio ni formas de pago.
+No inventes productos. Si la imagen no es un ticket, devuelve items vacío.`;
 
 const ESQUEMA_RESPUESTA = {
   type: Type.OBJECT,
   properties: {
     comercio: { type: Type.STRING, nullable: true },
-    amount: { type: Type.STRING, nullable: true },
-    date: { type: Type.STRING, nullable: true },
-    category: { type: Type.STRING, enum: CATEGORIAS_DE_GASTO },
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          quantity: { type: Type.INTEGER },
+          unit_price: { type: Type.STRING, nullable: true },
+          category: { type: Type.STRING, enum: CATEGORIAS_DE_GASTO },
+        },
+        required: ['name', 'quantity', 'unit_price', 'category'],
+      },
+    },
   },
-  required: ['comercio', 'amount', 'date', 'category'],
+  required: ['comercio', 'items'],
 };
 
 @Injectable()
@@ -87,9 +109,20 @@ export class ScannerService {
       );
     }
 
-    let texto: string | undefined;
+    const inicio = Date.now();
+    const segundos = () => ((Date.now() - inicio) / 1000).toFixed(1);
+    this.logger.log(
+      `Scanning ${imagen.mimetype} of ${(imagen.buffer.length / 1024).toFixed(0)} KB with ${this.modelo}`,
+    );
+    // Con fotos difíciles Gemini puede tardar mucho: así el log muestra que sigue esperando
+    const aviso = setInterval(
+      () => this.logger.log(`Still waiting for Gemini... ${segundos()} s`),
+      10_000,
+    );
+
+    let respuesta: GenerateContentResponse;
     try {
-      const respuesta = await this.gemini.models.generateContent({
+      respuesta = await this.gemini.models.generateContent({
         model: this.modelo,
         contents: [
           {
@@ -110,10 +143,9 @@ export class ScannerService {
           responseSchema: ESQUEMA_RESPUESTA,
         },
       });
-      texto = respuesta.text;
     } catch (error) {
       // Al cliente solo le llega un mensaje genérico; el error real queda en el log
-      this.logger.error(`Gemini error: ${String(error)}`);
+      this.logger.error(`Gemini error after ${segundos()} s: ${String(error)}`);
 
       if (esClaveInvalida(error)) {
         throw new ServiceUnavailableException(
@@ -128,9 +160,27 @@ export class ScannerService {
         );
       }
       throw new BadGatewayException('Ticket scanner is not available');
+    } finally {
+      clearInterval(aviso);
     }
 
-    return normalizarRespuesta(texto);
+    // thinking = tokens que Gemini gasta "pensando" antes de responder; suele ser lo que más tarda
+    const uso = respuesta.usageMetadata;
+    this.logger.log(
+      `Gemini answered in ${segundos()} s ` +
+        `(finish: ${respuesta.candidates?.[0]?.finishReason ?? 'unknown'}, ` +
+        `tokens: prompt ${uso?.promptTokenCount ?? '?'}, ` +
+        `thinking ${uso?.thoughtsTokenCount ?? 0}, output ${uso?.candidatesTokenCount ?? '?'})`,
+    );
+    this.logger.debug(`Gemini raw response: ${(respuesta.text ?? '').slice(0, 2000)}`);
+
+    const { ticket, lineasLeidas } = normalizarRespuesta(respuesta.text);
+    const sinPrecio = ticket.items.filter((producto) => producto.unit_price === null).length;
+    this.logger.log(
+      `Ticket read: ${ticket.items.length} products ` +
+        `(${sinPrecio} without price, ${lineasLeidas - ticket.items.length} lines discarded)`,
+    );
+    return ticket;
   }
 }
 
@@ -143,8 +193,12 @@ function esClaveInvalida(error: unknown): boolean {
 }
 
 // Gemini respeta el esquema casi siempre, pero no se confía en ello:
-// lo que no tenga el formato que exige CreateTransactionDto se descarta
-function normalizarRespuesta(texto: string | undefined): TicketEscaneado {
+// lo que no tenga el formato que exige ReceiptItemDto se corrige o se deja a null
+// lineasLeidas = cuántas líneas devolvió Gemini antes de descartar las que no sirven (para el log)
+function normalizarRespuesta(texto: string | undefined): {
+  ticket: TicketEscaneado;
+  lineasLeidas: number;
+} {
   let datos: Record<string, unknown>;
   try {
     datos = JSON.parse(texto ?? '') as Record<string, unknown>;
@@ -152,14 +206,41 @@ function normalizarRespuesta(texto: string | undefined): TicketEscaneado {
     throw new BadGatewayException('Ticket scanner returned an invalid response');
   }
 
-  const categoria = datos.category as TransactionCategory;
+  const productos = Array.isArray(datos.items) ? datos.items : [];
   return {
-    comercio: normalizarTexto(datos.comercio),
-    amount: normalizarImporte(datos.amount),
-    date: normalizarFecha(datos.date),
-    category: CATEGORIAS_DE_GASTO.includes(categoria)
-      ? categoria
-      : TransactionCategory.other,
+    ticket: {
+      comercio: normalizarTexto(datos.comercio),
+      items: productos
+        .filter((producto): producto is Record<string, unknown> =>
+          typeof producto === 'object' && producto !== null,
+        )
+        .map(normalizarProducto)
+        // Una línea sin nombre ni precio no aporta nada al usuario
+        .filter((producto): producto is ProductoEscaneado => producto !== null)
+        .slice(0, MAXIMO_PRODUCTOS),
+    },
+    lineasLeidas: productos.length,
+  };
+}
+
+function normalizarProducto(
+  producto: Record<string, unknown>,
+  indice: number,
+): ProductoEscaneado | null {
+  const nombre = normalizarTexto(producto.name);
+  const precio = normalizarImporte(producto.unit_price);
+  if (!nombre && !precio) return null;
+
+  const cantidad = producto.quantity;
+  const categoria = producto.category as TransactionCategory;
+  return {
+    name: nombre ?? `Producto ${indice + 1}`,
+    quantity:
+      Number.isInteger(cantidad) && (cantidad as number) >= 1 && (cantidad as number) <= 100000
+        ? (cantidad as number)
+        : 1,
+    unit_price: precio,
+    category: CATEGORIAS_DE_GASTO.includes(categoria) ? categoria : TransactionCategory.other,
   };
 }
 
@@ -175,13 +256,4 @@ function normalizarImporte(valor: unknown): string | null {
   const numero = Number(String(valor).replace(',', '.').replace(/[^\d.]/g, ''));
   if (!Number.isFinite(numero) || numero <= 0 || numero >= 1e10) return null;
   return numero.toFixed(2);
-}
-
-// Solo fechas reales en formato YYYY-MM-DD (descarta, p. ej., 2026-02-30)
-function normalizarFecha(valor: unknown): string | null {
-  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return null;
-  const fecha = new Date(`${valor}T00:00:00Z`);
-  return !Number.isNaN(fecha.getTime()) && fecha.toISOString().startsWith(valor)
-    ? valor
-    : null;
 }
