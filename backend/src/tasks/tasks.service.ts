@@ -5,14 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  AssignmentStatus,
   Prisma,
   TaskCategory,
   TaskPriority,
   TaskStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 
 @Injectable()
