@@ -5,14 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  AssignmentStatus,
   Prisma,
   TaskCategory,
   TaskPriority,
   TaskStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 
 @Injectable()
@@ -85,27 +83,6 @@ export class TasksService {
     }
 
     return task;
-  }
-
-  async createAssignment(
-    taskId: string,
-    createTaskAssignmentDto: CreateTaskAssignmentDto,
-  ) {
-    try {
-      return await this.prisma.taskAssignment.create({
-        data: {
-          task_id: taskId,
-          user_id: createTaskAssignmentDto.user_id,
-          due_date: new Date(`${createTaskAssignmentDto.due_date}T00:00:00.000Z`),
-          status: AssignmentStatus.pending,
-        },
-        include: {
-          user: { select: { id: true, full_name: true } },
-        },
-      });
-    } catch (error) {
-      this.handlePrismaError(error);
-    }
   }
 
   private handlePrismaError(error: unknown): never {
