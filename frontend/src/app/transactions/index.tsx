@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SettleUpCard } from '@/components/settle-up';
 import { APARTMENT_ID, USER_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
@@ -104,6 +105,7 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
 
@@ -124,6 +126,7 @@ export default function Transactions() {
       setTransactions((current) =>
         current.filter(({ id }) => !deletedIds.has(id)),
       );
+      setRefreshKey((key) => key + 1);
 
       try {
         const updatedSummary = (await api(
@@ -181,7 +184,7 @@ export default function Transactions() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [refreshKey]),
   );
 
   return (
@@ -222,6 +225,13 @@ export default function Transactions() {
             </View>
           </Pressable>
         ) : null}
+
+        <SettleUpCard
+          apartmentId={APARTMENT_ID}
+          userId={USER_ID}
+          refreshKey={refreshKey}
+          onSettled={() => setRefreshKey((key) => key + 1)}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>

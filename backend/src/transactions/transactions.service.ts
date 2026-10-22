@@ -1,12 +1,14 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
 export interface BalanceUsuario {
@@ -32,6 +34,14 @@ export interface RespuestaMiBalancePersonal {
     conceptos: string[];
   };
   mensaje: string;
+}
+
+export interface DeudaSettleUp {
+  deudorId: string;
+  deudor: string;
+  acreedorId: string;
+  acreedor: string;
+  monto: number;
 }
 
 @Injectable()
@@ -224,6 +234,48 @@ export class TransactionsService {
       },
       mensaje,
     };
+  }
+
+  async getSettleUp(apartmentId: string): Promise<DeudaSettleUp[]> {
+    const allPayments = await this.getPagoMinimo(apartmentId);
+    const userNames = await this.usersService.getUserNames(
+      allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
+    );
+
+    return allPayments.map((payment) => ({
+      deudorId: payment.deudorId,
+      deudor: userNames[payment.deudorId] ?? payment.deudorId,
+      acreedorId: payment.acreedorId,
+      acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
+      monto: payment.monto,
+    }));
+  }
+
+  // Solo el acreedor puede marcar como pagada una deuda que tiene a su favor
+  async settleDebt(apartmentId: string, acreedorId: string, settleDebtDto: SettleDebtDto) {
+    const allPayments = await this.getPagoMinimo(apartmentId);
+    const pago = allPayments.find(
+      (payment) =>
+        payment.deudorId === settleDebtDto.deudor_id && payment.acreedorId === acreedorId,
+    );
+
+    if (!pago) {
+      throw new NotFoundException('No hay ninguna deuda pendiente de este usuario contigo');
+    }
+
+    if (Math.abs(pago.monto - Number(settleDebtDto.amount)) > 0.01) {
+      throw new ConflictException('El balance ha cambiado, recarga la pantalla');
+    }
+
+    return this.prisma.transaction.create({
+      data: {
+        apartment_id: apartmentId,
+        from_user_id: pago.deudorId,
+        to_user_id: pago.acreedorId,
+        amount: pago.monto.toFixed(2),
+        category: TransactionCategory.payment,
+      },
+    });
   }
 
   async getPublicApartmentBalance(inviteCode: string) {
