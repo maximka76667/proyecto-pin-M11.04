@@ -1,17 +1,91 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  Prisma,
+  TaskCategory,
+  TaskPriority,
+  TaskStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
+
+  findAll(apartmentId?: string) {
+    return this.prisma.task.findMany({
+      where: apartmentId ? { apartment_id: apartmentId } : undefined,
+      include: {
+        assignments: {
+          include: { user: { select: { id: true, full_name: true } } },
+          orderBy: { due_date: 'asc' },
+        },
+      },
+      orderBy: { title: 'asc' },
+    });
+  }
+
+  async create(createTaskDto: CreateTaskDto) {
+    const title = createTaskDto.title.trim();
+    if (!title) {
+      throw new BadRequestException('El nombre de la tarea es obligatorio');
+    }
+
+    const existingTask = await this.prisma.task.findFirst({
+      where: {
+        apartment_id: createTaskDto.apartment_id,
+        title,
+      },
+      select: { id: true },
+    });
+    if (existingTask) {
+      throw new ConflictException(
+        'Ya existe una tarea con este nombre en tu hogar',
+      );
+    }
+
+    try {
+      return await this.prisma.task.create({
+        data: {
+          apartment_id: createTaskDto.apartment_id,
+          title,
+          description: createTaskDto.description?.trim() || null,
+          frequency: createTaskDto.frequency,
+          status: TaskStatus.pending,
+          category: createTaskDto.category ?? TaskCategory.other,
+          priority: TaskPriority.medium,
+        },
+        include: { assignments: true },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  async findOne(id: string) {
+    const task = await this.prisma.task.findUnique({
+      where: { id },
+      include: {
+        assignments: {
+          include: { user: { select: { id: true, full_name: true } } },
+          orderBy: { due_date: 'asc' },
+        },
+      },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Tarea no encontrada');
+    }
+
+    return task;
+  }
 
   async update(id: string, updateTaskDto: UpdateTaskDto, userId: string) {
     const task = await this.buscarTarea(id);
@@ -102,7 +176,6 @@ export class TasksService {
       if (error.code === 'P2023') {
         throw new BadRequestException('El id de la tarea no es válido');
       }
-      // el índice único de la base de datos rechaza un nombre que ya usa otra tarea del piso
       if (error.code === 'P2002') {
         throw new ConflictException(
           'Ya existe una tarea con este nombre en tu hogar',
@@ -111,6 +184,9 @@ export class TasksService {
       // la tarea se ha borrado entre la comprobación y la escritura
       if (error.code === 'P2025') {
         throw new NotFoundException('Tarea no encontrada');
+      }
+      if (error.code === 'P2003') {
+        throw new NotFoundException('Hogar no encontrado');
       }
     }
     throw error;
