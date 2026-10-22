@@ -1,22 +1,39 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Eyebrow, Field, PrimaryButton, SegmentedControl } from '@/components/onboarding';
+import {
+  ReceiptEditor,
+  ReceiptItem,
+  receiptTotals,
+  toReceiptItems,
+} from '@/components/receipt-editor';
+import { scanTicket, TicketScanner } from '@/components/ticket-scanner';
 import { Palette, Radius } from '@/constants/onboarding';
 import {
   Apartment,
   api,
   errorMessage,
+  ScannedTicket,
   Transaction,
   TransactionCategory,
 } from '@/lib/api';
 
 const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'other'];
 
-type Tab = 'apartments' | 'expenses';
+type Tab = 'apartments' | 'expenses' | 'scanner';
 
 const TABS: { value: Tab; label: string; title: string; subtitle: string }[] = [
   {
@@ -31,15 +48,21 @@ const TABS: { value: Tab; label: string; title: string; subtitle: string }[] = [
     title: 'Expenses',
     subtitle: 'Create, edit and delete expenses to test the API.',
   },
+  {
+    value: 'scanner',
+    label: 'Scanner',
+    title: 'Ticket scanner',
+    subtitle: 'Send a receipt photo to the scanner and see what it reads.',
+  },
 ];
 
 type ShowError = (action: string, e: unknown) => void;
 
-// Test screen to try the apartments and expenses API (open /dev, or /dev?tab=expenses)
+// Test screen to try the API (open /dev, /dev?tab=expenses or /dev?tab=scanner)
 export default function DevScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
-  const tab: Tab = params.tab === 'expenses' ? 'expenses' : 'apartments';
-  const current = TABS.find(({ value }) => value === tab)!;
+  const current = TABS.find(({ value }) => value === params.tab) ?? TABS[0];
+  const tab = current.value;
   const [error, setError] = useState('');
 
   // Shows the error in the banner (stays until closed) and logs it to the console.
@@ -68,8 +91,10 @@ export default function DevScreen() {
 
         {tab === 'apartments' ? (
           <DevApartments showError={showError} />
-        ) : (
+        ) : tab === 'expenses' ? (
           <DevExpenses showError={showError} />
+        ) : (
+          <DevScanner showError={showError} />
         )}
       </ScrollView>
 
@@ -518,6 +543,105 @@ function TransactionItem({
   );
 }
 
+function DevScanner({ showError }: { showError: ShowError }) {
+  const [image, setImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  // result = what the scanner returned; items = the same products after editing them
+  const [result, setResult] = useState<ScannedTicket | null>(null);
+  const [items, setItems] = useState<ReceiptItem[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+
+  const showResult = (ticket: ScannedTicket) => {
+    setResult(ticket);
+    setItems(toReceiptItems(ticket.items));
+  };
+
+  // Sends the same photo again, to see if Gemini answers the same
+  const scanAgain = async (asset: ImagePicker.ImagePickerAsset) => {
+    setScanning(true);
+    setResult(null);
+    try {
+      showResult(await scanTicket(asset));
+    } catch (e) {
+      showError('Scan ticket', e);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // The products escanearticket would send to POST /transactions/from-receipt
+  const { sharedItems } = receiptTotals(items);
+  const wouldSend = sharedItems.map(({ name, quantity, unit_price }) => ({ name, quantity, unit_price }));
+
+  return (
+    <>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Receipt photo</Text>
+        {/* Same component as the review screen (escanearticket) */}
+        <TicketScanner
+          onScanned={(ticket, asset) => {
+            setImage(asset);
+            showResult(ticket);
+          }}
+          onError={(e) => showError('Scan ticket', e)}
+        />
+        {image && !scanning ? (
+          <IconButton icon="refresh" label="Scan same photo again" onPress={() => scanAgain(image)} />
+        ) : null}
+        {image ? (
+          <Image source={{ uri: image.uri }} style={styles.preview} resizeMode="contain" />
+        ) : (
+          <View style={styles.empty}>
+            <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
+            <Text style={styles.emptyText}>Pick a receipt photo to send it to POST /scanner/ticket.</Text>
+          </View>
+        )}
+        {scanning ? <ActivityIndicator color={Palette.primary} /> : null}
+      </View>
+
+      {result ? (
+        <>
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>
+              {result.comercio ?? 'Unknown store'}{' '}
+              <Text style={styles.count}>({result.items.length} products)</Text>
+            </Text>
+            <IconButton
+              icon="code-json"
+              label={showJson ? 'Hide JSON' : 'Raw JSON'}
+              onPress={() => setShowJson((value) => !value)}
+            />
+          </View>
+
+          {showJson ? (
+            <>
+              <Text style={styles.cardTitle}>Scanner response</Text>
+              <Text selectable style={styles.json}>
+                {JSON.stringify(result, null, 2)}
+              </Text>
+              <Text style={styles.cardTitle}>Items escanearticket would send</Text>
+              <Text selectable style={styles.json}>
+                {JSON.stringify(wouldSend, null, 2)}
+              </Text>
+            </>
+          ) : null}
+
+          {result.items.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>No products found. Is it a receipt?</Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* Same component as escanearticket, so the product review can be tested here */}
+      {result && (items.length > 0 || result.items.length > 0) ? (
+        <ReceiptEditor items={items} onChange={setItems} />
+      ) : null}
+    </>
+  );
+}
+
 function CategoryPicker({
   value,
   onChange,
@@ -775,5 +899,19 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: Palette.primary,
+  },
+  preview: {
+    width: '100%',
+    height: 280,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.segment,
+  },
+  json: {
+    padding: 14,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.segment,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    color: Palette.text,
   },
 });
