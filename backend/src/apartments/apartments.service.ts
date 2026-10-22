@@ -123,13 +123,10 @@ export class ApartmentsService {
       throw new NotFoundException('Apartment not found');
     }
 
+    // Solo user_apartments: es la misma regla que usa createFromReceipt para aceptar
+    // participantes. El casero aparece si es miembro (create() lo añade al crear el piso).
     const members = await this.prisma.user.findMany({
-      where: {
-        OR: [
-          { user_apartments: { some: { apartment_id: id } } },
-          { landlord_apartments: { some: { id } } },
-        ],
-      },
+      where: { user_apartments: { some: { apartment_id: id } } },
       select: { id: true, full_name: true },
       orderBy: { full_name: 'asc' },
     });
