@@ -2,8 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 
-// El mismo usuario que el controlador tiene fijado mientras no haya autenticación
-const USUARIO_LOGUEADO = '22222222-2222-2222-2222-222222222222';
+// En la app lo inyecta @CurrentUser(), pero los decoradores no se ejecutan cuando un
+// test llama directamente al método del controlador, así que se pasa a mano
+const USUARIO_LOGUEADO = '11111111-1111-1111-1111-111111111111';
 
 describe('TransactionsController', () => {
   let controller: TransactionsController;
@@ -19,7 +20,9 @@ describe('TransactionsController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TransactionsController],
-      providers: [{ provide: TransactionsService, useValue: transactionsService }],
+      providers: [
+        { provide: TransactionsService, useValue: transactionsService },
+      ],
     }).compile();
 
     controller = module.get<TransactionsController>(TransactionsController);
@@ -53,7 +56,9 @@ describe('TransactionsController', () => {
     const resumen = { mensaje: 'Estás al día en tus pagos.' };
     transactionsService.getPersonalSummary.mockResolvedValue(resumen);
 
-    await expect(controller.getMyPersonalSummary('piso-pin-01')).resolves.toBe(resumen);
+    await expect(
+      controller.getMyPersonalSummary('piso-pin-01', USUARIO_LOGUEADO),
+    ).resolves.toBe(resumen);
     expect(transactionsService.getPersonalSummary).toHaveBeenCalledWith(
       'piso-pin-01',
       USUARIO_LOGUEADO,

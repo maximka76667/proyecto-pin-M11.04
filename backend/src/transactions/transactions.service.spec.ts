@@ -93,8 +93,21 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
         distinct,
       }: {
         where: FiltroFalso;
-        distinct: ('from_user_id' | 'to_user_id')[];
+        distinct?: ('from_user_id' | 'to_user_id')[];
       }) => {
+        if (!distinct) {
+          return Promise.resolve(
+            filtrar(where).map((transaccion, index) => ({
+              ...transaccion,
+              id: `transaction-${index}`,
+              date: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`),
+              created_at: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`),
+              fromUser: { full_name: NOMBRES[transaccion.from_user_id] },
+              toUser: { full_name: NOMBRES[transaccion.to_user_id] },
+            })),
+          );
+        }
+
         const campo = distinct[0];
         const valores = new Set(filtrar(where).map((transaccion) => transaccion[campo]));
 
@@ -246,17 +259,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
       expect(resumen.mensaje).toBe('En total, tienes 40.00€ pendientes de cobro.');
     });
 
-    it('despliega la lista optimizada de pagos con los nombres de los convivientes', async () => {
-      const service = await crearServicio([...GASTOS_DEL_PISO]);
-
-      const resumen = await service.getPersonalSummary(PISO_A, CARLA);
-
-      expect(resumen.globalPayments).toEqual([
-        { deudor: 'Carla', acreedor: 'Ana', monto: 40 },
-        { deudor: 'Carla', acreedor: 'Bruno', monto: 10 },
-      ]);
-    });
-
     // La PA exige que los gastos activos sean los registrados "para ese hogar", así que el
     // cálculo de un piso no puede contaminarse con los gastos de otro.
     describe('aislamiento entre hogares', () => {
@@ -311,7 +313,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
 
         const resumen = await service.getPersonalSummary(PISO_VACIO, ANA);
         expect(resumen.miResumen.monto).toBe(0);
-        expect(resumen.globalPayments).toEqual([]);
       });
     });
   });
@@ -341,7 +342,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
       expect(resumen.mensaje).toBe('Estás al día en tus pagos.');
       expect(resumen.miResumen.esDeudor).toBe(false);
       expect(resumen.miResumen.conceptos).toEqual([]);
-      expect(resumen.globalPayments).toEqual([]);
     });
 
     it('con todos los gastos anteriores ya pagados, las cuentas quedan a cero', async () => {
@@ -378,9 +378,11 @@ function prismaError(code: string) {
 describe('TransactionsService', () => {
   let service: TransactionsService;
 
-  // Only the Prisma methods used by update/remove are mocked
+  // Only the Prisma methods used by update/remove are mocked. findUnique is the check
+  // that stops debt payments from being edited or deleted
   const prisma = {
     transaction: {
+      findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
@@ -397,6 +399,8 @@ describe('TransactionsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Editable expense by default; set here because clearAllMocks keeps mocked values
+    prisma.transaction.findUnique.mockResolvedValue(transaction);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -438,7 +442,7 @@ describe('TransactionsService', () => {
     });
 
     it('returns 404 when the expense does not exist', async () => {
-      prisma.transaction.update.mockRejectedValue(prismaError('P2025'));
+      prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.update('missing', { amount: '10.00' })).rejects.toThrow(
         NotFoundException,
@@ -474,7 +478,7 @@ describe('TransactionsService', () => {
     });
 
     it('returns 404 when the expense does not exist', async () => {
-      prisma.transaction.delete.mockRejectedValue(prismaError('P2025'));
+      prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
     });

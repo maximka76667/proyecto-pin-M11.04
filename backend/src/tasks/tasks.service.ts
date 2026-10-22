@@ -85,6 +85,27 @@ export class TasksService {
     return task;
   }
 
+  async createAssignment(
+    taskId: string,
+    createTaskAssignmentDto: CreateTaskAssignmentDto,
+  ) {
+    try {
+      return await this.prisma.taskAssignment.create({
+        data: {
+          task_id: taskId,
+          user_id: createTaskAssignmentDto.user_id,
+          due_date: new Date(`${createTaskAssignmentDto.due_date}T00:00:00.000Z`),
+          status: AssignmentStatus.pending,
+        },
+        include: {
+          user: { select: { id: true, full_name: true } },
+        },
+      });
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
   private handlePrismaError(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
