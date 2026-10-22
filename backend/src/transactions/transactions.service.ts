@@ -49,7 +49,8 @@ export interface RespuestaMiBalancePersonal {
 }
 
 export type RolEnDeuda = 'deudor' | 'acreedor' | 'ajeno';
-export type AccionSettleUp = 'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
+export type AccionSettleUp =
+  'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
 
 export interface DeudaSettleUp {
   deudorId: string;
@@ -102,15 +103,23 @@ export class TransactionsService {
       throw new NotFoundException('Apartment not found');
     }
 
-    const memberIds = new Set(apartment.user_apartments.map(({ user_id }) => user_id));
+    const memberIds = new Set(
+      apartment.user_apartments.map(({ user_id }) => user_id),
+    );
     if (!memberIds.has(payerId)) {
-      throw new BadRequestException('The current user must belong to the apartment');
+      throw new BadRequestException(
+        'The current user must belong to the apartment',
+      );
     }
     if (participantIds.some((id) => !memberIds.has(id))) {
-      throw new BadRequestException('All participants must belong to the apartment');
+      throw new BadRequestException(
+        'All participants must belong to the apartment',
+      );
     }
     if (participantIds.length === 0) {
-      throw new BadRequestException('Select at least one person to share the receipt with');
+      throw new BadRequestException(
+        'Select at least one person to share the receipt with',
+      );
     }
 
     const totalCents = dto.items.reduce(
@@ -122,7 +131,8 @@ export class TransactionsService {
     }
 
     const participantCount = participantIds.length + 1;
-    const shareCents = Math.floor(totalCents / participantCount);
+    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
+    const shareCents = Math.ceil(totalCents / participantCount);
     const transactions = await this.prisma.$transaction(
       participantIds.map((debtorId) => {
         return this.prisma.transaction.create({
@@ -588,7 +598,10 @@ export class TransactionsService {
     }
   }
 
-  private async asegurarAvisoDelAcreedor(transactionId: string, userId: string) {
+  private async asegurarAvisoDelAcreedor(
+    transactionId: string,
+    userId: string,
+  ) {
     const aviso = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       select: { category: true, to_user_id: true },
@@ -677,5 +690,4 @@ export class TransactionsService {
 
     return Promise.all(balancePromises);
   }
-
 }
