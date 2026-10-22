@@ -6,7 +6,6 @@ import { ApartmentsModule } from './apartments/apartments.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { UsersModule } from './users/users.module';
-import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -18,7 +17,6 @@ import { TasksModule } from './tasks/tasks.module';
     UsersModule,
     TransactionsModule,
     ApartmentsModule,
-    TasksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

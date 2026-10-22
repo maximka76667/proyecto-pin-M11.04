@@ -86,34 +86,34 @@ export default function Transactions() {
       const loadTransactions = async () => {
         setLoading(true);
         setError('');
-      try {
-        const apartmentTransactions = await api(
-          'GET',
-          `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-        ) as Transaction[];
-
-        if (active) {
-          setTransactions(
-            apartmentTransactions.filter(
-              (transaction) => transaction.category !== 'pending',
-            )
-          );
-        }
-
         try {
-          const summaryData = await api(
+          const apartmentTransactions = await api(
             'GET',
-            `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
-          ) as PersonalSummary;
-          if (active) setSummary(summaryData);
-        } catch (summaryError) {
-          if (active) setError(errorMessage(summaryError));
+            `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+          ) as Transaction[];
+
+          if (active) {
+            setTransactions(
+              apartmentTransactions.filter(
+                (transaction) => transaction.category !== 'pending',
+              )
+            );
+          }
+
+          try {
+            const summaryData = await api(
+              'GET',
+              `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
+            ) as PersonalSummary;
+            if (active) setSummary(summaryData);
+          } catch (summaryError) {
+            if (active) setError(errorMessage(summaryError));
+          }
+        } catch (e) {
+          if (active) setError(errorMessage(e));
+        } finally {
+          if (active) setLoading(false);
         }
-      } catch (e) {
-        if (active) setError(errorMessage(e));
-      } finally {
-        if (active) setLoading(false);
-      }
       };
 
       void loadTransactions();
