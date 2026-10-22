@@ -54,6 +54,7 @@ describe('TasksService', () => {
       data: {
         apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         title: 'Take out recycling',
+        description: null,
         frequency: 'weekly',
         status: 'pending',
         category: 'cleaning',

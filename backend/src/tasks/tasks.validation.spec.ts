@@ -87,7 +87,8 @@ describe('POST /tasks validation', () => {
         title: 'Clean bathroom',
         frequency: 'weekly',
         category: 'cleaning',
-        description: 'Extra field',
+        // la prioridad la decide el servidor, no el cliente
+        priority: 'high',
       })
       .expect(400);
 
