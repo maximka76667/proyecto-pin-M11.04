@@ -11,6 +11,11 @@ import { ConfigService } from '@nestjs/config';
 import { TransactionCategory } from '@prisma/client';
 import { ApiError, GenerateContentResponse, GoogleGenAI, Type } from '@google/genai';
 import { CATEGORIAS_DE_GASTO } from '../transactions/categorias';
+import {
+  MAX_CANTIDAD,
+  MAX_PRECIO_UNIDAD,
+  MAX_PRODUCTOS,
+} from '../transactions/dto/create-receipt-transaction.dto';
 
 // Formatos de imagen que acepta Gemini
 export const TIPOS_DE_IMAGEN = [
@@ -24,9 +29,6 @@ export const TIPOS_DE_IMAGEN = [
 export const PESO_MAXIMO_IMAGEN = 8 * 1024 * 1024; // 8 MB
 
 const MODELO_POR_DEFECTO = 'gemini-3-flash-preview';
-
-// Ningún ticket real tiene más; evita devolver miles si Gemini responde algo raro
-export const MAXIMO_PRODUCTOS = 100;
 
 // name, quantity y unit_price se llaman como en ReceiptItemDto para pasarlos tal cual.
 // unit_price viene a null si no se ha podido leer: el usuario lo completa al revisar.
@@ -217,7 +219,8 @@ function normalizarRespuesta(texto: string | undefined): {
         .map(normalizarProducto)
         // Una línea sin nombre ni precio no aporta nada al usuario
         .filter((producto): producto is ProductoEscaneado => producto !== null)
-        .slice(0, MAXIMO_PRODUCTOS),
+        // Los mismos límites que acepta POST /transactions/from-receipt
+        .slice(0, MAX_PRODUCTOS),
     },
     lineasLeidas: productos.length,
   };
@@ -236,7 +239,7 @@ function normalizarProducto(
   return {
     name: nombre ?? `Producto ${indice + 1}`,
     quantity:
-      Number.isInteger(cantidad) && (cantidad as number) >= 1 && (cantidad as number) <= 100000
+      Number.isInteger(cantidad) && (cantidad as number) >= 1 && (cantidad as number) <= MAX_CANTIDAD
         ? (cantidad as number)
         : 1,
     unit_price: precio,
@@ -251,9 +254,12 @@ function normalizarTexto(valor: unknown): string | null {
 }
 
 // Acepta "12.5", "12,50" o 12.5 y devuelve "12.50"; null si no es un importe válido
+// o supera MAX_PRECIO_UNIDAD (el usuario lo corrige al revisar)
 function normalizarImporte(valor: unknown): string | null {
   if (typeof valor !== 'string' && typeof valor !== 'number') return null;
   const numero = Number(String(valor).replace(',', '.').replace(/[^\d.]/g, ''));
-  if (!Number.isFinite(numero) || numero <= 0 || numero >= 1e10) return null;
-  return numero.toFixed(2);
+  if (!Number.isFinite(numero) || numero <= 0) return null;
+  // Se compara ya redondeado: 99999.999 sería "100000.00"
+  const importe = numero.toFixed(2);
+  return Number(importe) > Number(MAX_PRECIO_UNIDAD) ? null : importe;
 }

@@ -15,13 +15,25 @@ import { Type } from 'class-transformer';
 import { TransactionCategory } from '@prisma/client';
 import { CATEGORIAS_DE_GASTO } from '../categorias';
 
+// Límites elegidos para que ninguna combinación pueda desbordar: el peor total posible es
+// 99.999,99 € x 999 x 100 productos = 9.989.999.001 €, que cabe en la columna
+// Decimal(12, 2) (máx. 9.999.999.999,99) y en céntimos sigue siendo un entero seguro de JS.
+// Así basta con el ValidationPipe y no hace falta ninguna consulta a Prisma para rechazarlo.
+export const MAX_PRECIO_UNIDAD = '99999.99';
+export const MAX_CANTIDAD = 999;
+export const MAX_PRODUCTOS = 100;
+
 export class ReceiptItemDto {
-  @Matches(/^(?!0+(\.0{1,2})?$)\d{1,10}(\.\d{1,2})?$/)
+  // Positivo, hasta 2 decimales y como mucho 5 cifras enteras (MAX_PRECIO_UNIDAD).
+  // El lookahead rechaza el cero ("0", "0.0", "00.00")
+  @Matches(/^(?!0+(\.0{1,2})?$)\d{1,5}(\.\d{1,2})?$/, {
+    message: `unit_price must be a positive number with up to 2 decimals and at most ${MAX_PRECIO_UNIDAD}`,
+  })
   unit_price: string;
 
   @IsInt()
   @Min(1)
-  @Max(100000)
+  @Max(MAX_CANTIDAD)
   quantity: number;
 
   @Matches(/.*\S.*/)
@@ -46,6 +58,7 @@ export class CreateReceiptTransactionDto {
 
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_PRODUCTOS)
   @ValidateNested({ each: true })
   @Type(() => ReceiptItemDto)
   items: ReceiptItemDto[];

@@ -81,6 +81,43 @@ describe('ScannerService', () => {
     });
   });
 
+  it('aplica los mismos límites que POST /transactions/from-receipt', async () => {
+    respuestaDeGemini({
+      comercio: 'Ferretería',
+      items: [
+        { name: 'Justo en el límite', quantity: 999, unit_price: '99999.99', category: 'maintenance' },
+        // Por encima del precio máximo: se deja a null para que el usuario lo corrija
+        { name: 'Precio desorbitado', quantity: 1, unit_price: '999999999', category: 'other' },
+        // Redondeado sería 100000.00, que ya supera el máximo
+        { name: 'Casi el límite', quantity: 1, unit_price: '99999.999', category: 'other' },
+        { name: 'Cantidad desorbitada', quantity: 1000, unit_price: '1.00', category: 'supplies' },
+      ],
+    });
+
+    const { items } = await crearServicio().escanearTicket(crearImagen());
+
+    expect(items.map(({ quantity, unit_price }) => ({ quantity, unit_price }))).toEqual([
+      { quantity: 999, unit_price: '99999.99' },
+      { quantity: 1, unit_price: null },
+      { quantity: 1, unit_price: null },
+      { quantity: 1, unit_price: '1.00' },
+    ]);
+  });
+
+  it('devuelve como mucho 100 productos', async () => {
+    const lineas = Array.from({ length: 150 }, (_, i) => ({
+      name: `Producto ${i}`,
+      quantity: 1,
+      unit_price: '1.00',
+      category: 'supplies',
+    }));
+    respuestaDeGemini({ comercio: 'Bar', items: lineas });
+
+    const { items } = await crearServicio().escanearTicket(crearImagen());
+
+    expect(items).toHaveLength(100);
+  });
+
   it('descarta líneas sin nombre ni precio y respuestas sin lista de productos', async () => {
     respuestaDeGemini({
       comercio: 'Bar',
