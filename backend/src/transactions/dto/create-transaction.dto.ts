@@ -12,6 +12,7 @@ import {
   IsIn,
   IsDateString,
   MaxLength,
+
 } from 'class-validator';
 
 import { TransactionCategory } from '@prisma/client';
@@ -58,6 +59,12 @@ export class CreateTransactionDto {
   amount: string;
 
 
+  @IsEnum(TransactionCategory)
+
+
+  // payment y pending quedan fuera: solo los gestiona el flujo de saldar deudas
+  @IsIn(CATEGORIAS_DE_GASTO)
+
   // What the expense was for (e.g. "Compra del súper"). Optional in the API so older
   // clients keep working, but the "new expense" form always sends it.
   @IsOptional()
@@ -71,8 +78,6 @@ export class CreateTransactionDto {
 
   @IsEnum(TransactionCategory)
 
-  // payment y pending quedan fuera: solo los gestiona el flujo de saldar deudas
-  @IsIn(CATEGORIAS_DE_GASTO)
   category: TransactionCategory;
 
   // Día en que ocurrió el gasto (YYYY-MM-DD). Si no se envía, la base de datos pone hoy.

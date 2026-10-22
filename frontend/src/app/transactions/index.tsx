@@ -12,10 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SettleUpCard } from '@/components/settle-up';
+import { APARTMENT_ID} from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 type PersonalSummary = {
   miResumen: {
@@ -111,6 +110,7 @@ export default function Transactions() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
   const [refreshKey, setRefreshKey] = useState(0);
   const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
@@ -244,6 +244,7 @@ export default function Transactions() {
 
         {displayTransactions.length > 0 ? (
           <View style={styles.transactionList}>
+
             {displayTransactions.map((transaction) => {
               const paidByMe = transaction.paidByMe;
               const pendiente = transaction.category === 'pending';
@@ -264,6 +265,7 @@ export default function Transactions() {
                       {transaction.concept || transaction.category}
                     </Text>
                     <Text style={styles.transactionStatus}>
+
                       {paidByMe
                         ? transaction.debtorsCount > 1
                           ? `Pagaste tú · ${transaction.debtorsCount} compañeros`
@@ -284,6 +286,7 @@ export default function Transactions() {
                         pendiente && styles.pendingAmount,
                       ]}>
                       {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
+
                     </Text>
                     {editable ? (
                       <Pressable
@@ -610,4 +613,4 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.error,
   },
   deleteButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
-});
+})

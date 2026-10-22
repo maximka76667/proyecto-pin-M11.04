@@ -83,6 +83,12 @@ export class TransactionsService {
       throw new BadRequestException('The payer and the debtor must be different');
     }
 
+    // Without a date, the column applies its default value (today)
+    const date = createTransactionDto.date
+      ? new Date(createTransactionDto.date)
+      : undefined;
+
+
     try {
       if (debtorIds.length === 1) {
         return await this.prisma.transaction.create({
@@ -93,6 +99,7 @@ export class TransactionsService {
             amount: createTransactionDto.amount,
             concept: createTransactionDto.concept,
             category: createTransactionDto.category,
+            date,
           },
         });
       }
@@ -115,6 +122,7 @@ export class TransactionsService {
             amount: shareAmount,
             concept: createTransactionDto.concept,
             category: createTransactionDto.category,
+            date,
           },
         });
       });
@@ -126,7 +134,9 @@ export class TransactionsService {
     } catch (error) {
       this.handlePrismaError(error);
     }
+
 }
+
 
   async findUsersTransactions(apartmentId: string | undefined, userId: string) {
     const transactions = await this.prisma.transaction.findMany({
