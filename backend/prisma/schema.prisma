@@ -86,6 +86,7 @@ enum TransactionCategory {
   utilities
   maintenance
   supplies
+  entertainment
   payment
   other
   pending

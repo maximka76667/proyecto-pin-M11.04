@@ -12,25 +12,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, errorMessage } from '@/lib/api';
+import { api, errorMessage, TransactionCategory } from '@/lib/api';
 import { Palette, Radius } from '@/constants/onboarding';
 import { limitTransactionAmountInput } from '@/lib/transaction-amount';
-
-type Category = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other';
 
 type Transaction = {
   id: string;
   amount: string;
-  category: Category;
+  category: TransactionCategory;
   fromUser: { full_name: string };
   toUser: { full_name: string };
   apartment: { name: string };
 };
 
-const categories: { value: Category; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
+const categories: { value: TransactionCategory; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
   { value: 'supplies', label: 'Groceries', icon: 'cart-outline' },
   { value: 'utilities', label: 'Utilities', icon: 'flash-outline' },
   { value: 'maintenance', label: 'Home', icon: 'home-outline' },
+  { value: 'entertainment', label: 'Entertainment', icon: 'movie-outline' },
   { value: 'other', label: 'Other', icon: 'dots-horizontal' },
 ];
 
@@ -38,7 +37,7 @@ export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [transaction, setTransaction] = useState<Transaction | null>(null);
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState<Category>('other');
+  const [category, setCategory] = useState<TransactionCategory>('other');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');

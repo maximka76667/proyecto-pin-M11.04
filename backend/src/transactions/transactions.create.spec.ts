@@ -100,6 +100,17 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create.mock.calls[0][0].data.amount).toBe('999999.99');
   });
 
+  it('accepts entertainment as an expense category', async () => {
+    prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
+
+    await request(app.getHttpServer())
+      .post('/transactions')
+      .send({ ...validBody, category: 'entertainment' })
+      .expect(201);
+
+    expect(prisma.transaction.create.mock.calls[0][0].data.category).toBe('entertainment');
+  });
+
   it('still accepts an expense without concept (older clients)', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
     const { concept: _concept, ...withoutConcept } = validBody;
