@@ -1,17 +1,12 @@
-<<<<<<< HEAD
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+
+import { BadRequestException, NotFoundException, ConflictException, } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionCategory } from '@prisma/client';
 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
-import { TransactionsService } from './transactions.service';
-=======
-import { ConflictException, NotFoundException } from '@nestjs/common';
-import { TransactionCategory } from '@prisma/client';
 import { TransactionsService, Pago } from './transactions.service';
->>>>>>> 7c8f3c6 (UET: Comprobado test generados, cambios pendientes)
 
 const PISO_A = 'piso-pin-01';
 const PISO_B = 'piso-pin-02';
@@ -384,12 +379,16 @@ function prismaError(code: string) {
 describe('TransactionsService', () => {
   let service: TransactionsService;
 
-<<<<<<< HEAD
-  // Only the Prisma methods used by update/remove are mocked
   const prisma = {
     transaction: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    },
+    userApartment: {
+      findUnique: jest.fn(),
     },
   };
 
@@ -402,8 +401,20 @@ describe('TransactionsService', () => {
     category: 'supplies',
   };
 
+  const apartmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const deudorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const acreedorId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const pendingDebt: Pago = {
+    deudorId,
+    acreedorId,
+    monto: 25.5,
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    prisma.transaction.findUnique.mockResolvedValue(transaction);
+    prisma.transaction.findFirst.mockResolvedValue(null);
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: deudorId });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -412,24 +423,10 @@ describe('TransactionsService', () => {
         { provide: UsersService, useValue: {} },
       ],
     }).compile();
-=======
-  const apartmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  const deudorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-  const acreedorId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
->>>>>>> 7c8f3c6 (UET: Comprobado test generados, cambios pendientes)
 
-  const pendingDebt: Pago = {
-    deudorId,
-    acreedorId,
-    monto: 25.5,
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    service = new TransactionsService(prisma as never, usersService as never);
+    service = module.get(TransactionsService);
   });
 
-<<<<<<< HEAD
   describe('update (modify expense)', () => {
     it('updates the expense by id with the given data', async () => {
       const updated = { ...transaction, amount: '55.50', category: 'utilities' };
@@ -459,7 +456,7 @@ describe('TransactionsService', () => {
     });
 
     it('returns 404 when the expense does not exist', async () => {
-      prisma.transaction.update.mockRejectedValue(prismaError('P2025'));
+      prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.update('missing', { amount: '10.00' })).rejects.toThrow(
         NotFoundException,
@@ -495,77 +492,80 @@ describe('TransactionsService', () => {
     });
 
     it('returns 404 when the expense does not exist', async () => {
-      prisma.transaction.delete.mockRejectedValue(prismaError('P2025'));
+      prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
     });
-=======
-  it('registra un pago pendiente válido', async () => {
-    const payment = {
-      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      apartment_id: apartmentId,
-      from_user_id: deudorId,
-      to_user_id: acreedorId,
-      amount: '25.50',
-      category: TransactionCategory.payment,
-    };
-    jest.spyOn(service, 'getPagoMinimo').mockResolvedValue([pendingDebt]);
-    prisma.transaction.create.mockResolvedValue(payment);
 
-    await expect(
-      service.settleDebt(apartmentId, acreedorId, {
-        deudor_id: deudorId,
-        amount: '25.50',
-      }),
-    ).resolves.toEqual(payment);
+  });
 
-    expect(prisma.transaction.create).toHaveBeenCalledWith({
-      data: {
+  describe('markAsPaid', () => {
+    it('creates a pending payment notice for a valid debt', async () => {
+      const notice = {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         apartment_id: apartmentId,
         from_user_id: deudorId,
         to_user_id: acreedorId,
         amount: '25.50',
-        category: TransactionCategory.payment,
-      },
+        category: TransactionCategory.pending,
+      };
+      jest.spyOn(service, 'getPagoMinimo').mockResolvedValue([pendingDebt]);
+      prisma.transaction.create.mockResolvedValue(notice);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).resolves.toEqual(notice);
+
+      expect(prisma.transaction.create).toHaveBeenCalledWith({
+        data: {
+          apartment_id: apartmentId,
+          from_user_id: deudorId,
+          to_user_id: acreedorId,
+          amount: '25.50',
+          category: TransactionCategory.pending,
+        },
+      });
     });
-  });
 
-  it.each([
-    ['La deuda estaba pagada', []],
-    [
-      'La deuda no es del acreedor logueado',
-      [{ ...pendingDebt, acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
-    ],
-    [
-      'La deuda fue eliminada',
-      [{ ...pendingDebt, deudorId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }],
-    ],
-  ])('rejects settlement when %s', async (_reason, currentDebts) => {
-    jest.spyOn(service, 'getPagoMinimo').mockResolvedValue(currentDebts);
+    it.each([
+      ['the debt is already settled', []],
+      [
+        'the current user is not the creditor',
+        [{ ...pendingDebt, acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
+      ],
+      [
+        'the current user is not the debtor',
+        [{ ...pendingDebt, deudorId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }],
+      ],
+    ])('rejects when %s', async (_reason, currentDebts) => {
+      jest.spyOn(service, 'getPagoMinimo').mockResolvedValue(currentDebts);
 
-    await expect(
-      service.settleDebt(apartmentId, acreedorId, {
-        deudor_id: deudorId,
-        amount: '25.50',
-      }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
 
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
-  });
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
 
-  it('rechaza la deuda si el monto ha cambiado', async () => {
-    jest
-      .spyOn(service, 'getPagoMinimo')
-      .mockResolvedValue([{ ...pendingDebt, monto: 30 }]);
+    it('rejects when the debt amount has changed', async () => {
+      jest
+        .spyOn(service, 'getPagoMinimo')
+        .mockResolvedValue([{ ...pendingDebt, monto: 30 }]);
 
-    await expect(
-      service.settleDebt(apartmentId, acreedorId, {
-        deudor_id: deudorId,
-        amount: '25.50',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
->>>>>>> 7c8f3c6 (UET: Comprobado test generados, cambios pendientes)
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
   });
 });
