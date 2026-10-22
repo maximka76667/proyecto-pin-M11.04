@@ -12,6 +12,7 @@ import { ApartmentsService } from './apartments.service';
 import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
 import { JoinApartmentDto } from './dto/join-apartment.dto';
+import { CurrentUser } from '../common/current-user.decorator';
 
 @Controller('apartments')
 export class ApartmentsController {
@@ -35,6 +36,11 @@ export class ApartmentsController {
   @Get()
   findAll() {
     return this.apartmentsService.findAll();
+  }
+
+  @Get(':id/members')
+  findMembers(@Param('id') id: string, @CurrentUser() userId: string) {
+    return this.apartmentsService.findMembers(id, userId);
   }
 
   @Patch(':id')
