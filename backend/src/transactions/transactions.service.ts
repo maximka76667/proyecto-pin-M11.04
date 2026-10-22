@@ -49,7 +49,8 @@ export interface RespuestaMiBalancePersonal {
 }
 
 export type RolEnDeuda = 'deudor' | 'acreedor' | 'ajeno';
-export type AccionSettleUp = 'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
+export type AccionSettleUp =
+  'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
 
 export interface DeudaSettleUp {
   deudorId: string;
@@ -186,7 +187,8 @@ export class TransactionsService {
     }
 
     const participantCount = participantIds.length + 1;
-    const shareCents = Math.floor(totalCents / participantCount);
+    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
+    const shareCents = Math.ceil(totalCents / participantCount);
 
     const transactions = await this.prisma.$transaction(
       participantIds.map((debtorId) =>
@@ -653,7 +655,10 @@ export class TransactionsService {
     }
   }
 
-  private async asegurarAvisoDelAcreedor(transactionId: string, userId: string) {
+  private async asegurarAvisoDelAcreedor(
+    transactionId: string,
+    userId: string,
+  ) {
     const aviso = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       select: { category: true, to_user_id: true },
@@ -742,5 +747,4 @@ export class TransactionsService {
 
     return Promise.all(balancePromises);
   }
-
 }
