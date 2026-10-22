@@ -51,9 +51,15 @@ export class TransactionsController {
     return this.transactionsService.remove(id);
   }
 
+<<<<<<< HEAD
   @Get(':apartmentId/my-summary')
   getMyPersonalSummary(@Param('apartmentId') apartmentId: string) {
     const usuarioLogueadoId = '22222222-2222-2222-2222-222222222222';
+=======
+    @Get(':apartmentId/my-summary')
+    getMyPersonalSummary(@Param('apartmentId') apartmentId: string) {
+    const usuarioLogueadoId = '11111111-1111-1111-1111-111111111111';
+>>>>>>> 7c8f3c6 (UET: Comprobado test generados, cambios pendientes)
 
     return this.transactionsService.getPersonalSummary(
       apartmentId,
@@ -71,7 +77,7 @@ export class TransactionsController {
     @Param('apartmentId') apartmentId: string,
     @Body() settleDebtDto: SettleDebtDto,
   ) {
-    const usuarioLogueadoId = '22222222-2222-2222-2222-222222222222';
+    const usuarioLogueadoId = '11111111-1111-1111-1111-111111111111';
 
     return this.transactionsService.settleDebt(apartmentId, usuarioLogueadoId, settleDebtDto);
   }
