@@ -114,11 +114,13 @@ export class ApartmentsService {
     });
   }
 
+  // Solo user_apartments: es la misma regla que usa createFromReceipt para aceptar
+  // participantes. El casero aparece si es miembro (create() lo añade al crear el piso).
+  // isCurrentUser: la app lo usa para no ofrecer al usuario repartir consigo mismo
   async findMembers(id: string, currentUserId: string) {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id },
       select: {
-        landlord: { select: { id: true, full_name: true } },
         user_apartments: {
           select: { user: { select: { id: true, full_name: true } } },
         },
@@ -129,17 +131,9 @@ export class ApartmentsService {
       throw new NotFoundException('Apartment not found');
     }
 
-    const members = new Map<string, { id: string; full_name: string }>();
-    if (apartment.landlord) {
-      members.set(apartment.landlord.id, apartment.landlord);
-    }
-    for (const { user } of apartment.user_apartments) {
-      members.set(user.id, user);
-    }
-
-    return [...members.values()].sort((a, b) =>
-      a.full_name.localeCompare(b.full_name),
-    );
+    return apartment.user_apartments
+      .map(({ user }) => ({ ...user, isCurrentUser: user.id === currentUserId }))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
   }
 
   async update(id: string, updateApartmentDto: UpdateApartmentDto) {

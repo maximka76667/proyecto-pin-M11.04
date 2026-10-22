@@ -53,11 +53,46 @@ import { ApartmentsService } from './apartments.service';
               .expect(200);
 
         expect(response.body).toEqual([
-              { id: 'u-alex', full_name: 'Alex' },
-              { id: 'u-leo', full_name: 'Leo' },
-              { id: 'u-sara', full_name: 'Sara' },
+              { id: 'u-alex', full_name: 'Alex', isCurrentUser: false },
+              { id: 'u-leo', full_name: 'Leo', isCurrentUser: false },
+              { id: 'u-sara', full_name: 'Sara', isCurrentUser: false },
             ]);
  });
+
+      // Misma regla que POST /transactions/from-receipt: si apareciera, el backend lo rechazaría
+      it('no lista a un propietario que no es miembro del piso', async () => {
+            prisma.apartment.findUnique.mockResolvedValue({
+                  landlord: { id: 'u-leo', full_name: 'Leo' },
+                  user_apartments: [{ user: { id: 'u-alex', full_name: 'Alex' } }],
+                });
+
+        const response = await request(app.getHttpServer())
+              .get(`/apartments/${id}/members`)
+              .expect(200);
+
+        expect(response.body).toEqual([{ id: 'u-alex', full_name: 'Alex', isCurrentUser: false }]);
+  });
+
+      // La app lo usa para no ofrecer al usuario repartir un gasto consigo mismo
+      it('marca al usuario que hace la petición', async () => {
+            // El usuario que devuelve @CurrentUser() mientras no hay login
+            const usuarioActual = '22222222-2222-2222-2222-222222222222';
+            prisma.apartment.findUnique.mockResolvedValue({
+                  user_apartments: [
+                    { user: { id: usuarioActual, full_name: 'Bruno' } },
+                    { user: { id: 'u-alex', full_name: 'Alex' } },
+                  ],
+                });
+
+        const response = await request(app.getHttpServer())
+              .get(`/apartments/${id}/members`)
+              .expect(200);
+
+        expect(response.body).toEqual([
+              { id: 'u-alex', full_name: 'Alex', isCurrentUser: false },
+              { id: usuarioActual, full_name: 'Bruno', isCurrentUser: true },
+            ]);
+  });
 
       it('funciona para un apartamento sin propietario', async () => {
             prisma.apartment.findUnique.mockResolvedValue({
@@ -69,7 +104,7 @@ import { ApartmentsService } from './apartments.service';
               .get(`/apartments/${id}/members`)
               .expect(200);
 
-        expect(response.body).toEqual([{ id: 'u-alex', full_name: 'Alex' }]);
+        expect(response.body).toEqual([{ id: 'u-alex', full_name: 'Alex', isCurrentUser: false }]);
   });
 
       it('devuelve 404 cuando el apartamento no existe', async () => {
