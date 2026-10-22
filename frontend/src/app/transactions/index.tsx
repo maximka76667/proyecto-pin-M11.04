@@ -12,13 +12,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SettleUpCard } from '@/components/settle-up';
-//import { APARTMENT_ID, USER_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
-
 const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const USER_ID = '11111111-1111-1111-1111-111111111111';
 
 type PersonalSummary = {
   miResumen: {
@@ -37,6 +34,8 @@ type Transaction = {
   amount: number | string;
   concept?: string | null;
   category: string;
+  date: string;
+  paidByCurrentUser: boolean;
   fromUser: {
     full_name: string;
   };
@@ -54,6 +53,7 @@ type DisplayTransaction = {
   amount: number;
   concept?: string | null;
   category: string;
+  date: string;
   paidByMe: boolean;
   fromUser: {
     full_name: string;
@@ -62,11 +62,11 @@ type DisplayTransaction = {
 };
 
 // Groups split expense transactions created in the same batch into a single visible expense
-function groupTransactions(list: Transaction[], currentUserId: string): DisplayTransaction[] {
+function groupTransactions(list: Transaction[]): DisplayTransaction[] {
   const result: DisplayTransaction[] = [];
 
   for (const t of list) {
-    const paidByMe = t.from_user_id === currentUserId;
+    const paidByMe = t.paidByCurrentUser;
     const amountNum = Number(t.amount) || 0;
 
     const prev = result[result.length - 1];
@@ -94,6 +94,7 @@ function groupTransactions(list: Transaction[], currentUserId: string): DisplayT
         amount: amountNum,
         concept: t.concept,
         category: t.category,
+        date: t.date,
         paidByMe,
         fromUser: t.fromUser,
         debtorsCount: 1,
@@ -115,7 +116,7 @@ export default function Transactions() {
   const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
 
   const displayTransactions = useMemo(
-    () => groupTransactions(transactions, USER_ID),
+    () => groupTransactions(transactions),
     [transactions],
   );
 
@@ -163,8 +164,7 @@ export default function Transactions() {
           if (active) {
             setTransactions(
               apartmentTransactions.filter(
-                (transaction) =>
-                  transaction.from_user_id === USER_ID || transaction.to_user_id === USER_ID,
+                (transaction) => transaction.category !== 'pending',
               ),
             );
           }
@@ -270,6 +270,9 @@ export default function Transactions() {
                           : 'Pagaste tú'
                         : `Pagó ${transaction.fromUser.full_name}`}
                       {pendiente ? ' · pendiente de confirmar' : ''}
+                    </Text>
+                    <Text style={styles.transactionDate}>
+                      {new Date(transaction.date).toLocaleDateString('es-ES')}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
@@ -476,6 +479,7 @@ const styles = StyleSheet.create({
   transactionInfo: { flex: 1, gap: 3 },
   transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
+  transactionDate: { fontSize: 11, color: Palette.textSecondary },
   transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   transactionActions: { alignItems: 'flex-end', gap: 8 },
   menuButton: {
