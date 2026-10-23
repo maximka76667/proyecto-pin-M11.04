@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 
-describe('POST /tasks validation', () => {
+describe('Validación de tareas', () => {
   let app: INestApplication<App>;
 
   const prisma = {
@@ -16,7 +16,16 @@ describe('POST /tasks validation', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
+    userApartment: {
+      findUnique: jest.fn(),
+    },
+    taskAssignment: {
+      deleteMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -62,7 +71,10 @@ describe('POST /tasks validation', () => {
       .send(body)
       .expect(400);
 
-    expect(response.body.message.join(' ')).toContain(field);
+    const message = Array.isArray(response.body.message)
+      ? response.body.message.join(' ')
+      : response.body.message;
+    expect(message).toContain(field);
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
@@ -93,5 +105,31 @@ describe('POST /tasks validation', () => {
       .expect(400);
 
     expect(prisma.task.create).not.toHaveBeenCalled();
+  });
+
+  it('PA validación de edición: rechaza un nombre vacío antes de acceder a Prisma', async () => {
+    const response = await request(app.getHttpServer())
+      .patch('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+      .send({ title: '   ' })
+      .expect(400);
+
+    const message = Array.isArray(response.body.message)
+      ? response.body.message.join(' ')
+      : response.body.message;
+    expect(message).toContain('nombre');
+    expect(prisma.task.update).not.toHaveBeenCalled();
+  });
+
+  it('PA validación de edición: rechaza una frecuencia inválida antes de acceder a Prisma', async () => {
+    const response = await request(app.getHttpServer())
+      .patch('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+      .send({ frequency: 'never' })
+      .expect(400);
+
+    const message = Array.isArray(response.body.message)
+      ? response.body.message.join(' ')
+      : response.body.message;
+    expect(message).toContain('frequency');
+    expect(prisma.task.update).not.toHaveBeenCalled();
   });
 });

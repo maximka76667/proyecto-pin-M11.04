@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,7 +24,16 @@ describe('TasksService', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
+    taskAssignment: {
+      deleteMany: jest.fn(),
+    },
+    userApartment: {
+      findUnique: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -129,5 +142,96 @@ describe('TasksService', () => {
     prisma.task.findUnique.mockResolvedValue(null);
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
+  });
+
+  it('PA edición: actualiza nombre, descripción y frecuencia para un miembro del hogar', async () => {
+    prisma.task.findUnique
+      .mockResolvedValueOnce({ apartment_id: 'apartment-1' })
+      .mockResolvedValueOnce({ id: 'task-1', apartment_id: 'apartment-1' });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'user-1' });
+    const updated = {
+      id: 'task-1',
+      title: 'Clean kitchen',
+      description: 'Every Monday',
+      frequency: 'weekly',
+      assignments: [{ id: 'assignment-1', status: 'completed' }],
+    };
+    prisma.task.update.mockResolvedValue(updated);
+
+    await expect(
+      service.update(
+        'task-1',
+        {
+          title: '  Clean kitchen  ',
+          description: '  Every Monday  ',
+          frequency: 'weekly',
+        },
+        'user-1',
+      ),
+    ).resolves.toBe(updated);
+
+    expect(prisma.task.update).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+      data: {
+        title: 'Clean kitchen',
+        description: 'Every Monday',
+        frequency: 'weekly',
+      },
+      include: {
+        assignments: {
+          include: { user: { select: { id: true, full_name: true } } },
+          orderBy: { due_date: 'asc' },
+        },
+      },
+    });
+  });
+
+  it('PA permisos de edición: rechaza la modificación si el usuario no pertenece al hogar', async () => {
+    prisma.task.findUnique.mockResolvedValue({ apartment_id: 'apartment-1' });
+    prisma.userApartment.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.update('task-1', { title: 'Changed title' }, 'outsider'),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.task.update).not.toHaveBeenCalled();
+  });
+
+  it('PA eliminación: borra la tarea y todas sus asignaciones en una única transacción', async () => {
+    prisma.task.findUnique.mockResolvedValue({ apartment_id: 'apartment-1' });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'user-1' });
+    prisma.taskAssignment.deleteMany.mockResolvedValue({ count: 2 });
+    prisma.task.delete.mockResolvedValue({ id: 'task-1', title: 'Old task' });
+    prisma.$transaction.mockResolvedValue([
+      { count: 2 },
+      { id: 'task-1', title: 'Old task' },
+    ]);
+
+    await expect(service.remove('task-1', 'user-1')).resolves.toEqual({
+      id: 'task-1',
+      title: 'Old task',
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledWith([
+      expect.any(Promise),
+      expect.any(Promise),
+    ]);
+    expect(prisma.taskAssignment.deleteMany).toHaveBeenCalledWith({
+      where: { task_id: 'task-1' },
+    });
+    expect(prisma.task.delete).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+    });
+  });
+
+  it('PA atomicidad de eliminación: no continúa con un borrado parcial si falla la transacción', async () => {
+    prisma.task.findUnique.mockResolvedValue({ apartment_id: 'apartment-1' });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'user-1' });
+    prisma.$transaction.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(service.remove('task-1', 'user-1')).rejects.toThrow(
+      'database unavailable',
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });
