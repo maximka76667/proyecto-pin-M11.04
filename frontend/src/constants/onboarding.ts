@@ -11,6 +11,7 @@ export const Palette = {
   peach: '#F2B48C',
   sun: '#F2D184',
   mint: '#E3EBE4',
+  lavender: '#DDD8F5',
   error: '#B3261E',
 } as const;
 

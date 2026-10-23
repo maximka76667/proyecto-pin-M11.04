@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -13,6 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
+import { UpdateTaskDto } from './dto/update-task.dto';
 import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 
 @Injectable()
@@ -87,20 +89,22 @@ export class TasksService {
     return task;
   }
 
-  async createAssignment(
-    taskId: string,
-    createTaskAssignmentDto: CreateTaskAssignmentDto,
-  ) {
+  async update(id: string, updateTaskDto: UpdateTaskDto, userId: string) {
+    // Los datos se validan antes de consultar la base de datos
+    const data = this.datosEditados(updateTaskDto);
+
+    const task = await this.buscarTarea(id);
+    await this.asegurarMiembro(task.apartment_id, userId);
+
     try {
-      return await this.prisma.taskAssignment.create({
-        data: {
-          task_id: taskId,
-          user_id: createTaskAssignmentDto.user_id,
-          due_date: new Date(`${createTaskAssignmentDto.due_date}T00:00:00.000Z`),
-          status: AssignmentStatus.pending,
-        },
+      return await this.prisma.task.update({
+        where: { id },
+        data,
         include: {
-          user: { select: { id: true, full_name: true } },
+          assignments: {
+            include: { user: { select: { id: true, full_name: true } } },
+            orderBy: { due_date: 'asc' },
+          },
         },
       });
     } catch (error) {
@@ -108,12 +112,98 @@ export class TasksService {
     }
   }
 
+  // La FK de TaskAssignment es ON DELETE RESTRICT: las asignaciones se borran antes
+  // y en la misma transacción, para que no pueda quedar la tarea a medio borrar
+  async remove(id: string, userId: string) {
+    const task = await this.buscarTarea(id);
+    await this.asegurarMiembro(task.apartment_id, userId);
+
+    try {
+      const [, tareaBorrada] = await this.prisma.$transaction([
+        this.prisma.taskAssignment.deleteMany({ where: { task_id: id } }),
+        this.prisma.task.delete({ where: { id } }),
+      ]);
+      return tareaBorrada;
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  private async buscarTarea(id: string) {
+    try {
+      const task = await this.prisma.task.findUnique({
+        where: { id },
+        select: { apartment_id: true },
+      });
+      if (task) return task;
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+
+    throw new NotFoundException('Tarea no encontrada');
+  }
+
+  private async asegurarMiembro(apartmentId: string, userId: string) {
+    const miembro = await this.prisma.userApartment.findUnique({
+      where: {
+        user_id_apartment_id: { user_id: userId, apartment_id: apartmentId },
+      },
+      select: { user_id: true },
+    });
+
+    if (!miembro) {
+      throw new ForbiddenException('No perteneces a este piso');
+    }
+  }
+
+  // Un campo que no se envía no se toca. @IsOptional deja pasar null, pero el nombre,
+  // la frecuencia y la categoría son obligatorios: null no puede vaciarlos
+  private datosEditados(updateTaskDto: UpdateTaskDto) {
+    const { title, description, frequency, category } = updateTaskDto;
+    if (title === null) {
+      throw new BadRequestException('El nombre de la tarea es obligatorio');
+    }
+    if (frequency === null) {
+      throw new BadRequestException('La frecuencia es obligatoria');
+    }
+    if (category === null) {
+      throw new BadRequestException('La categoría es obligatoria');
+    }
+
+    const data: Prisma.TaskUpdateInput = {};
+    if (title !== undefined) data.title = this.limpiarTitulo(title);
+    // una descripción vacía o null borra la que hubiera, igual que al crear la tarea
+    if (description !== undefined) {
+      data.description = description?.trim() || null;
+    }
+    if (frequency !== undefined) data.frequency = frequency;
+    if (category !== undefined) data.category = category;
+    return data;
+  }
+
+  // Mismas reglas que al crear una tarea: sin espacios sobrantes y no vacío
+  private limpiarTitulo(title: string) {
+    const titulo = title.trim();
+    if (!titulo) {
+      throw new BadRequestException('El nombre de la tarea es obligatorio');
+    }
+    return titulo;
+  }
+
   private handlePrismaError(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      // el id no tiene formato de UUID, así que ninguna tarea puede tenerlo
+      if (error.code === 'P2023') {
+        throw new BadRequestException('El id de la tarea no es válido');
+      }
       if (error.code === 'P2002') {
         throw new ConflictException(
           'Ya existe una tarea con este nombre en tu hogar',
         );
+      }
+      // la tarea se ha borrado entre la comprobación y la escritura
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Tarea no encontrada');
       }
       if (error.code === 'P2003') {
         throw new NotFoundException('Hogar no encontrado');

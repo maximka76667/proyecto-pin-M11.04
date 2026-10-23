@@ -5,6 +5,7 @@ import {
     ActivityIndicator,
     NativeScrollEvent,
     NativeSyntheticEvent,
+    Platform,
     Pressable,
     SafeAreaView,
     ScrollView,
@@ -12,16 +13,29 @@ import {
     Text,
     View,
 } from 'react-native';
+import { Snackbar } from 'react-native-paper';
 
-import { APARTMENT_ID } from '@/constants/dev-session';
+import { choreCategories, type ChoreCategory, type ChoreFrequency } from '@/components/chore-form';
+import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
+import { APARTMENT_ID } from '@/constants/dev-session';
+// Aviso que se muestra después de crear, editar o borrar una tarea
+const notices: Record<string, string> = {
+    created: 'Chore created successfully.',
+    updated: 'Chore updated successfully.',
+    deleted: 'Chore deleted successfully.',
+};
+
+
+
 
 type Task = {
     id: string;
     title: string;
     description: string | null;
-    frequency: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    category: ChoreCategory;
+    frequency: ChoreFrequency;
     status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
     assignments: {
         user_id: string;
@@ -37,6 +51,14 @@ type ApartmentTaskRow = {
 };
 
 const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+const frequencyLabels: Record<ChoreFrequency, string> = {
+    none: 'Once',
+    daily: 'Daily',
+    weekly: 'Weekly',
+    biweekly: 'Every 2 weeks',
+    monthly: 'Monthly',
+};
 
 function startOfWeek(date: Date) {
     const result = new Date(date);
@@ -61,21 +83,48 @@ function dateKey(date: Date | string) {
     return `${year}-${month}-${day}`;
 }
 
+// "Sep 21 – 27", o "Sep 28 – Oct 4" cuando la semana cambia de mes
 function formatWeekTitle(weekStart: Date) {
     const weekEnd = addDays(weekStart, 6);
-    return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    const start = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const end = weekEnd.getMonth() === weekStart.getMonth()
+        ? weekEnd.getDate()
+        : weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${start} – ${end}`;
+}
+
+// "MON 21": se usa solo la fecha de due_date para que la zona horaria no la cambie de día
+function formatDueDay(dueDate: string) {
+    const date = new Date(`${dateKey(dueDate)}T00:00:00`);
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+    return `${weekday} ${date.getDate()}`;
 }
 
 export default function ChoresScreen() {
-    const { created } = useLocalSearchParams<{ created?: string }>();
+    const { notice } = useLocalSearchParams<{ notice?: string }>();
     const today = new Date();
     const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
     const [selectedDay, setSelectedDay] = useState(() => dateKey(today));
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [calendarWidth, setCalendarWidth] = useState(0);
+    const [pageWidth, setPageWidth] = useState(0);
+    // la tarea se conserva al cerrar el diálogo para que su texto no cambie mientras se desvanece
+    const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+    const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
+    // Al volver de otra pantalla la lista conserva su scroll, así que el aviso flota sobre ella.
+    // Al cerrarse se quita el parámetro, para que no vuelva a salir al recargar la página, y se
+    // guarda el texto para que no desaparezca mientras se desvanece
+    const noticeText = notice ? notices[notice] : undefined;
+    const [lastNoticeText, setLastNoticeText] = useState('');
     const calendarRef = useRef<ScrollView>(null);
+
+    const dismissNotice = () => {
+        setLastNoticeText(noticeText ?? '');
+        router.setParams({ notice: undefined });
+    };
 
     const loadTasks = useCallback(async () => {
         setLoading(true);
@@ -99,6 +148,34 @@ export default function ChoresScreen() {
         }, [loadTasks]),
     );
 
+    const openDeleteDialog = (task: Task) => {
+        setTaskToDelete(task);
+        setDeleteError('');
+        setDeleteDialogVisible(true);
+    };
+
+    const closeDeleteDialog = () => {
+        setDeleteDialogVisible(false);
+    };
+
+    const deleteTask = async () => {
+        if (!taskToDelete) return;
+
+        const deletedId = taskToDelete.id;
+        setDeleting(true);
+        setDeleteError('');
+        try {
+            await api('DELETE', `/tasks/${encodeURIComponent(deletedId)}`);
+            setTasks((current) => current.filter(({ id }) => id !== deletedId));
+            setDeleteDialogVisible(false);
+            router.setParams({ notice: 'deleted' });
+        } catch (e) {
+            setDeleteError(errorMessage(e));
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     const changeWeek = (amount: number) => {
         const nextWeek = addDays(weekStart, amount * 7);
         setWeekStart(nextWeek);
@@ -106,13 +183,13 @@ export default function ChoresScreen() {
     };
 
     const handleCalendarScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-        if (!calendarWidth) return;
+        if (!pageWidth) return;
 
-        const page = Math.round(event.nativeEvent.contentOffset.x / calendarWidth);
+        const page = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
         if (page === 1) return;
 
         changeWeek(page - 1);
-        calendarRef.current?.scrollTo({ x: calendarWidth, animated: false });
+        calendarRef.current?.scrollTo({ x: pageWidth, animated: false });
     };
 
     const weeks = [-1, 0, 1].map((offset) => addDays(weekStart, offset * 7));
@@ -125,8 +202,10 @@ export default function ChoresScreen() {
         return rows;
     }, []);
 
-    const renderWeek = (week: Date) => (
-        <View key={dateKey(week)} style={[styles.weekPage, calendarWidth ? { width: calendarWidth - 24 } : null]}>
+    // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
+    // el scroll-snap volvería a encajar en la página movida, saltando a otra semana
+    const renderWeek = (week: Date, position: number) => (
+        <View key={position} style={[styles.weekPage, pageWidth ? { width: pageWidth } : null]}>
             <View style={styles.weekHeader}>
                 <Pressable accessibilityLabel="Previous week" hitSlop={10} onPress={() => changeWeek(-1)}>
                     <MaterialCommunityIcons name="chevron-left" size={20} color={Palette.primary} />
@@ -186,18 +265,19 @@ export default function ChoresScreen() {
                     </Pressable>
                 </View>
 
-                {created === '1' ? <Text style={styles.success}>Chore created successfully.</Text> : null}
-
-                <View
-                    style={styles.weekCard}
-                    onLayout={(event) => setCalendarWidth(event.nativeEvent.layout.width)}>
+                <View style={styles.weekCard}>
+                    {/* En web se ignoran contentOffset y onMomentumScrollEnd: la semana actual se centra al
+                        tener ancho las páginas, y onScroll llega al empezar y al terminar de deslizar */}
                     <ScrollView
                         ref={calendarRef}
                         horizontal
                         pagingEnabled
                         showsHorizontalScrollIndicator={false}
-                        contentOffset={{ x: calendarWidth, y: 0 }}
-                        onMomentumScrollEnd={handleCalendarScrollEnd}>
+                        onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}
+                        contentOffset={{ x: pageWidth, y: 0 }}
+                        onContentSizeChange={() => calendarRef.current?.scrollTo({ x: pageWidth, animated: false })}
+                        onMomentumScrollEnd={handleCalendarScrollEnd}
+                        onScroll={Platform.OS === 'web' ? handleCalendarScrollEnd : undefined}>
                         {weeks.map(renderWeek)}
                     </ScrollView>
                 </View>
@@ -205,11 +285,11 @@ export default function ChoresScreen() {
                 <View style={styles.legend}>
                     <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: Palette.border }]} />
-                        <Text style={styles.legendText}>free time</Text>
+                        <Text style={styles.legendText}>Free time</Text>
                     </View>
                     <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: Palette.peach }]} />
-                        <Text style={styles.legendText}>busy</Text>
+                        <Text style={styles.legendText}>Busy</Text>
                     </View>
                     <Text style={styles.privateText}>Private blocks</Text>
                 </View>
@@ -217,13 +297,15 @@ export default function ChoresScreen() {
                 {loading ? <ActivityIndicator color={Palette.primary} /> : null}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 <View style={styles.choreList}>
-                    {apartmentTasks.map(({ task, assignment }) => (
-                        (() => {
-                            const assignee = assignment?.user.full_name ?? 'Unassigned';
+                    {apartmentTasks.map(({ task, assignment }) => {
+                        const category = choreCategories.find(({ value }) => value === task.category);
 
-                            return (
+                        return (
+                            <View
+                                key={`${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}`}
+                                style={styles.choreCard}>
                                 <Pressable
-                                    key={`${task.id}-${assignment?.due_date ?? 'unassigned'}`}
+                                    accessibilityRole="button"
                                     onPress={() =>
                                         router.push({
                                             pathname: '/chores/details',
@@ -232,26 +314,77 @@ export default function ChoresScreen() {
                                             },
                                         })
                                     }
-                                    style={({ pressed }) => [styles.choreCard, pressed && styles.pressed]}>
-                                    <View style={[styles.choreIcon, { backgroundColor: Palette.mint }]}>
-                                        <MaterialCommunityIcons name="format-list-checks" size={21} color={Palette.primary} />
+                                    style={({ pressed }) => [styles.choreMain, pressed && styles.pressed]}>
+                                    <View style={[styles.choreIcon, { backgroundColor: category?.tint ?? Palette.mint }]}>
+                                        <MaterialCommunityIcons
+                                            name={category?.icon ?? 'format-list-checks'}
+                                            size={22}
+                                            color={Palette.primary}
+                                        />
                                     </View>
                                     <View style={styles.choreCopy}>
-                                        <Text style={styles.choreDay}>{task.frequency}</Text>
+                                        <Text style={styles.choreDay}>
+                                            {assignment ? formatDueDay(assignment.due_date) : 'ANYTIME'}
+                                        </Text>
                                         <Text style={styles.choreTitle}>{task.title}</Text>
-                                        <Text style={styles.choreMeta}>{assignee}</Text>
-                                        {task.description ? <Text style={styles.choreDescription}>{task.description}</Text> : null}
+                                        <Text style={styles.choreMeta}>
+                                            {assignment?.user.full_name ?? 'Unassigned'} · {frequencyLabels[task.frequency]}
+                                        </Text>
+                                        {task.description ? (
+                                            <Text style={styles.choreDescription} numberOfLines={1}>
+                                                {task.description}
+                                            </Text>
+                                        ) : null}
                                     </View>
-                                    <MaterialCommunityIcons name="chevron-right" size={20} color={Palette.textSecondary} />
                                 </Pressable>
-                            );
-                        })()
-                    ))}
+                                <View style={styles.choreActions}>
+                                    <Pressable
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Delete ${task.title}`}
+                                        hitSlop={8}
+                                        onPress={() => openDeleteDialog(task)}
+                                        style={({ pressed }) => [styles.choreAction, pressed && styles.pressed]}>
+                                        <MaterialCommunityIcons name="trash-can-outline" size={22} color={Palette.text} />
+                                    </Pressable>
+                                    <Pressable
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Edit ${task.title}`}
+                                        hitSlop={8}
+                                        onPress={() =>
+                                            router.push({
+                                                pathname: '/chores/edit',
+                                                params: {
+                                                    taskId: task.id,
+                                                },
+                                            })
+                                        }
+                                        style={({ pressed }) => [styles.choreAction, pressed && styles.pressed]}>
+                                        <MaterialCommunityIcons name="pencil-outline" size={22} color={Palette.text} />
+                                    </Pressable>
+                                </View>
+                            </View>
+                        );
+                    })}
                 </View>
                 {!loading && !error && apartmentTasks.length === 0 ? (
                     <Text style={styles.muted}>No chores have been created yet.</Text>
                 ) : null}
             </ScrollView>
+            <DeleteChoreDialog
+                visible={deleteDialogVisible}
+                chore={taskToDelete}
+                deleting={deleting}
+                error={deleteError}
+                onCancel={closeDeleteDialog}
+                onConfirm={() => void deleteTask()}
+            />
+            <Snackbar
+                visible={Boolean(noticeText)}
+                onDismiss={dismissNotice}
+                duration={3000}
+                style={styles.snackbar}>
+                {noticeText ?? lastNoticeText}
+            </Snackbar>
         </SafeAreaView>
     );
 }
@@ -303,14 +436,17 @@ const styles = StyleSheet.create({
     privateText: { marginLeft: 'auto', fontSize: 10, color: Palette.textSecondary },
     choreList: { gap: 10 },
     error: { fontSize: 14, color: Palette.error },
-    success: { padding: 12, borderRadius: Radius.input, backgroundColor: Palette.mint, color: Palette.primary, fontSize: 14, fontWeight: '700' },
+    snackbar: { backgroundColor: Palette.primary },
     muted: { fontSize: 14, color: Palette.textSecondary, textAlign: 'center' },
-    choreCard: { flexDirection: 'row', alignItems: 'center', minHeight: 78, padding: 12, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
-    choreIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-    choreCopy: { flex: 1, marginLeft: 12, gap: 2 },
-    choreDay: { fontSize: 9, fontWeight: '700', letterSpacing: 1, color: Palette.primary },
-    choreTitle: { fontSize: 15, fontWeight: '700', color: Palette.text },
-    choreMeta: { fontSize: 11, color: Palette.textSecondary },
+    choreCard: { flexDirection: 'row', alignItems: 'center', paddingRight: 14, borderRadius: 18, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+    choreMain: { flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 78, padding: 14 },
+    choreIcon: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+    choreCopy: { flex: 1, marginLeft: 14, gap: 2 },
+    choreDay: { fontSize: 10, fontWeight: '800', letterSpacing: 1.5, color: Palette.primary },
+    choreTitle: { fontSize: 16, fontWeight: '800', color: Palette.text },
+    choreMeta: { fontSize: 12, color: Palette.textSecondary },
     choreDescription: { marginTop: 2, fontSize: 11, color: Palette.textSecondary },
+    choreActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    choreAction: { padding: 4, borderRadius: 10 },
     pressed: { opacity: 0.75 },
 });

@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApartmentsController } from './apartments.controller';
 import { ApartmentsService } from './apartments.service';
 
-    // UT998: the "new expense" form needs the roommates to choose who owes the money.
+    // UT998: el formulario de gasto nuevo necesita que se elija quién debe el dinero.
     describe('GET /apartments/:id/members (UT998)', () => {
         let app: INestApplication<App>;
 
@@ -38,7 +38,7 @@ import { ApartmentsService } from './apartments.service';
             jest.clearAllMocks();
         });
 
-      it('lists the roommates sorted by name, without repeating the landlord', async () => {
+      it('lista a los convivientes ordenados por nombre sin repetir al propietario', async () => {
            prisma.apartment.findUnique.mockResolvedValue({
                 landlord: { id: 'u-leo', full_name: 'Leo' },
                  user_apartments: [
@@ -59,7 +59,7 @@ import { ApartmentsService } from './apartments.service';
             ]);
  });
 
-      it('works for an apartment without landlord', async () => {
+      it('funciona para un apartamento sin propietario', async () => {
             prisma.apartment.findUnique.mockResolvedValue({
  landlord: null,
                   user_apartments: [{ user: { id: 'u-alex', full_name: 'Alex' } }],
@@ -72,13 +72,13 @@ import { ApartmentsService } from './apartments.service';
         expect(response.body).toEqual([{ id: 'u-alex', full_name: 'Alex' }]);
   });
 
-      it('returns 404 when the apartment does not exist', async () => {
+      it('devuelve 404 cuando el apartamento no existe', async () => {
             prisma.apartment.findUnique.mockResolvedValue(null);
         
                 await request(app.getHttpServer()).get(`/apartments/${id}/members`).expect(404);
           });
 
-      it('blocks an id that is not a uuid with 400', async () => {
+      it('bloquea con 400 un identificador que no es un UUID', async () => {
             await request(app.getHttpServer()).get('/apartments/abc/members').expect(400);
         
                expect(prisma.apartment.findUnique).not.toHaveBeenCalled();

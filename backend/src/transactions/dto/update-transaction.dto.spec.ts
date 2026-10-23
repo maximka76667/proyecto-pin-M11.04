@@ -2,54 +2,54 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { UpdateTransactionDto } from './update-transaction.dto';
 
-// Same validation the global ValidationPipe runs on PATCH /transactions/:id
+// Misma validación que ejecuta el ValidationPipe global en PATCH /transactions/:id.
 async function errorsFor(body: object) {
   const errors = await validate(plainToInstance(UpdateTransactionDto, body));
   return errors.map((error) => error.property);
 }
 
-describe('UpdateTransactionDto', () => {
-  it('accepts a valid amount and category', async () => {
+describe('DTO de actualización de transacciones', () => {
+  it('acepta un importe y una categoría válidos', async () => {
     expect(await errorsFor({ amount: '12.50', category: 'utilities' })).toEqual([]);
   });
 
-  it('accepts an empty body (all fields are optional)', async () => {
+  it('acepta un cuerpo vacío porque todos los campos son opcionales', async () => {
     expect(await errorsFor({})).toEqual([]);
   });
 
   it.each(['12', '12.5', '12.50', '0.01', '999999.99'])(
-    'accepts the amount %p',
+    'acepta el importe %p',
     async (amount) => {
       expect(await errorsFor({ amount })).toEqual([]);
     },
   );
 
   it.each([
-    ['not a number', 'abc'],
-    ['empty', ''],
-    ['negative', '-5'],
-    ['zero', '0'],
-    ['zero with decimals', '0.00'],
-    ['more than 2 decimals', '12.999'],
-    ['comma as decimal separator', '12,50'],
-    ['more than 6 integer digits', '1000000'],
-    ['too big for the database', '12345678901'],
-    ['scientific notation', '1e3'],
-    ['surrounded by spaces', ' 12 '],
-  ])('rejects an amount that is %s (%p)', async (_, amount) => {
+    ['no numérico', 'abc'],
+    ['vacío', ''],
+    ['negativo', '-5'],
+    ['cero', '0'],
+    ['cero con decimales', '0.00'],
+    ['más de 2 decimales', '12.999'],
+    ['coma como separador decimal', '12,50'],
+    ['más de 6 dígitos enteros', '1000000'],
+    ['demasiado grande para la base de datos', '12345678901'],
+    ['notación científica', '1e3'],
+    ['rodeado de espacios', ' 12 '],
+  ])('rechaza un importe %s (%p)', async (_, amount) => {
     expect(await errorsFor({ amount })).toEqual(['amount']);
   });
 
-  it('rejects an amount sent as a number instead of text', async () => {
+  it('rechaza un importe enviado como número en lugar de texto', async () => {
     expect(await errorsFor({ amount: 12.5 })).toEqual(['amount']);
   });
 
-  it('rejects an unknown category', async () => {
+  it('rechaza una categoría desconocida', async () => {
     expect(await errorsFor({ category: 'food' })).toEqual(['category']);
   });
 
   it.each(['apartment_id', 'from_user_id', 'to_user_id'])(
-    'rejects a %s that is not a uuid',
+    'rechaza un campo %s que no es un UUID',
     async (field) => {
       expect(await errorsFor({ [field]: 'not-a-uuid' })).toEqual([field]);
     },

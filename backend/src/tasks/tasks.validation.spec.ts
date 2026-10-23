@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 
-describe('POST /tasks validation', () => {
+describe('Validación de tareas', () => {
   let app: INestApplication<App>;
 
   const prisma = {
@@ -16,7 +16,16 @@ describe('POST /tasks validation', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
+    userApartment: {
+      findUnique: jest.fn(),
+    },
+    taskAssignment: {
+      deleteMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -42,31 +51,34 @@ describe('POST /tasks validation', () => {
   });
 
   it.each([
-    ['missing apartment', { title: 'Clean bathroom', frequency: 'weekly' }, 'apartment_id'],
-    ['missing title', {
+    ['sin apartamento', { title: 'Clean bathroom', frequency: 'weekly' }, 'apartment_id'],
+    ['sin nombre', {
       apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       frequency: 'weekly',
     }, 'title'],
-    ['missing frequency', {
+    ['sin frecuencia', {
       apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       title: 'Clean bathroom',
     }, 'frequency'],
-    ['invalid frequency', {
+    ['frecuencia inválida', {
       apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       title: 'Clean bathroom',
       frequency: 'every-five-days',
     }, 'frequency'],
-  ])('rejects %s before reaching Prisma', async (_, body, field) => {
+  ])('rechaza %s antes de acceder a Prisma', async (_, body, field) => {
     const response = await request(app.getHttpServer())
       .post('/tasks')
       .send(body)
       .expect(400);
 
-    expect(response.body.message.join(' ')).toContain(field);
+    const message = Array.isArray(response.body.message)
+      ? response.body.message.join(' ')
+      : response.body.message;
+    expect(message).toContain(field);
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
-  it('rejects an apartment identifier with an invalid shape', async () => {
+  it('rechaza un identificador de apartamento con formato inválido', async () => {
     await request(app.getHttpServer())
       .post('/tasks')
       .send({
@@ -79,7 +91,7 @@ describe('POST /tasks validation', () => {
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
-  it('rejects unknown fields', async () => {
+  it('rechaza campos desconocidos', async () => {
     await request(app.getHttpServer())
       .post('/tasks')
       .send({
@@ -93,5 +105,31 @@ describe('POST /tasks validation', () => {
       .expect(400);
 
     expect(prisma.task.create).not.toHaveBeenCalled();
+  });
+
+  it('PA validación de edición: rechaza un nombre vacío antes de acceder a Prisma', async () => {
+    const response = await request(app.getHttpServer())
+      .patch('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+      .send({ title: '   ' })
+      .expect(400);
+
+    const message = Array.isArray(response.body.message)
+      ? response.body.message.join(' ')
+      : response.body.message;
+    expect(message).toContain('nombre');
+    expect(prisma.task.update).not.toHaveBeenCalled();
+  });
+
+  it('PA validación de edición: rechaza una frecuencia inválida antes de acceder a Prisma', async () => {
+    const response = await request(app.getHttpServer())
+      .patch('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+      .send({ frequency: 'never' })
+      .expect(400);
+
+    const message = Array.isArray(response.body.message)
+      ? response.body.message.join(' ')
+      : response.body.message;
+    expect(message).toContain('frequency');
+    expect(prisma.task.update).not.toHaveBeenCalled();
   });
 });

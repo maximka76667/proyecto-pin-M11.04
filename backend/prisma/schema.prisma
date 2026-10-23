@@ -64,12 +64,15 @@ model Task {
   id           String           @id @default(uuid()) @db.Uuid
   apartment_id String           @db.Uuid
   title        String
+  description  String?
   status       TaskStatus
   category     TaskCategory
   priority     TaskPriority
   frequency    TaskFrequency
   apartment    Apartment        @relation(fields: [apartment_id], references: [id])
   assignments  TaskAssignment[]
+
+  @@unique([apartment_id, title])
 }
 
 model TaskAssignment {

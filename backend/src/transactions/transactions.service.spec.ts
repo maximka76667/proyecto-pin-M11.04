@@ -150,7 +150,7 @@ async function crearServicio(transacciones: TransaccionFalsa[]) {
   return module.get<TransactionsService>(TransactionsService);
 }
 
-describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
+describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', () => {
   describe('PA-1002.01: cálculo y optimización exitosa de balances', () => {
     // Ana adelanta una compra de 90€ repartida entre los tres (30€ cada uno) y Bruno paga
     // internet, 60€ entre los tres (20€ cada uno).
@@ -369,7 +369,7 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
   });
 });
 
-// Builds the error Prisma throws, e.g. P2025 = record not found
+// Construye el error que lanza Prisma, por ejemplo P2025 = registro no encontrado.
 function prismaError(code: string) {
   return new Prisma.PrismaClientKnownRequestError('Prisma error', {
     code,
@@ -377,20 +377,23 @@ function prismaError(code: string) {
   });
 }
 
-describe('TransactionsService', () => {
+describe('Servicio de transacciones', () => {
   let service: TransactionsService;
 
-  // Only the Prisma methods used by update/remove are mocked. findUnique is the check
-  // that stops debt payments from being edited or deleted
+  // Solo se simulan los métodos de Prisma usados por update/remove. findUnique comprueba
+  // que los pagos de deudas no se puedan editar ni eliminar.
   const prisma = {
     transaction: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
     userApartment: {
       findUnique: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   const transaction = {
@@ -413,8 +416,15 @@ describe('TransactionsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    // Editable expense by default; set here because clearAllMocks keeps mocked values
+    // Gasto editable por defecto; se establece aquí porque clearAllMocks conserva los valores simulados.
     prisma.transaction.findUnique.mockResolvedValue(transaction);
+    prisma.userApartment.findUnique.mockResolvedValue({
+      user_id: deudorId,
+    });
+    prisma.transaction.findFirst.mockResolvedValue(null);
+    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => unknown) =>
+      callback(prisma),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -427,8 +437,8 @@ describe('TransactionsService', () => {
     service = module.get(TransactionsService);
   });
 
-  describe('update (modify expense)', () => {
-    it('updates the expense by id with the given data', async () => {
+  describe('update (modificar gasto)', () => {
+    it('actualiza el gasto por identificador con los datos recibidos', async () => {
       const updated = { ...transaction, amount: '55.50', category: 'utilities' };
       prisma.transaction.update.mockResolvedValue(updated);
 
@@ -444,7 +454,7 @@ describe('TransactionsService', () => {
       expect(result).toEqual(updated);
     });
 
-    it('only sends the fields that changed', async () => {
+    it('solo envía los campos que han cambiado', async () => {
       prisma.transaction.update.mockResolvedValue({ ...transaction, amount: '10.00' });
 
       await service.update('tx-1', { amount: '10.00' });
@@ -455,7 +465,7 @@ describe('TransactionsService', () => {
       });
     });
 
-    it('returns 404 when the expense does not exist', async () => {
+    it('devuelve 404 cuando el gasto no existe', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.update('missing', { amount: '10.00' })).rejects.toThrow(
@@ -463,7 +473,7 @@ describe('TransactionsService', () => {
       );
     });
 
-    it('returns 400 when the new apartment or user does not exist', async () => {
+    it('devuelve 400 cuando el nuevo apartamento o usuario no existe', async () => {
       prisma.transaction.update.mockRejectedValue(prismaError('P2003'));
 
       await expect(
@@ -471,7 +481,7 @@ describe('TransactionsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rethrows unexpected errors', async () => {
+    it('propaga los errores inesperados', async () => {
       const unexpected = new Error('Database down');
       prisma.transaction.update.mockRejectedValue(unexpected);
 
@@ -479,8 +489,8 @@ describe('TransactionsService', () => {
     });
   });
 
-  describe('remove (delete expense)', () => {
-    it('deletes the expense by id and returns it', async () => {
+  describe('remove (eliminar gasto)', () => {
+    it('elimina el gasto por identificador y lo devuelve', async () => {
       prisma.transaction.delete.mockResolvedValue(transaction);
 
       const result = await service.remove('tx-1');
@@ -491,7 +501,7 @@ describe('TransactionsService', () => {
       expect(result).toEqual(transaction);
     });
 
-    it('returns 404 when the expense does not exist', async () => {
+    it('devuelve 404 cuando el gasto no existe', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
@@ -499,8 +509,8 @@ describe('TransactionsService', () => {
 
   });
 
-  describe('markAsPaid', () => {
-    it('creates a pending payment notice for a valid debt', async () => {
+  describe('markAsPaid (marcar deuda como pagada)', () => {
+    it('crea un aviso de pago pendiente para una deuda válida', async () => {
       const notice = {
         id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         apartment_id: apartmentId,
@@ -531,16 +541,16 @@ describe('TransactionsService', () => {
     });
 
     it.each([
-      ['the debt is already settled', []],
+      ['la deuda ya está saldada', []],
       [
-        'the current user is not the creditor',
+        'el usuario actual no es el acreedor',
         [{ ...pendingDebt, acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
       ],
       [
-        'the current user is not the debtor',
+        'el usuario actual no es el deudor',
         [{ ...pendingDebt, deudorId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }],
       ],
-    ])('rejects when %s', async (_reason, currentDebts) => {
+    ])('rechaza la operación cuando %s', async (_reason, currentDebts) => {
       jest.spyOn(service, 'getPagoMinimo').mockResolvedValue(currentDebts);
 
       await expect(
@@ -553,7 +563,7 @@ describe('TransactionsService', () => {
       expect(prisma.transaction.create).not.toHaveBeenCalled();
     });
 
-    it('rejects when the debt amount has changed', async () => {
+    it('rechaza la operación cuando el importe de la deuda ha cambiado', async () => {
       jest
         .spyOn(service, 'getPagoMinimo')
         .mockResolvedValue([{ ...pendingDebt, monto: 30 }]);

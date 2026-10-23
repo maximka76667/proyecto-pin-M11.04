@@ -276,7 +276,7 @@ describe('POST /tasks: crear tareas (UT1005)', () => {
     });
 
     // La descripción aún no existe (ni columna, ni DTO, ni campo en el formulario):
-    // este test falla hasta que se implemente
+    // Este test comprueba que la descripción opcional queda soportada.
     it('acepta una descripción opcional y la guarda con la tarea', async () => {
       const descripcion = 'Bajar el cubo marrón antes de las 22:00';
 
