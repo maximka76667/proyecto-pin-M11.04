@@ -1,15 +1,18 @@
 import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { TaskCategory, TaskFrequency } from '@prisma/client';
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class CreateTaskDto {
-  @Matches(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    { message: 'apartment_id must be a UUID-like identifier' },
-  )
+  @Matches(UUID_REGEX, {
+    message: 'apartment_id must be a UUID-like identifier',
+  })
   apartment_id: string;
 
+  @IsString()
   @IsNotEmpty()
-  @MaxLength(120)
+  @MaxLength(100)
   title: string;
 
   @IsOptional()
