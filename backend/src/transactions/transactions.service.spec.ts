@@ -380,10 +380,10 @@ function prismaError(code: string) {
 describe('TransactionsService', () => {
   let service: TransactionsService;
 
+  // Only the Prisma methods used by update/remove are mocked. findUnique is the check
+  // that stops debt payments from being edited or deleted
   const prisma = {
     transaction: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -413,9 +413,8 @@ describe('TransactionsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Editable expense by default; set here because clearAllMocks keeps mocked values
     prisma.transaction.findUnique.mockResolvedValue(transaction);
-    prisma.transaction.findFirst.mockResolvedValue(null);
-    prisma.userApartment.findUnique.mockResolvedValue({ user_id: deudorId });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

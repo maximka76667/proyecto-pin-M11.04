@@ -11,10 +11,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { SettleUpCard } from '@/components/settle-up';
-import { APARTMENT_ID} from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
+
+const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 type PersonalSummary = {
   miResumen: {
@@ -129,6 +131,20 @@ export default function Transactions() {
       const loadTransactions = async () => {
         setLoading(true);
         setError('');
+      try {
+        const apartmentTransactions = await api(
+          'GET',
+          `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+        ) as Transaction[];
+
+        if (active) {
+          setTransactions(
+            apartmentTransactions.filter(
+              (transaction) => transaction.category !== 'pending',
+            )
+          );
+        }
+
         try {
           const apartmentTransactions = (await api(
             'GET',
@@ -174,8 +190,16 @@ export default function Transactions() {
         </Pressable>
 
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
-          <Text style={styles.title}>Dinero</Text>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
+              <Text style={styles.title}>Dinero</Text>
+            </View>
+            <Pressable onPress={() => router.push('/escanearticket')} style={styles.scanButton}>
+              <MaterialCommunityIcons name="line-scan" size={20} color={Palette.onPrimary} />
+              <Text style={styles.scanButtonText}>Ticket</Text>
+            </Pressable>
+          </View>
         </View>
 
         <Pressable
@@ -218,9 +242,9 @@ export default function Transactions() {
 
         {displayTransactions.length > 0 ? (
           <View style={styles.transactionList}>
-
-            {displayTransactions.map((transaction) => {
-              const paidByMe = transaction.paidByMe;
+            {transactions.map((transaction) => {
+              const amount = Number(transaction.amount);
+              const paidByMe = transaction.paidByCurrentUser;
               const pendiente = transaction.category === 'pending';
               // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
               const editable = transaction.category !== 'payment' && !pendiente;
@@ -239,12 +263,7 @@ export default function Transactions() {
                       {transaction.concept || transaction.category}
                     </Text>
                     <Text style={styles.transactionStatus}>
-
-                      {paidByMe
-                        ? transaction.debtorsCount > 1
-                          ? `Pagaste tú · ${transaction.debtorsCount} compañeros`
-                          : 'Pagaste tú'
-                        : `Pagó ${transaction.fromUser.full_name}`}
+                      {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
                       {pendiente ? ' · pendiente de confirmar' : ''}
                     </Text>
                     <Text style={styles.transactionDate}>
@@ -259,8 +278,7 @@ export default function Transactions() {
                         // todavía no cuenta en el balance
                         pendiente && styles.pendingAmount,
                       ]}>
-                      {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
-
+                      {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
                     </Text>
                     {editable ? (
                       <Pressable
@@ -388,6 +406,9 @@ const styles = StyleSheet.create({
   },
   back: { alignSelf: 'flex-start', paddingTop: 8 },
   header: { gap: 6 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  scanButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: Palette.primary },
+  scanButtonText: { fontSize: 12, fontWeight: '800', color: Palette.onPrimary },
   eyebrow: {
     fontSize: 12,
     fontWeight: '800',

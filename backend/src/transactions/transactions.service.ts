@@ -13,6 +13,10 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import {
+  CreateReceiptTransactionDto,
+  ReceiptItemDto,
+} from './dto/create-receipt-transaction.dto';
+import {
   BalanceUsuario,
   calcularMinimosPagos,
   Pago,
@@ -67,7 +71,6 @@ export class TransactionsService {
     private readonly usersService: UsersService,
   ) {}
 
-
   async create(createTransactionDto: CreateTransactionDto) {
     const debtorIds = createTransactionDto.to_user_ids?.length
       ? Array.from(new Set(createTransactionDto.to_user_ids))
@@ -80,49 +83,30 @@ export class TransactionsService {
     }
 
     const payerId = createTransactionDto.from_user_id;
-    const actualDebtorIds = debtorIds.filter((debtorId) => debtorId !== payerId);
+    const actualDebtorIds = debtorIds.filter((id) => id !== payerId);
 
-    // Without a date, the column applies its default value (today)
     const date = createTransactionDto.date
       ? new Date(createTransactionDto.date)
       : undefined;
-
 
     try {
       if (actualDebtorIds.length === 0) {
         return [];
       }
 
-      if (debtorIds.length === 1) {
-        return await this.prisma.transaction.create({
-          data: {
-            apartment_id: createTransactionDto.apartment_id,
-            from_user_id: createTransactionDto.from_user_id,
-            to_user_id: debtorIds[0],
-            amount: createTransactionDto.amount,
-            concept: createTransactionDto.concept,
-            category: createTransactionDto.category,
-            date,
-          },
-        });
-      }
-
-      // Split total amount among debtors equally (using cents to handle exact rounding)
-      const totalAmount = Number(createTransactionDto.amount);
-      const totalCents = Math.round(totalAmount * 100);
+      const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
       const baseCents = Math.floor(totalCents / debtorIds.length);
       const remainder = totalCents % debtorIds.length;
 
       const creates = actualDebtorIds.map((debtorId, index) => {
         const shareCents = baseCents + (index < remainder ? 1 : 0);
-        const shareAmount = (shareCents / 100).toFixed(2);
 
         return this.prisma.transaction.create({
           data: {
             apartment_id: createTransactionDto.apartment_id,
-            from_user_id: createTransactionDto.from_user_id,
+            from_user_id: payerId,
             to_user_id: debtorId,
-            amount: shareAmount,
+            amount: (shareCents / 100).toFixed(2),
             concept: createTransactionDto.concept,
             category: createTransactionDto.category,
             date,
@@ -130,16 +114,106 @@ export class TransactionsService {
         });
       });
 
-      if (typeof (this.prisma as unknown as { $transaction?: unknown }).$transaction === 'function') {
+      if (creates.length === 1) {
+        return await creates[0];
+      }
+
+      if (
+        typeof (this.prisma as unknown as { $transaction?: unknown })
+          .$transaction === 'function'
+      ) {
         return await this.prisma.$transaction(creates);
       }
+
       return await Promise.all(creates);
     } catch (error) {
       this.handlePrismaError(error);
     }
+  }
 
-}
+  async createFromReceipt(
+    dto: CreateReceiptTransactionDto,
+    payerId: string,
+  ) {
+    const participantIds = [...new Set(dto.participant_ids)].filter(
+      (participantId) => participantId !== payerId,
+    );
 
+    const apartment = await this.prisma.apartment.findUnique({
+      where: { id: dto.apartment_id },
+      select: {
+        user_apartments: {
+          select: {
+            user_id: true,
+          },
+        },
+      },
+    });
+
+    if (!apartment) {
+      throw new NotFoundException('Apartment not found');
+    }
+
+    const memberIds = new Set(
+      apartment.user_apartments.map(({ user_id }) => user_id),
+    );
+
+    if (!memberIds.has(payerId)) {
+      throw new BadRequestException(
+        'The current user must belong to the apartment',
+      );
+    }
+
+    if (participantIds.some((id) => !memberIds.has(id))) {
+      throw new BadRequestException(
+        'All participants must belong to the apartment',
+      );
+    }
+
+    if (participantIds.length === 0) {
+      throw new BadRequestException(
+        'Select at least one person to share the receipt with',
+      );
+    }
+
+    const totalCents = dto.items.reduce(
+      (total, item) => total + this.itemCents(item) * item.quantity,
+      0,
+    );
+
+    if (totalCents <= 0) {
+      throw new BadRequestException('Receipt total must be positive');
+    }
+
+    const participantCount = participantIds.length + 1;
+    const shareCents = Math.floor(totalCents / participantCount);
+
+    const transactions = await this.prisma.$transaction(
+      participantIds.map((debtorId) =>
+        this.prisma.transaction.create({
+          data: {
+            apartment_id: dto.apartment_id,
+            from_user_id: payerId,
+            to_user_id: debtorId,
+            amount: (shareCents / 100).toFixed(2),
+            category: dto.category,
+            date: dto.date ? new Date(dto.date) : undefined,
+          },
+        }),
+      ),
+    );
+
+    return {
+      total: (totalCents / 100).toFixed(2),
+      participant_count: participantCount,
+      transactions,
+    };
+  }
+
+  private itemCents(item: ReceiptItemDto): number {
+    const [whole, decimals = ''] = item.unit_price.split('.');
+    return Number(whole) * 100 + Number(decimals.padEnd(2, '0'));
+  }
 
   async findUsersTransactions(apartmentId: string | undefined, userId: string) {
     const transactions = await this.prisma.transaction.findMany({
@@ -228,48 +302,6 @@ export class TransactionsService {
     const userNames = await this.getPaymentUserNames(payments);
     return this.buildPersonalSummary(payments, userId, userNames);
   }
-
-  /*async getSettleUp(apartmentId: string): Promise<DeudaSettleUp[]> {
-    const allPayments = await this.getPagoMinimo(apartmentId);
-    const userNames = await this.usersService.getUserNames(
-      allPayments.flatMap((payment) => [payment.deudorId, payment.acreedorId]),
-    );
-
-    return allPayments.map((payment) => ({
-      deudorId: payment.deudorId,
-      deudor: userNames[payment.deudorId] ?? payment.deudorId,
-      acreedorId: payment.acreedorId,
-      acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
-      monto: payment.monto,
-    }));
-  }
-
-  // Solo el acreedor puede marcar como pagada una deuda que tiene a su favor
-  async settleDebt(apartmentId: string, acreedorId: string, settleDebtDto: SettleDebtDto) {
-    const allPayments = await this.getPagoMinimo(apartmentId);
-    const pago = allPayments.find(
-      (payment) =>
-        payment.deudorId === settleDebtDto.deudor_id && payment.acreedorId === acreedorId,
-    );
-
-    if (!pago) {
-      throw new NotFoundException('No hay ninguna deuda pendiente de este usuario contigo');
-    }
-
-    if (Math.abs(pago.monto - Number(settleDebtDto.amount)) > 0.01) {
-      throw new ConflictException('El balance ha cambiado, recarga la pantalla');
-    }
-
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: apartmentId,
-        from_user_id: pago.deudorId,
-        to_user_id: pago.acreedorId,
-        amount: pago.monto.toFixed(2),
-        category: TransactionCategory.payment,
-      },
-    });
-  }*/
 
   async getPublicApartmentBalance(inviteCode: string) {
     if (

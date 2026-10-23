@@ -142,6 +142,32 @@ export class ApartmentsService {
     });
   }
 
+  async findMembers(id: string, currentUserId?: string) {
+    const apartment = await this.prisma.apartment.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!apartment) {
+      throw new NotFoundException('Apartment not found');
+    }
+
+    const members = await this.prisma.user.findMany({
+      where: {
+        OR: [
+          { user_apartments: { some: { apartment_id: id } } },
+          { landlord_apartments: { some: { id } } },
+        ],
+      },
+      select: { id: true, full_name: true },
+      orderBy: { full_name: 'asc' },
+    });
+
+    return members.map((member) => ({
+      ...member,
+      isCurrentUser: member.id === currentUserId,
+    }));
+  }
+
   async update(id: string, updateApartmentDto: UpdateApartmentDto) {
     if (updateApartmentDto.landlord_id) {
       await this.assertIsLandlord(updateApartmentDto.landlord_id);

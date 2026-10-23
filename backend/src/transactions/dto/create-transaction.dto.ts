@@ -21,7 +21,6 @@ import { CATEGORIAS_DE_GASTO } from '../categorias';
 // Accepts RFC 4122 UUIDs and general PostgreSQL 32-hex UUIDs (e.g. seed data)
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export class CreateTransactionDto {
   @Matches(UUID_REGEX, {
     message: '$property must be a UUID',

@@ -20,7 +20,6 @@ describe('TransactionsController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TransactionsController],
-
       providers: [
         { provide: TransactionsService, useValue: transactionsService },
       ],
