@@ -64,6 +64,8 @@ export class TransactionsController {
     return this.transactionsService.remove(id);
   }
 
+  
+
   @Get(':apartmentId/my-summary')
   getMyPersonalSummary(
     @Param('apartmentId') apartmentId: string,

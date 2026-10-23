@@ -17,7 +17,7 @@ describe('UpdateTransactionDto', () => {
     expect(await errorsFor({})).toEqual([]);
   });
 
-  it.each(['12', '12.5', '12.50', '0.01', '9999999999.99'])(
+  it.each(['12', '12.5', '12.50', '0.01', '999999.99'])(
     'accepts the amount %p',
     async (amount) => {
       expect(await errorsFor({ amount })).toEqual([]);
@@ -32,6 +32,7 @@ describe('UpdateTransactionDto', () => {
     ['zero with decimals', '0.00'],
     ['more than 2 decimals', '12.999'],
     ['comma as decimal separator', '12,50'],
+    ['more than 6 integer digits', '1000000'],
     ['too big for the database', '12345678901'],
     ['scientific notation', '1e3'],
     ['surrounded by spaces', ' 12 '],

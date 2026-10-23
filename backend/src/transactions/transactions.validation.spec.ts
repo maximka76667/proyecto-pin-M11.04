@@ -67,6 +67,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
   it.each([
     ['a negative amount', { amount: '-5' }, 'amount'],
     ['a zero amount', { amount: '0' }, 'amount'],
+    ['an amount with more than 6 integer digits', { amount: '1000000' }, 'amount'],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an amount that is not a number', { amount: 'abc' }, 'amount'],
     ['an unknown category', { category: 'food' }, 'category'],
