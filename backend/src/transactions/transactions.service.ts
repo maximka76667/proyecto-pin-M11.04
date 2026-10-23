@@ -114,7 +114,7 @@ export class TransactionsService {
         });
       });
 
-      if (creates.length === 1) {
+      if (debtorIds.length === 1) {
         return await creates[0];
       }
 

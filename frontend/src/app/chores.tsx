@@ -13,10 +13,9 @@ import {
     View,
 } from 'react-native';
 
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 type Task = {
     id: string;

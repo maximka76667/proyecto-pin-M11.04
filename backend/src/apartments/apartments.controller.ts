@@ -44,18 +44,16 @@ export class ApartmentsController {
   }
 
   @Get(':id/members')
-  findMembers(@Param('id', ParseUUIDPipe) id: string) {
-    return this.apartmentsService.findMembers(id);
+  findMembers(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.apartmentsService.findMembers(id, userId);
   }
 
   @Get()
   findAll() {
     return this.apartmentsService.findAll();
-  }
-
-  @Get(':id/members')
-  findMembers(@Param('id') id: string, @CurrentUser() userId: string) {
-    return this.apartmentsService.findMembers(id, userId);
   }
 
   @Patch(':id')

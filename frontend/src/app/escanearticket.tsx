@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { APARTMENT_ID, USER_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
@@ -21,7 +22,6 @@ type Member = { id: string; full_name: string; isCurrentUser?: boolean };
 
 const SAMPLE_ITEMS: ReceiptItem[] = [
 ];
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 export default function ScanReceiptScreen() {
   const { items: encodedItems } = useLocalSearchParams<{ items?: string }>();
@@ -50,9 +50,8 @@ export default function ScanReceiptScreen() {
           'GET',
           `/apartments/${encodeURIComponent(APARTMENT_ID)}/members`,
         ) as Member[];
-        const otherMembers = loaded.filter(({ isCurrentUser }) => !isCurrentUser);
-        setMembers(otherMembers);
-        setSelectedMembers(otherMembers.map(({ id }) => id));
+        setMembers(loaded);
+        setSelectedMembers(loaded.map(({ id }) => id));
       } catch (e) {
         setError(errorMessage(e));
       } finally {
@@ -211,7 +210,9 @@ export default function ScanReceiptScreen() {
                   onPress={() => setSelectedMembers((current) => selected ? current.filter((id) => id !== member.id) : [...current, member.id])}
                   style={[styles.memberCard, selected && styles.memberSelected]}>
                   <MaterialCommunityIcons name={selected ? 'check-circle' : 'circle-outline'} size={22} color={selected ? Palette.primary : Palette.textSecondary} />
-                  <Text style={styles.memberName}>{member.full_name}</Text>
+                  <Text style={styles.memberName}>
+                    {member.id === USER_ID ? 'Yo' : member.full_name}
+                  </Text>
                 </Pressable>
               );
             })}

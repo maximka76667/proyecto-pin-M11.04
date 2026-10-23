@@ -13,10 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SettleUpCard } from '@/components/settle-up';
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 type PersonalSummary = {
   miResumen: {
@@ -131,20 +130,6 @@ export default function Transactions() {
       const loadTransactions = async () => {
         setLoading(true);
         setError('');
-      try {
-        const apartmentTransactions = await api(
-          'GET',
-          `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-        ) as Transaction[];
-
-        if (active) {
-          setTransactions(
-            apartmentTransactions.filter(
-              (transaction) => transaction.category !== 'pending',
-            )
-          );
-        }
-
         try {
           const apartmentTransactions = (await api(
             'GET',
@@ -242,9 +227,8 @@ export default function Transactions() {
 
         {displayTransactions.length > 0 ? (
           <View style={styles.transactionList}>
-            {transactions.map((transaction) => {
-              const amount = Number(transaction.amount);
-              const paidByMe = transaction.paidByCurrentUser;
+            {displayTransactions.map((transaction) => {
+              const paidByMe = transaction.paidByMe;
               const pendiente = transaction.category === 'pending';
               // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
               const editable = transaction.category !== 'payment' && !pendiente;
@@ -278,7 +262,7 @@ export default function Transactions() {
                         // todavía no cuenta en el balance
                         pendiente && styles.pendingAmount,
                       ]}>
-                      {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
+                      {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
                     </Text>
                     {editable ? (
                       <Pressable
