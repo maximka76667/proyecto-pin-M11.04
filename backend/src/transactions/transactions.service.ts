@@ -13,6 +13,10 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import {
+  CreateReceiptTransactionDto,
+  ReceiptItemDto,
+} from './dto/create-receipt-transaction.dto';
+import {
   BalanceUsuario,
   calcularMinimosPagos,
   Pago,
@@ -36,11 +40,6 @@ interface FilaDeuda {
 }
 
 export interface RespuestaMiBalancePersonal {
-  globalPayments: {
-    deudor: string;
-    acreedor: string;
-    monto: number;
-  }[];
   miResumen: {
     esDeudor: boolean;
     monto: number;
@@ -72,20 +71,148 @@ export class TransactionsService {
     private readonly usersService: UsersService,
   ) {}
 
-  create(createTransactionDto: CreateTransactionDto) {
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: createTransactionDto.apartment_id,
-        from_user_id: createTransactionDto.from_user_id,
-        to_user_id: createTransactionDto.to_user_id,
-        amount: createTransactionDto.amount,
-        category: createTransactionDto.category,
-        // sin fecha, la columna aplica su valor por defecto (hoy)
-        date: createTransactionDto.date
-          ? new Date(createTransactionDto.date)
-          : undefined,
+  async create(createTransactionDto: CreateTransactionDto) {
+    const debtorIds = createTransactionDto.to_user_ids?.length
+      ? Array.from(new Set(createTransactionDto.to_user_ids))
+      : createTransactionDto.to_user_id
+        ? [createTransactionDto.to_user_id]
+        : [];
+
+    if (debtorIds.length === 0) {
+      throw new BadRequestException('At least one debtor must be specified');
+    }
+
+    const payerId = createTransactionDto.from_user_id;
+    const actualDebtorIds = debtorIds.filter((id) => id !== payerId);
+
+    const date = createTransactionDto.date
+      ? new Date(createTransactionDto.date)
+      : undefined;
+
+    try {
+      if (actualDebtorIds.length === 0) {
+        return [];
+      }
+
+      const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
+      const baseCents = Math.floor(totalCents / debtorIds.length);
+      const remainder = totalCents % debtorIds.length;
+
+      const creates = actualDebtorIds.map((debtorId, index) => {
+        const shareCents = baseCents + (index < remainder ? 1 : 0);
+
+        return this.prisma.transaction.create({
+          data: {
+            apartment_id: createTransactionDto.apartment_id,
+            from_user_id: payerId,
+            to_user_id: debtorId,
+            amount: (shareCents / 100).toFixed(2),
+            concept: createTransactionDto.concept,
+            category: createTransactionDto.category,
+            date,
+          },
+        });
+      });
+
+      if (debtorIds.length === 1) {
+        return await creates[0];
+      }
+
+      if (
+        typeof (this.prisma as unknown as { $transaction?: unknown })
+          .$transaction === 'function'
+      ) {
+        return await this.prisma.$transaction(creates);
+      }
+
+      return await Promise.all(creates);
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
+  }
+
+  async createFromReceipt(
+    dto: CreateReceiptTransactionDto,
+    payerId: string,
+  ) {
+    const participantIds = [...new Set(dto.participant_ids)].filter(
+      (participantId) => participantId !== payerId,
+    );
+
+    const apartment = await this.prisma.apartment.findUnique({
+      where: { id: dto.apartment_id },
+      select: {
+        user_apartments: {
+          select: {
+            user_id: true,
+          },
+        },
       },
     });
+
+    if (!apartment) {
+      throw new NotFoundException('Apartment not found');
+    }
+
+    const memberIds = new Set(
+      apartment.user_apartments.map(({ user_id }) => user_id),
+    );
+
+    if (!memberIds.has(payerId)) {
+      throw new BadRequestException(
+        'The current user must belong to the apartment',
+      );
+    }
+
+    if (participantIds.some((id) => !memberIds.has(id))) {
+      throw new BadRequestException(
+        'All participants must belong to the apartment',
+      );
+    }
+
+    if (participantIds.length === 0) {
+      throw new BadRequestException(
+        'Select at least one person to share the receipt with',
+      );
+    }
+
+    const totalCents = dto.items.reduce(
+      (total, item) => total + this.itemCents(item) * item.quantity,
+      0,
+    );
+
+    if (totalCents <= 0) {
+      throw new BadRequestException('Receipt total must be positive');
+    }
+
+    const participantCount = participantIds.length + 1;
+    const shareCents = Math.floor(totalCents / participantCount);
+
+    const transactions = await this.prisma.$transaction(
+      participantIds.map((debtorId) =>
+        this.prisma.transaction.create({
+          data: {
+            apartment_id: dto.apartment_id,
+            from_user_id: payerId,
+            to_user_id: debtorId,
+            amount: (shareCents / 100).toFixed(2),
+            category: dto.category,
+            date: dto.date ? new Date(dto.date) : undefined,
+          },
+        }),
+      ),
+    );
+
+    return {
+      total: (totalCents / 100).toFixed(2),
+      participant_count: participantCount,
+      transactions,
+    };
+  }
+
+  private itemCents(item: ReceiptItemDto): number {
+    const [whole, decimals = ''] = item.unit_price.split('.');
+    return Number(whole) * 100 + Number(decimals.padEnd(2, '0'));
   }
 
   async findUsersTransactions(apartmentId: string | undefined, userId: string) {
@@ -123,12 +250,8 @@ export class TransactionsService {
     return transaction;
   }
 
-  async update(
-    id: string,
-    updateTransactionDto: UpdateTransactionDto,
-    userId?: string,
-  ) {
-    await this.asegurarEditable(id, userId);
+  async update(id: string, updateTransactionDto: UpdateTransactionDto) {
+    await this.asegurarEditable(id);
 
     try {
       const { date, ...rest } = updateTransactionDto;
@@ -142,8 +265,8 @@ export class TransactionsService {
     }
   }
 
-  async remove(id: string, userId?: string) {
-    await this.asegurarEditable(id, userId);
+  async remove(id: string) {
+    await this.asegurarEditable(id);
 
     try {
       return await this.prisma.transaction.delete({
@@ -279,16 +402,9 @@ export class TransactionsService {
       (payment) => payment.acreedorId === userId,
     );
 
-    const globalPayments = payments.map((payment) => ({
-      deudor: userNames[payment.deudorId] ?? payment.deudorId,
-      acreedor: userNames[payment.acreedorId] ?? payment.acreedorId,
-      monto: payment.monto,
-    }));
-
     if (debtsAsDebtor.length > 0) {
       const monto = this.totalPayments(debtsAsDebtor);
       return {
-        globalPayments,
         miResumen: {
           esDeudor: true,
           monto,
@@ -306,7 +422,6 @@ export class TransactionsService {
     if (debtsAsCreditor.length > 0) {
       const monto = this.totalPayments(debtsAsCreditor);
       return {
-        globalPayments,
         miResumen: {
           esDeudor: false,
           monto,
@@ -322,7 +437,6 @@ export class TransactionsService {
     }
 
     return {
-      globalPayments: [],
       miResumen: { esDeudor: false, monto: 0, conceptos: [] },
       mensaje: 'Estás al día en tus pagos.',
     };
@@ -415,31 +529,50 @@ export class TransactionsService {
       );
     }
 
-    const avisoPrevio = await this.prisma.transaction.findFirst({
-      where: {
-        apartment_id: apartmentId,
-        from_user_id: deudorId,
-        to_user_id: deuda.acreedorId,
-        category: TransactionCategory.pending,
-      },
-      select: { id: true },
-    });
+    // Comprobar que no hay aviso y crearlo van en una transacción Serializable: si llegan
+    // dos peticiones a la vez, Postgres aborta una (P2034) en lugar de crear dos avisos
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const avisoPrevio = await tx.transaction.findFirst({
+            where: {
+              apartment_id: apartmentId,
+              from_user_id: deudorId,
+              to_user_id: deuda.acreedorId,
+              category: TransactionCategory.pending,
+            },
+            select: { id: true },
+          });
 
-    if (avisoPrevio) {
-      throw new ConflictException(
-        'Ya has avisado de este pago; falta que lo confirme',
+          if (avisoPrevio) {
+            throw new ConflictException(
+              'Ya has avisado de este pago; falta que lo confirme',
+            );
+          }
+
+          return tx.transaction.create({
+            data: {
+              apartment_id: apartmentId,
+              from_user_id: deudorId,
+              to_user_id: deuda.acreedorId,
+              amount: deuda.monto.toFixed(2),
+              category: TransactionCategory.pending,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034'
+      ) {
+        throw new ConflictException(
+          'Ya has avisado de este pago; falta que lo confirme',
+        );
+      }
+      throw error;
     }
-
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: apartmentId,
-        from_user_id: deudorId,
-        to_user_id: deuda.acreedorId,
-        amount: deuda.monto.toFixed(2),
-        category: TransactionCategory.pending,
-      },
-    });
   }
 
   // El acreedor confirma que le ha llegado el dinero: el aviso pasa a ser un pago
@@ -448,10 +581,24 @@ export class TransactionsService {
 
     try {
       return await this.prisma.transaction.update({
-        where: { id: transactionId },
+        // Las condiciones van también en la escritura para que sea atómica: si otra petición
+        // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025)
+        where: {
+          id: transactionId,
+          category: TransactionCategory.pending,
+          to_user_id: userId,
+        },
         data: { category: TransactionCategory.payment },
       });
     } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new ConflictException(
+          'Este pago ya no está pendiente de confirmar',
+        );
+      }
       this.handlePrismaError(error);
     }
   }
@@ -462,9 +609,22 @@ export class TransactionsService {
 
     try {
       return await this.prisma.transaction.delete({
-        where: { id: transactionId },
+        // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente
+        where: {
+          id: transactionId,
+          category: TransactionCategory.pending,
+          to_user_id: userId,
+        },
       });
     } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new ConflictException(
+          'Este pago ya no está pendiente de confirmar',
+        );
+      }
       this.handlePrismaError(error);
     }
   }
@@ -516,50 +676,18 @@ export class TransactionsService {
 
   // Los pagos y los avisos solo se gestionan desde el flujo de saldar deudas:
   // editar o borrar un pago confirmado resucitaría la deuda.
-  private async asegurarEditable(id: string, userId?: string) {
+  private async asegurarEditable(id: string) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
-      select: {
-        category: true,
-        from_user_id: true,
-        apartment_id: true,
-        created_at: true,
-      },
+      select: { category: true },
     });
 
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
     }
-
-    if (userId && transaction.from_user_id !== userId) {
-      throw new ForbiddenException(
-        'Solo puedes editar o borrar tus propios gastos',
-      );
-    }
-
     if (CATEGORIAS_DE_LIQUIDACION.includes(transaction.category)) {
       throw new ConflictException(
         'Los pagos de deudas no se pueden editar ni borrar desde aquí',
-      );
-    }
-
-    const ultimoPagoConfirmado = this.prisma.transaction.findFirst
-      ? await this.prisma.transaction.findFirst({
-          where: {
-            apartment_id: transaction.apartment_id,
-            category: TransactionCategory.payment,
-          },
-          orderBy: { created_at: 'desc' },
-          select: { created_at: true },
-        })
-      : null;
-
-    if (
-      ultimoPagoConfirmado &&
-      transaction.created_at < ultimoPagoConfirmado.created_at
-    ) {
-      throw new ConflictException(
-        'Este gasto ya quedó cerrado por un pago posterior y no puede modificarse',
       );
     }
   }

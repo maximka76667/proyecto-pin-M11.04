@@ -14,6 +14,7 @@ import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import { CreateReceiptTransactionDto } from './dto/create-receipt-transaction.dto';
 
 @Controller('transactions')
 export class TransactionsController {
@@ -22,6 +23,14 @@ export class TransactionsController {
   @Post()
   create(@Body() createTransactionDto: CreateTransactionDto) {
     return this.transactionsService.create(createTransactionDto);
+  }
+
+  @Post('from-receipt')
+  createFromReceipt(
+    @Body() dto: CreateReceiptTransactionDto,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.createFromReceipt(dto, userId);
   }
 
   @Get()
@@ -46,15 +55,16 @@ export class TransactionsController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateTransactionDto: UpdateTransactionDto,
-    @CurrentUser() userId: string,
   ) {
-    return this.transactionsService.update(id, updateTransactionDto, userId);
+    return this.transactionsService.update(id, updateTransactionDto);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() userId: string) {
-    return this.transactionsService.remove(id, userId);
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.transactionsService.remove(id);
   }
+
+  
 
   @Get(':apartmentId/my-summary')
   getMyPersonalSummary(

@@ -15,7 +15,7 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('devuelve el mensaje de conexión con el backend', () => {
+    it('should return "Hello World!"', () => {
       expect(appController.getHello()).toBe(
         '¡Conexión exitosa con el backend del proyecto PIN!',
       );

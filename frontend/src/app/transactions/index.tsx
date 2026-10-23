@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -12,11 +12,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SettleUpCard } from '@/components/settle-up';
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const CURRENT_USER_ID = '22222222-2222-2222-2222-222222222222';
 
 type PersonalSummary = {
   miResumen: {
@@ -33,6 +32,7 @@ type Transaction = {
   from_user_id: string;
   to_user_id: string;
   amount: number | string;
+  concept?: string | null;
   category: string;
   date: string;
   paidByCurrentUser: boolean;
@@ -44,32 +44,76 @@ type Transaction = {
   };
 };
 
+type DisplayTransaction = {
+  id: string;
+  rawIds: string[];
+  apartment_id: string;
+  from_user_id: string;
+  to_user_ids: string[];
+  amount: number;
+  concept?: string | null;
+  category: string;
+  date: string;
+  paidByMe: boolean;
+  fromUser: {
+    full_name: string;
+  };
+  debtorsCount: number;
+};
+
+// Keep every database transaction as a separate visible expense.
+function groupTransactions(list: Transaction[]): DisplayTransaction[] {
+  return list.map((t) => ({
+    id: t.id,
+    rawIds: [t.id],
+    apartment_id: t.apartment_id,
+    from_user_id: t.from_user_id,
+    to_user_ids: [t.to_user_id],
+    amount: Number(t.amount) || 0,
+    concept: t.concept,
+    category: t.category,
+    date: t.date,
+    paidByMe: t.paidByCurrentUser,
+    fromUser: t.fromUser,
+    debtorsCount: 1,
+  }));
+}
+
 export default function Transactions() {
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [transactionMenu, setTransactionMenu] = useState<Transaction | null>(null);
-  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+
   // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
   const [refreshKey, setRefreshKey] = useState(0);
+  const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
+  const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
+
+  const displayTransactions = useMemo(
+    () => groupTransactions(transactions),
+    [transactions],
+  );
 
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
 
     try {
-      await api('DELETE', `/transactions/${transactionToDelete.id}`);
-      const deletedId = transactionToDelete.id;
+      await Promise.all(
+        transactionToDelete.rawIds.map((id) => api('DELETE', `/transactions/${id}`)),
+      );
+      const deletedIds = new Set(transactionToDelete.rawIds);
       setTransactionToDelete(null);
       setTransactions((current) =>
-        current.filter(({ id }) => id !== deletedId),
+        current.filter(({ id }) => !deletedIds.has(id)),
       );
+      setRefreshKey((key) => key + 1);
 
       try {
-        const updatedSummary = await api(
+        const updatedSummary = (await api(
           'GET',
           `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
-        ) as PersonalSummary;
+        )) as PersonalSummary;
         setSummary(updatedSummary);
       } catch (summaryError) {
         setError(errorMessage(summaryError));
@@ -87,24 +131,24 @@ export default function Transactions() {
         setLoading(true);
         setError('');
         try {
-          const apartmentTransactions = await api(
+          const apartmentTransactions = (await api(
             'GET',
             `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-          ) as Transaction[];
+          )) as Transaction[];
 
           if (active) {
             setTransactions(
               apartmentTransactions.filter(
                 (transaction) => transaction.category !== 'pending',
-              )
+              ),
             );
           }
 
           try {
-            const summaryData = await api(
+            const summaryData = (await api(
               'GET',
               `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
-            ) as PersonalSummary;
+            )) as PersonalSummary;
             if (active) setSummary(summaryData);
           } catch (summaryError) {
             if (active) setError(errorMessage(summaryError));
@@ -131,75 +175,63 @@ export default function Transactions() {
         </Pressable>
 
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
-          <Text style={styles.title}>Dinero</Text>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
+              <Text style={styles.title}>Dinero</Text>
+            </View>
+            <Pressable onPress={() => router.push('/escanearticket')} style={styles.scanButton}>
+              <MaterialCommunityIcons name="line-scan" size={20} color={Palette.onPrimary} />
+              <Text style={styles.scanButtonText}>Ticket</Text>
+            </Pressable>
+          </View>
         </View>
+
+        <Pressable
+          onPress={() => router.push('/transactions/new')}
+          style={({ pressed }) => [styles.newExpense, pressed && styles.pressed]}>
+          <MaterialCommunityIcons name="plus" size={20} color={Palette.onPrimary} />
+          <Text style={styles.newExpenseText}>Añadir gasto</Text>
+        </Pressable>
 
         {loading ? <ActivityIndicator color={Palette.primary} size="large" /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         {summary ? (
-          <>
-            <Pressable
-              onPress={() => router.push('/transactions/summary')}
-              style={({ pressed }) => [styles.balanceCard, pressed && styles.pressed]}>
-              <Text style={styles.balanceLabel}>MI BALANCE</Text>
-              <Text style={styles.balanceAmount}>
-                {summary.miResumen.esDeudor ? '-' : '+'}
-                {summary.miResumen.monto.toFixed(2)} €
-              </Text>
-              <Text style={styles.balanceMessage}>{summary.mensaje}</Text>
-              <View style={styles.balanceFooter}>
-                <Text style={styles.balanceHint}>Ver detalle del balance</Text>
-                <MaterialCommunityIcons name="arrow-right" size={20} color={Palette.onPrimary} />
-              </View>
-            </Pressable>
-
-            <View style={styles.summaryRow}>
-              <View style={styles.miniCard}>
-                <Text style={styles.miniCardLabel}>You are owed</Text>
-                <Text style={styles.miniCardValue}>
-                  {summary.miResumen.esDeudor ? '—' : `${summary.miResumen.monto.toFixed(2)} €`}
-                </Text>
-              </View>
-              <View style={styles.miniCard}>
-                <Text style={styles.miniCardLabel}>You paid</Text>
-                <Text style={styles.miniCardValue}>
-                  {summary.miResumen.esDeudor ? `${summary.miResumen.monto.toFixed(2)} €` : '—'}
-                </Text>
-              </View>
-              <View style={styles.miniCard}>
-                <Text style={styles.miniCardLabel}>Owed to you</Text>
-                <Text style={styles.miniCardValue}>
-                  {!summary.miResumen.esDeudor ? `${summary.miResumen.monto.toFixed(2)} €` : '—'}
-                </Text>
-              </View>
+          <Pressable
+            onPress={() => router.push('/transactions/summary')}
+            style={({ pressed }) => [styles.balanceCard, pressed && styles.pressed]}>
+            <Text style={styles.balanceLabel}>MI BALANCE</Text>
+            <Text style={styles.balanceAmount}>
+              {summary.miResumen.esDeudor ? '-' : '+'}
+              {summary.miResumen.monto.toFixed(2)} €
+            </Text>
+            <Text style={styles.balanceMessage}>{summary.mensaje}</Text>
+            <View style={styles.balanceFooter}>
+              <Text style={styles.balanceHint}>Ver detalle del balance</Text>
+              <MaterialCommunityIcons name="arrow-right" size={20} color={Palette.onPrimary} />
             </View>
-          </>
+          </Pressable>
         ) : null}
 
-        <Pressable
-          onPress={() => router.push('/transactions/settle-up')}
-          style={({ pressed }) => [styles.settleUpButton, pressed && styles.pressed]}>
-          <MaterialCommunityIcons name="hand-coin-outline" size={18} color={Palette.primary} />
-          <Text style={styles.settleUpButtonText}>Saldar deudas</Text>
-        </Pressable>
+        <SettleUpCard
+          apartmentId={APARTMENT_ID}
+          refreshKey={refreshKey}
+          onSettled={() => setRefreshKey((key) => key + 1)}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
-          <Text style={styles.sectionCaption}>{transactions.length}</Text>
+          <Text style={styles.sectionCaption}>{displayTransactions.length}</Text>
         </View>
 
-        {transactions.length > 0 ? (
+        {displayTransactions.length > 0 ? (
           <View style={styles.transactionList}>
-            {transactions.map((transaction) => {
-              const amount = Number(transaction.amount);
-              const paidByMe = transaction.paidByCurrentUser;
+            {displayTransactions.map((transaction) => {
+              const paidByMe = transaction.paidByMe;
               const pendiente = transaction.category === 'pending';
-              const editable =
-                transaction.from_user_id === CURRENT_USER_ID &&
-                transaction.category !== 'payment' &&
-                !pendiente;
+              // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
+              const editable = transaction.category !== 'payment' && !pendiente;
 
               return (
                 <View key={transaction.id} style={styles.transaction}>
@@ -211,7 +243,9 @@ export default function Transactions() {
                     />
                   </View>
                   <View style={styles.transactionInfo}>
-                    <Text style={styles.transactionCategory}>{transaction.category}</Text>
+                    <Text style={styles.transactionCategory}>
+                      {transaction.concept || transaction.category}
+                    </Text>
                     <Text style={styles.transactionStatus}>
                       {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
                       {pendiente ? ' · pendiente de confirmar' : ''}
@@ -228,7 +262,7 @@ export default function Transactions() {
                         // todavía no cuenta en el balance
                         pendiente && styles.pendingAmount,
                       ]}>
-                      {paidByMe ? '+' : '-'}{amount.toFixed(2)} €
+                      {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
                     </Text>
                     {editable ? (
                       <Pressable
@@ -264,11 +298,11 @@ export default function Transactions() {
               <View style={styles.actionMenuHeaderText}>
                 <Text style={styles.actionMenuEyebrow}>OPCIONES DEL GASTO</Text>
                 <Text style={styles.actionMenuTitle}>
-                  {transactionMenu?.category ?? 'Gasto'}
+                  {transactionMenu?.concept || transactionMenu?.category || 'Gasto'}
                 </Text>
               </View>
               <Text style={styles.actionMenuAmount}>
-                {transactionMenu ? `${Number(transactionMenu.amount).toFixed(2)} €` : ''}
+                {transactionMenu ? `${transactionMenu.amount.toFixed(2)} €` : ''}
               </Text>
             </View>
             <Pressable
@@ -322,7 +356,7 @@ export default function Transactions() {
             <Text style={styles.confirmationMessage}>
               ¿Quieres eliminar{' '}
               {transactionToDelete
-                ? `${Number(transactionToDelete.amount).toFixed(2)} € de ${transactionToDelete.category}`
+                ? `${transactionToDelete.amount.toFixed(2)} € de ${transactionToDelete.concept || transactionToDelete.category}`
                 : 'este gasto'}
               ?
             </Text>
@@ -356,6 +390,9 @@ const styles = StyleSheet.create({
   },
   back: { alignSelf: 'flex-start', paddingTop: 8 },
   header: { gap: 6 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  scanButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: Palette.primary },
+  scanButtonText: { fontSize: 12, fontWeight: '800', color: Palette.onPrimary },
   eyebrow: {
     fontSize: 12,
     fontWeight: '800',
@@ -369,50 +406,17 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: Palette.primary,
   },
-  settleUpButton: {
+  pressed: { opacity: 0.85 },
+  newExpense: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    minHeight: 48,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    backgroundColor: Palette.surface,
+    backgroundColor: Palette.primary,
   },
-  settleUpButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: Palette.primary,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  miniCard: {
-    flex: 1,
-    gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    backgroundColor: Palette.surface,
-  },
-  miniCardLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: Palette.textSecondary,
-  },
-  miniCardValue: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: Palette.text,
-  },
-  pressed: { opacity: 0.85 },
+  newExpenseText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
   balanceLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: Palette.onPrimary },
   balanceAmount: { fontSize: 36, fontWeight: '800', color: Palette.onPrimary },
   balanceMessage: { fontSize: 14, lineHeight: 20, color: Palette.onPrimary },
@@ -588,4 +592,4 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.error,
   },
   deleteButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
-});
+})

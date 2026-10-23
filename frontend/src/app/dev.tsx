@@ -13,8 +13,9 @@ import {
   Transaction,
   TransactionCategory,
 } from '@/lib/api';
+import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
-const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'pending', 'payment', 'other'];
+const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'other'];
 
 type Tab = 'apartments' | 'expenses';
 
@@ -385,7 +386,7 @@ function DevExpenses({ showError }: { showError: ShowError }) {
           label="Amount"
           placeholder="e.g. 12.50"
           value={amount}
-          onChangeText={setAmount}
+          onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
           keyboardType="decimal-pad"
         />
         <CategoryPicker value={category} onChange={setCategory} />
@@ -468,7 +469,12 @@ function TransactionItem({
     return (
       <View style={[styles.card, styles.cardEditing]}>
         <Text style={styles.cardTitle}>Edit expense</Text>
-        <Field label="Amount" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+        <Field
+          label="Amount"
+          value={amount}
+          onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
+          keyboardType="decimal-pad"
+        />
         <CategoryPicker value={category} onChange={setCategory} />
         <View style={styles.row}>
           <IconButton icon="close" label="Cancel" onPress={() => setEditing(false)} />

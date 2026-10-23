@@ -1,4 +1,5 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+
+import { BadRequestException, NotFoundException, ConflictException, } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionCategory } from '@prisma/client';
 
@@ -6,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { TransactionsService } from './transactions.service';
+import { Pago } from './balance-calculator';
 
 const PISO_A = 'piso-pin-01';
 const PISO_B = 'piso-pin-02';
@@ -93,8 +95,21 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
         distinct,
       }: {
         where: FiltroFalso;
-        distinct: ('from_user_id' | 'to_user_id')[];
+        distinct?: ('from_user_id' | 'to_user_id')[];
       }) => {
+        if (!distinct) {
+          return Promise.resolve(
+            filtrar(where).map((transaccion, index) => ({
+              ...transaccion,
+              id: `transaction-${index}`,
+              date: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`),
+              created_at: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`),
+              fromUser: { full_name: NOMBRES[transaccion.from_user_id] },
+              toUser: { full_name: NOMBRES[transaccion.to_user_id] },
+            })),
+          );
+        }
+
         const campo = distinct[0];
         const valores = new Set(filtrar(where).map((transaccion) => transaccion[campo]));
 
@@ -246,17 +261,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
       expect(resumen.mensaje).toBe('En total, tienes 40.00€ pendientes de cobro.');
     });
 
-    it('despliega la lista optimizada de pagos con los nombres de los convivientes', async () => {
-      const service = await crearServicio([...GASTOS_DEL_PISO]);
-
-      const resumen = await service.getPersonalSummary(PISO_A, CARLA);
-
-      expect(resumen.globalPayments).toEqual([
-        { deudor: 'Carla', acreedor: 'Ana', monto: 40 },
-        { deudor: 'Carla', acreedor: 'Bruno', monto: 10 },
-      ]);
-    });
-
     // La PA exige que los gastos activos sean los registrados "para ese hogar", así que el
     // cálculo de un piso no puede contaminarse con los gastos de otro.
     describe('aislamiento entre hogares', () => {
@@ -311,7 +315,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
 
         const resumen = await service.getPersonalSummary(PISO_VACIO, ANA);
         expect(resumen.miResumen.monto).toBe(0);
-        expect(resumen.globalPayments).toEqual([]);
       });
     });
   });
@@ -341,7 +344,6 @@ describe('TransactionsService: cálculo de balances del hogar (UT1002)', () => {
       expect(resumen.mensaje).toBe('Estás al día en tus pagos.');
       expect(resumen.miResumen.esDeudor).toBe(false);
       expect(resumen.miResumen.conceptos).toEqual([]);
-      expect(resumen.globalPayments).toEqual([]);
     });
 
     it('con todos los gastos anteriores ya pagados, las cuentas quedan a cero', async () => {
@@ -378,12 +380,16 @@ function prismaError(code: string) {
 describe('TransactionsService', () => {
   let service: TransactionsService;
 
-  // Only the Prisma methods used by update/remove are mocked
+  // Only the Prisma methods used by update/remove are mocked. findUnique is the check
+  // that stops debt payments from being edited or deleted
   const prisma = {
     transaction: {
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    },
+    userApartment: {
+      findUnique: jest.fn(),
     },
   };
 
@@ -396,9 +402,19 @@ describe('TransactionsService', () => {
     category: 'supplies',
   };
 
+  const apartmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const deudorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const acreedorId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const pendingDebt: Pago = {
+    deudorId,
+    acreedorId,
+    monto: 25.5,
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
-    prisma.transaction.findUnique.mockResolvedValue({ category: 'supplies' });
+    // Editable expense by default; set here because clearAllMocks keeps mocked values
+    prisma.transaction.findUnique.mockResolvedValue(transaction);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -408,7 +424,7 @@ describe('TransactionsService', () => {
       ],
     }).compile();
 
-    service = module.get<TransactionsService>(TransactionsService);
+    service = module.get(TransactionsService);
   });
 
   describe('update (modify expense)', () => {
@@ -441,7 +457,6 @@ describe('TransactionsService', () => {
 
     it('returns 404 when the expense does not exist', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
-      prisma.transaction.update.mockRejectedValue(prismaError('P2025'));
 
       await expect(service.update('missing', { amount: '10.00' })).rejects.toThrow(
         NotFoundException,
@@ -478,9 +493,79 @@ describe('TransactionsService', () => {
 
     it('returns 404 when the expense does not exist', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
-      prisma.transaction.delete.mockRejectedValue(prismaError('P2025'));
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+    });
+
+  });
+
+  describe('markAsPaid', () => {
+    it('creates a pending payment notice for a valid debt', async () => {
+      const notice = {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        apartment_id: apartmentId,
+        from_user_id: deudorId,
+        to_user_id: acreedorId,
+        amount: '25.50',
+        category: TransactionCategory.pending,
+      };
+      jest.spyOn(service, 'getPagoMinimo').mockResolvedValue([pendingDebt]);
+      prisma.transaction.create.mockResolvedValue(notice);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).resolves.toEqual(notice);
+
+      expect(prisma.transaction.create).toHaveBeenCalledWith({
+        data: {
+          apartment_id: apartmentId,
+          from_user_id: deudorId,
+          to_user_id: acreedorId,
+          amount: '25.50',
+          category: TransactionCategory.pending,
+        },
+      });
+    });
+
+    it.each([
+      ['the debt is already settled', []],
+      [
+        'the current user is not the creditor',
+        [{ ...pendingDebt, acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
+      ],
+      [
+        'the current user is not the debtor',
+        [{ ...pendingDebt, deudorId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }],
+      ],
+    ])('rejects when %s', async (_reason, currentDebts) => {
+      jest.spyOn(service, 'getPagoMinimo').mockResolvedValue(currentDebts);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the debt amount has changed', async () => {
+      jest
+        .spyOn(service, 'getPagoMinimo')
+        .mockResolvedValue([{ ...pendingDebt, monto: 30 }]);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
     });
   });
 });
