@@ -60,48 +60,22 @@ type DisplayTransaction = {
   debtorsCount: number;
 };
 
-// Groups split expense transactions created in the same batch into a single visible expense
+// Keep every database transaction as a separate visible expense.
 function groupTransactions(list: Transaction[]): DisplayTransaction[] {
-  const result: DisplayTransaction[] = [];
-
-  for (const t of list) {
-    const paidByMe = t.paidByCurrentUser;
-    const amountNum = Number(t.amount) || 0;
-
-    const prev = result[result.length - 1];
-    const canMerge =
-      prev &&
-      prev.paidByMe &&
-      paidByMe &&
-      t.concept &&
-      prev.concept === t.concept &&
-      prev.category === t.category &&
-      !prev.to_user_ids.includes(t.to_user_id);
-
-    if (canMerge) {
-      prev.rawIds.push(t.id);
-      prev.to_user_ids.push(t.to_user_id);
-      prev.amount = Number((prev.amount + amountNum).toFixed(2));
-      prev.debtorsCount += 1;
-    } else {
-      result.push({
-        id: t.id,
-        rawIds: [t.id],
-        apartment_id: t.apartment_id,
-        from_user_id: t.from_user_id,
-        to_user_ids: [t.to_user_id],
-        amount: amountNum,
-        concept: t.concept,
-        category: t.category,
-        date: t.date,
-        paidByMe,
-        fromUser: t.fromUser,
-        debtorsCount: 1,
-      });
-    }
-  }
-
-  return result;
+  return list.map((t) => ({
+    id: t.id,
+    rawIds: [t.id],
+    apartment_id: t.apartment_id,
+    from_user_id: t.from_user_id,
+    to_user_ids: [t.to_user_id],
+    amount: Number(t.amount) || 0,
+    concept: t.concept,
+    category: t.category,
+    date: t.date,
+    paidByMe: t.paidByCurrentUser,
+    fromUser: t.fromUser,
+    debtorsCount: 1,
+  }));
 }
 
 export default function Transactions() {

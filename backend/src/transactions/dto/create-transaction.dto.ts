@@ -57,16 +57,6 @@ export class CreateTransactionDto {
       'amount must be a positive number with up to 6 integer digits and 2 decimals (e.g. "12.50")',
   })
   amount: string;
-
-
-
-  @IsEnum(TransactionCategory)
-
-
-  // payment y pending quedan fuera: solo los gestiona el flujo de saldar deudas
-  @IsIn(CATEGORIAS_DE_GASTO)
-
-
   // What the expense was for (e.g. "Compra del súper"). Optional in the API so older
   // clients keep working, but the "new expense" form always sends it.
   @IsOptional()

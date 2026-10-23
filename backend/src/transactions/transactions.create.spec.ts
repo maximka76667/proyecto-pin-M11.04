@@ -139,17 +139,17 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
-  it('blocks an expense where the payer and the debtor are the same person', async () => {
+  it('does not create a debt when the payer is the only selected person', async () => {
     const response = await request(app.getHttpServer())
       .post('/transactions')
       .send({ ...validBody, to_user_id: payer })
-      .expect(400);
+      .expect(201);
 
-    expect(response.body.message).toBe('The payer and the debtor must be different');
+    expect(response.body).toEqual([]);
     expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
-  it('splits the expense equally among multiple debtors (UT998 multiple debtors)', async () => {
+  it('splits the expense equally among multiple selected people (UT998 multiple debtors)', async () => {
     const debtor2 = '9c6c7f97-5938-4d4f-8920-9921a9f873fc';
     prisma.transaction.create.mockImplementation(({ data }) => Promise.resolve({ id: 'id', ...data }));
 
@@ -179,18 +179,59 @@ describe('POST /transactions (UT998)', () => {
     expect(Array.isArray(response.body)).toBe(true);
   });
 
-  it('blocks multiple debtors when the payer is included in the list', async () => {
+  it('creates one independent debt per selected person', async () => {
+    const jose = '9c6c7f97-5938-4d4f-8920-9921a9f873fc';
+    prisma.transaction.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: 'id', ...data }),
+    );
+
     const { to_user_id: _single, ...bodyWithoutSingle } = validBody;
     const response = await request(app.getHttpServer())
       .post('/transactions')
       .send({
         ...bodyWithoutSingle,
+        amount: '2.00',
+        to_user_ids: [debtor, jose],
+      })
+      .expect(201);
+
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(2);
+    expect(prisma.transaction.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        from_user_id: payer,
+        to_user_id: debtor,
+        amount: '1.00',
+      }),
+    });
+    expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        from_user_id: payer,
+        to_user_id: jose,
+        amount: '1.00',
+      }),
+    });
+    expect(response.body).toHaveLength(2);
+  });
+
+  it('counts the payer in the split but does not create a debt to the payer', async () => {
+    const { to_user_id: _single, ...bodyWithoutSingle } = validBody;
+    const response = await request(app.getHttpServer())
+      .post('/transactions')
+      .send({
+        ...bodyWithoutSingle,
+        amount: '2.00',
         to_user_ids: [debtor, payer],
       })
-      .expect(400);
+      .expect(201);
 
-    expect(response.body.message).toBe('The payer and the debtor must be different');
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(1);
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        to_user_id: debtor,
+        amount: '1.00',
+      }),
+    });
+    expect(response.body).toHaveLength(1);
   });
 
   it('returns 400 when the apartment or a user does not exist', async () => {

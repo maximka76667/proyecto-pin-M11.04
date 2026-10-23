@@ -79,9 +79,8 @@ export class TransactionsService {
       throw new BadRequestException('At least one debtor must be specified');
     }
 
-    if (debtorIds.includes(createTransactionDto.from_user_id)) {
-      throw new BadRequestException('The payer and the debtor must be different');
-    }
+    const payerId = createTransactionDto.from_user_id;
+    const actualDebtorIds = debtorIds.filter((debtorId) => debtorId !== payerId);
 
     // Without a date, the column applies its default value (today)
     const date = createTransactionDto.date
@@ -90,6 +89,10 @@ export class TransactionsService {
 
 
     try {
+      if (actualDebtorIds.length === 0) {
+        return [];
+      }
+
       if (debtorIds.length === 1) {
         return await this.prisma.transaction.create({
           data: {
@@ -110,7 +113,7 @@ export class TransactionsService {
       const baseCents = Math.floor(totalCents / debtorIds.length);
       const remainder = totalCents % debtorIds.length;
 
-      const creates = debtorIds.map((debtorId, index) => {
+      const creates = actualDebtorIds.map((debtorId, index) => {
         const shareCents = baseCents + (index < remainder ? 1 : 0);
         const shareAmount = (shareCents / 100).toFixed(2);
 

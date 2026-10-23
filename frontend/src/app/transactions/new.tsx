@@ -40,6 +40,14 @@ export default function NewExpenseScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/transactions');
+    }
+  };
+
   useEffect(() => {
     void (async () => {
       try {
@@ -47,7 +55,7 @@ export default function NewExpenseScreen() {
           'GET',
           `/apartments/${encodeURIComponent(APARTMENT_ID)}/members`,
         )) as Member[];
-        setRoommates(members.filter((member) => member.id !== USER_ID));
+        setRoommates(members);
       } catch (e) {
         setError(errorMessage(e));
       } finally {
@@ -87,7 +95,7 @@ export default function NewExpenseScreen() {
       return;
     }
     if (selectedDebtorIds.length === 0) {
-      setError('Choose at least one roommate who owes you.');
+      setError('Choose at least one person who shares the expense.');
       return;
     }
 
@@ -102,7 +110,7 @@ export default function NewExpenseScreen() {
         concept: concept.trim(),
         category,
       });
-      router.back();
+      goBack();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -114,7 +122,7 @@ export default function NewExpenseScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={goBack} hitSlop={12}>
             <MaterialCommunityIcons name="close" size={24} color={Palette.text} />
           </Pressable>
           <Text style={styles.screenTitle}>New expense</Text>
@@ -167,7 +175,7 @@ export default function NewExpenseScreen() {
         </View>
 
         <View style={styles.debtorHeaderRow}>
-          <Text style={styles.label}>Who owes you?</Text>
+          <Text style={styles.label}>Who shares the expense?</Text>
           {roommates.length > 0 ? (
             <Pressable onPress={toggleAll} hitSlop={8}>
               <Text style={styles.selectAllText}>
@@ -204,7 +212,7 @@ export default function NewExpenseScreen() {
                   color={selected ? Palette.text : Palette.primary}
                 />
                 <Text style={[styles.chipText, selected && styles.chipTextActive]}>
-                  {member.full_name}
+                  {member.id === USER_ID ? 'Yo' : member.full_name}
                   {selected && perPerson ? ` (${perPerson} €)` : ''}
                 </Text>
               </Pressable>
