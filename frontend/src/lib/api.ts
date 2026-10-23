@@ -8,7 +8,14 @@ export type Apartment = {
   invite_code: string;
 };
 
-export type TransactionCategory = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other' | 'pending';
+export type TransactionCategory =
+  | 'utilities'
+  | 'maintenance'
+  | 'supplies'
+  | 'entertainment'
+  | 'payment'
+  | 'other'
+  | 'pending';
 
 export type Transaction = {
   id: string;
@@ -16,7 +23,13 @@ export type Transaction = {
   from_user_id: string;
   to_user_id: string;
   amount: string;
+  concept: string | null;
   category: TransactionCategory;
+};
+
+export type Member = {
+  id: string;
+  full_name: string;
 };
 
 // Sends the request and throws an Error with the backend message if it fails

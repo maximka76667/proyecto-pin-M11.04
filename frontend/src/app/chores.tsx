@@ -19,15 +19,16 @@ import { choreCategories, type ChoreCategory, type ChoreFrequency } from '@/comp
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-
+import { APARTMENT_ID } from '@/constants/dev-session';
 // Aviso que se muestra después de crear, editar o borrar una tarea
 const notices: Record<string, string> = {
     created: 'Chore created successfully.',
     updated: 'Chore updated successfully.',
     deleted: 'Chore deleted successfully.',
 };
+
+
+
 
 type Task = {
     id: string;

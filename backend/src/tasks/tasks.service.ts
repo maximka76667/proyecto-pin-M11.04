@@ -10,10 +10,12 @@ import {
   TaskCategory,
   TaskPriority,
   TaskStatus,
+  AssignmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 
 @Injectable()
 export class TasksService {

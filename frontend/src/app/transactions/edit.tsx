@@ -12,24 +12,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, errorMessage } from '@/lib/api';
+import { api, errorMessage, TransactionCategory } from '@/lib/api';
 import { Palette, Radius } from '@/constants/onboarding';
-
-type Category = 'utilities' | 'maintenance' | 'supplies' | 'payment' | 'other';
+import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
 type Transaction = {
   id: string;
   amount: string;
-  category: Category;
+  category: TransactionCategory;
   fromUser: { full_name: string };
   toUser: { full_name: string };
   apartment: { name: string };
 };
 
-const categories: { value: Category; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
+const categories: { value: TransactionCategory; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
   { value: 'supplies', label: 'Groceries', icon: 'cart-outline' },
   { value: 'utilities', label: 'Utilities', icon: 'flash-outline' },
   { value: 'maintenance', label: 'Home', icon: 'home-outline' },
+  { value: 'entertainment', label: 'Entertainment', icon: 'movie-outline' },
   { value: 'other', label: 'Other', icon: 'dots-horizontal' },
 ];
 
@@ -37,7 +37,7 @@ export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [transaction, setTransaction] = useState<Transaction | null>(null);
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState<Category>('other');
+  const [category, setCategory] = useState<TransactionCategory>('other');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -65,8 +65,8 @@ export default function EditExpenseScreen() {
 
   const save = async () => {
     const normalizedAmount = amount.trim().replace(',', '.');
-    if (!/^\d+(\.\d{1,2})?$/.test(normalizedAmount) || Number(normalizedAmount) <= 0) {
-      setError('Enter a valid positive amount.');
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(normalizedAmount) || Number(normalizedAmount) <= 0) {
+      setError('Enter a valid positive amount (up to 6 integer digits and 2 decimals).');
       return;
     }
     if (!transaction) return;
@@ -125,7 +125,7 @@ export default function EditExpenseScreen() {
           <Text style={styles.currency}>€</Text>
           <TextInput
             value={amount}
-            onChangeText={setAmount}
+            onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
             keyboardType="decimal-pad"
             style={styles.amountInput}
             placeholder="0.00"

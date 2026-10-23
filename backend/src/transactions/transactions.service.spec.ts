@@ -1,4 +1,5 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+
+import { BadRequestException, NotFoundException, ConflictException, } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionCategory } from '@prisma/client';
 
@@ -6,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { TransactionsService } from './transactions.service';
+import { Pago } from './balance-calculator';
 
 const PISO_A = 'piso-pin-01';
 const PISO_B = 'piso-pin-02';
@@ -386,6 +388,9 @@ describe('TransactionsService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    userApartment: {
+      findUnique: jest.fn(),
+    },
   };
 
   const transaction = {
@@ -395,6 +400,15 @@ describe('TransactionsService', () => {
     to_user_id: 'user-2',
     amount: '40.00',
     category: 'supplies',
+  };
+
+  const apartmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const deudorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const acreedorId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const pendingDebt: Pago = {
+    deudorId,
+    acreedorId,
+    monto: 25.5,
   };
 
   beforeEach(async () => {
@@ -410,7 +424,7 @@ describe('TransactionsService', () => {
       ],
     }).compile();
 
-    service = module.get<TransactionsService>(TransactionsService);
+    service = module.get(TransactionsService);
   });
 
   describe('update (modify expense)', () => {
@@ -481,6 +495,77 @@ describe('TransactionsService', () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
       await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+    });
+
+  });
+
+  describe('markAsPaid', () => {
+    it('creates a pending payment notice for a valid debt', async () => {
+      const notice = {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        apartment_id: apartmentId,
+        from_user_id: deudorId,
+        to_user_id: acreedorId,
+        amount: '25.50',
+        category: TransactionCategory.pending,
+      };
+      jest.spyOn(service, 'getPagoMinimo').mockResolvedValue([pendingDebt]);
+      prisma.transaction.create.mockResolvedValue(notice);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).resolves.toEqual(notice);
+
+      expect(prisma.transaction.create).toHaveBeenCalledWith({
+        data: {
+          apartment_id: apartmentId,
+          from_user_id: deudorId,
+          to_user_id: acreedorId,
+          amount: '25.50',
+          category: TransactionCategory.pending,
+        },
+      });
+    });
+
+    it.each([
+      ['the debt is already settled', []],
+      [
+        'the current user is not the creditor',
+        [{ ...pendingDebt, acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
+      ],
+      [
+        'the current user is not the debtor',
+        [{ ...pendingDebt, deudorId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' }],
+      ],
+    ])('rejects when %s', async (_reason, currentDebts) => {
+      jest.spyOn(service, 'getPagoMinimo').mockResolvedValue(currentDebts);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the debt amount has changed', async () => {
+      jest
+        .spyOn(service, 'getPagoMinimo')
+        .mockResolvedValue([{ ...pendingDebt, monto: 30 }]);
+
+      await expect(
+        service.markAsPaid(apartmentId, deudorId, {
+          acreedor_id: acreedorId,
+          amount: '25.50',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
     });
   });
 });
