@@ -51,21 +51,21 @@ describe('Validación de tareas', () => {
   });
 
   it.each([
-    ['missing apartment', { title: 'Clean bathroom', frequency: 'weekly' }, 'apartment_id'],
-    ['missing title', {
+    ['sin apartamento', { title: 'Clean bathroom', frequency: 'weekly' }, 'apartment_id'],
+    ['sin nombre', {
       apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       frequency: 'weekly',
     }, 'title'],
-    ['missing frequency', {
+    ['sin frecuencia', {
       apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       title: 'Clean bathroom',
     }, 'frequency'],
-    ['invalid frequency', {
+    ['frecuencia inválida', {
       apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       title: 'Clean bathroom',
       frequency: 'every-five-days',
     }, 'frequency'],
-  ])('rejects %s before reaching Prisma', async (_, body, field) => {
+  ])('rechaza %s antes de acceder a Prisma', async (_, body, field) => {
     const response = await request(app.getHttpServer())
       .post('/tasks')
       .send(body)
@@ -78,7 +78,7 @@ describe('Validación de tareas', () => {
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
-  it('rejects an apartment identifier with an invalid shape', async () => {
+  it('rechaza un identificador de apartamento con formato inválido', async () => {
     await request(app.getHttpServer())
       .post('/tasks')
       .send({
@@ -91,7 +91,7 @@ describe('Validación de tareas', () => {
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
-  it('rejects unknown fields', async () => {
+  it('rechaza campos desconocidos', async () => {
     await request(app.getHttpServer())
       .post('/tasks')
       .send({

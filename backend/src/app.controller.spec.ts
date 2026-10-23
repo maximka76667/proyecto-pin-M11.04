@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
-describe('AppController', () => {
+describe('Controlador principal de la aplicación', () => {
   let appController: AppController;
 
   beforeEach(async () => {
@@ -14,8 +14,8 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
+  describe('ruta raíz', () => {
+    it('devuelve el mensaje de conexión del backend', () => {
       expect(appController.getHello()).toBe(
         '¡Conexión exitosa con el backend del proyecto PIN!',
       );

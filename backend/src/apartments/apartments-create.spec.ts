@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApartmentsController } from './apartments.controller';
 import { ApartmentsService } from './apartments.service';
 
-describe('Apartment creation', () => {
+describe('Creación de apartamentos', () => {
   let app: INestApplication<App>;
 
   const prisma = {
@@ -53,7 +53,7 @@ describe('Apartment creation', () => {
     jest.clearAllMocks();
   });
 
-  it('rejects an empty name with 400 without writing to the database', async () => {
+  it('rechaza un nombre vacío con 400 sin escribir en la base de datos', async () => {
     const response = await request(app.getHttpServer())
       .post('/apartments')
       .send({ name: '', address: 'Calle Mayor 3', landlord_id: landlordId })
@@ -64,7 +64,7 @@ describe('Apartment creation', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('rejects an invalid name with 400 without writing to the database', async () => {
+  it('rechaza un nombre inválido con 400 sin escribir en la base de datos', async () => {
     const response = await request(app.getHttpServer())
       .post('/apartments')
       .send({
@@ -81,7 +81,7 @@ describe('Apartment creation', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('creates the apartment and links the landlord as its organizer', async () => {
+  it('crea el apartamento y vincula al propietario como organizador', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: landlordId,
       is_landlord: true,

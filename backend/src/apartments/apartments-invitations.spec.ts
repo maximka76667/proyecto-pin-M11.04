@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApartmentsController } from './apartments.controller';
 import { ApartmentsService } from './apartments.service';
 
-describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
+describe('Invitaciones de apartamentos (PA-997.01 y PA-997.02)', () => {
   let app: INestApplication<App>;
 
   const prisma = {
@@ -47,7 +47,7 @@ describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
     jest.clearAllMocks();
   });
 
-  it('generates a UUID invitation code for the selected apartment', async () => {
+  it('genera un código de invitación UUID para el apartamento seleccionado', async () => {
     prisma.apartment.update.mockImplementation(({ where, data }) => ({
       id: where.id,
       invite_code: data.invite_code,
@@ -66,7 +66,7 @@ describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
     expect(response.body.invite_code).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
-  it('returns 404 for an unknown invite code and does not create a user or membership', async () => {
+  it('devuelve 404 para un código desconocido y no crea usuario ni pertenencia', async () => {
     prisma.apartment.findUnique.mockResolvedValue(null);
 
     const response = await request(app.getHttpServer())
@@ -84,7 +84,7 @@ describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('returns 404 for a mistyped UUID after checking the database', async () => {
+  it('devuelve 404 para un UUID mal escrito después de consultar la base de datos', async () => {
     prisma.apartment.findUnique.mockResolvedValue(null);
 
     const response = await request(app.getHttpServer())
@@ -105,7 +105,7 @@ describe('Apartment invitations (PA-997.01 and PA-997.02)', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('adds a guest user to the apartment for a valid code', async () => {
+  it('añade un usuario invitado al apartamento cuando el código es válido', async () => {
     const user = {
       id: '6c5d4e3f-2a19-4876-9b0c-1d2e3f4a5b6c',
       full_name: 'Alex',

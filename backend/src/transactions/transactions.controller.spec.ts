@@ -6,7 +6,7 @@ import { TransactionsService } from './transactions.service';
 // test llama directamente al método del controlador, así que se pasa a mano
 const USUARIO_LOGUEADO = '11111111-1111-1111-1111-111111111111';
 
-describe('TransactionsController', () => {
+describe('Controlador de transacciones', () => {
   let controller: TransactionsController;
 
   const transactionsService = {
@@ -28,7 +28,7 @@ describe('TransactionsController', () => {
     controller = module.get<TransactionsController>(TransactionsController);
   });
 
-  it('PATCH /transactions/:id passes the id and body to the service', async () => {
+  it('PATCH /transactions/:id pasa el identificador y el cuerpo al servicio', async () => {
     const updated = { id: 'tx-1', amount: '20.00', category: 'other' };
     transactionsService.update.mockResolvedValue(updated);
 
@@ -41,7 +41,7 @@ describe('TransactionsController', () => {
     expect(result).toEqual(updated);
   });
 
-  it('DELETE /transactions/:id passes the id to the service', async () => {
+  it('DELETE /transactions/:id pasa el identificador al servicio', async () => {
     const deleted = { id: 'tx-1' };
     transactionsService.remove.mockResolvedValue(deleted);
 

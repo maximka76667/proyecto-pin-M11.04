@@ -49,7 +49,7 @@ describe('TasksService', () => {
     service = module.get<TasksService>(TasksService);
   });
 
-  it('creates a pending task with safe defaults', async () => {
+  it('crea una tarea pendiente con valores predeterminados seguros', async () => {
     const created = { id: 'task-1', title: 'Take out recycling' };
     prisma.task.findFirst.mockResolvedValue(null);
     prisma.task.create.mockResolvedValue(created);
@@ -77,7 +77,7 @@ describe('TasksService', () => {
     });
   });
 
-  it('rejects a title containing only whitespace before touching the database', async () => {
+  it('rechaza un título compuesto solo por espacios antes de acceder a la base de datos', async () => {
     await expect(
       service.create({
         apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -90,7 +90,7 @@ describe('TasksService', () => {
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
-  it('rejects an existing task name before inserting a duplicate', async () => {
+  it('rechaza un nombre de tarea existente antes de insertar un duplicado', async () => {
     prisma.task.findFirst.mockResolvedValue({ id: 'existing-task' });
 
     await expect(
@@ -105,7 +105,7 @@ describe('TasksService', () => {
     expect(prisma.task.create).not.toHaveBeenCalled();
   });
 
-  it('maps duplicate task names to a conflict', async () => {
+  it('convierte los nombres de tarea duplicados en un conflicto', async () => {
     prisma.task.create.mockRejectedValue(prismaError('P2002'));
 
     await expect(
@@ -118,7 +118,7 @@ describe('TasksService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('returns task details with assignments', async () => {
+  it('devuelve los detalles de la tarea con sus asignaciones', async () => {
     const task = {
       id: 'task-1',
       title: 'Clean bathroom',
@@ -138,7 +138,7 @@ describe('TasksService', () => {
     });
   });
 
-  it('returns not found when task details do not exist', async () => {
+  it('devuelve no encontrado cuando los detalles de la tarea no existen', async () => {
     prisma.task.findUnique.mockResolvedValue(null);
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);

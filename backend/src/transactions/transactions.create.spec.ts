@@ -9,9 +9,9 @@ import { UsersService } from '../users/users.service';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 
-// UT998: a student registers an expense (amount, concept and who owes it).
-// Sends real HTTP requests through the same validation as the real app,
-// with a fake database so we can check what is (and is not) saved.
+// UT998: un estudiante registra un gasto (importe, concepto y quién lo debe).
+// Envía peticiones HTTP reales usando la misma validación que la aplicación,
+// con una base de datos simulada para comprobar qué se guarda y qué no.
 describe('POST /transactions (UT998)', () => {
   let app: INestApplication<App>;
 
@@ -57,7 +57,7 @@ describe('POST /transactions (UT998)', () => {
     jest.clearAllMocks();
   });
 
-  it('saves the expense with its concept', async () => {
+  it('guarda el gasto con su concepto', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id', ...validBody });
 
     const response = await request(app.getHttpServer())
@@ -78,7 +78,7 @@ describe('POST /transactions (UT998)', () => {
     expect(response.body.concept).toBe('Compra del súper');
   });
 
-  it('trims spaces around the concept', async () => {
+  it('elimina los espacios alrededor del concepto', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
 
     await request(app.getHttpServer())
@@ -89,7 +89,7 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create.mock.calls[0][0].data.concept).toBe('Internet');
   });
 
-  it('accepts the maximum amount of 999999.99', async () => {
+  it('acepta el importe máximo de 999999.99', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
 
     await request(app.getHttpServer())
@@ -100,7 +100,7 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create.mock.calls[0][0].data.amount).toBe('999999.99');
   });
 
-  it('accepts entertainment as an expense category', async () => {
+  it('acepta entertainment como categoría de gasto', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
 
     await request(app.getHttpServer())
@@ -111,7 +111,7 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create.mock.calls[0][0].data.category).toBe('entertainment');
   });
 
-  it('still accepts an expense without concept (older clients)', async () => {
+  it('sigue aceptando un gasto sin concepto para clientes antiguos', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
     const { concept: _concept, ...withoutConcept } = validBody;
 
@@ -139,7 +139,7 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
-  it('does not create a debt when the payer is the only selected person', async () => {
+  it('no crea una deuda cuando el pagador es la única persona seleccionada', async () => {
     const response = await request(app.getHttpServer())
       .post('/transactions')
       .send({ ...validBody, to_user_id: payer })
@@ -149,7 +149,7 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
-  it('splits the expense equally among multiple selected people (UT998 multiple debtors)', async () => {
+  it('divide el gasto a partes iguales entre varias personas seleccionadas (UT998 varios deudores)', async () => {
     const debtor2 = '9c6c7f97-5938-4d4f-8920-9921a9f873fc';
     prisma.transaction.create.mockImplementation(({ data }) => Promise.resolve({ id: 'id', ...data }));
 
@@ -179,7 +179,7 @@ describe('POST /transactions (UT998)', () => {
     expect(Array.isArray(response.body)).toBe(true);
   });
 
-  it('creates one independent debt per selected person', async () => {
+  it('crea una deuda independiente por cada persona seleccionada', async () => {
     const jose = '9c6c7f97-5938-4d4f-8920-9921a9f873fc';
     prisma.transaction.create.mockImplementation(({ data }) =>
       Promise.resolve({ id: 'id', ...data }),
@@ -213,7 +213,7 @@ describe('POST /transactions (UT998)', () => {
     expect(response.body).toHaveLength(2);
   });
 
-  it('counts the payer in the split but does not create a debt to the payer', async () => {
+  it('incluye al pagador en el reparto pero no crea una deuda consigo mismo', async () => {
     const { to_user_id: _single, ...bodyWithoutSingle } = validBody;
     const response = await request(app.getHttpServer())
       .post('/transactions')
@@ -234,7 +234,7 @@ describe('POST /transactions (UT998)', () => {
     expect(response.body).toHaveLength(1);
   });
 
-  it('returns 400 when the apartment or a user does not exist', async () => {
+  it('devuelve 400 cuando el apartamento o un usuario no existe', async () => {
     prisma.transaction.create.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError('Foreign key failed', {
         code: 'P2003',

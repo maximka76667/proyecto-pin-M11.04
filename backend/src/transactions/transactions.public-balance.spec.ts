@@ -44,7 +44,7 @@ describe('GET /transactions/public-balance/:inviteCode (PA-997.01)', () => {
     jest.clearAllMocks();
   });
 
-  it('returns the apartment name and public balance without a user session', async () => {
+  it('devuelve el nombre del apartamento y el balance público sin sesión de usuario', async () => {
     prisma.apartment.findUnique.mockResolvedValue({
       id: 'apartment-id',
       name: 'Piso Centro',
@@ -66,7 +66,7 @@ describe('GET /transactions/public-balance/:inviteCode (PA-997.01)', () => {
     });
   });
 
-  it('returns 404 for an invalid invite code', async () => {
+  it('devuelve 404 para un código de invitación inválido', async () => {
     const response = await request(app.getHttpServer())
       .get('/transactions/public-balance/not-a-code')
       .expect(404);
