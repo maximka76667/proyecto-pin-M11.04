@@ -126,6 +126,7 @@ describe('POST /transactions (UT998)', () => {
     ['a zero amount', { amount: '0' }, 'amount'],
     ['a negative amount', { amount: '-5' }, 'amount'],
     ['an amount with more than 6 integer digits', { amount: '1000000' }, 'amount'],
+    ['an amount one cent over the maximum', { amount: '1000000.00' }, 'amount'],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an unknown category', { category: 'food' }, 'category'],
     ['a debtor id that is not a uuid', { to_user_id: 'abc' }, 'to_user_id'],
