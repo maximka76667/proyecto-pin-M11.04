@@ -50,7 +50,18 @@ export type UploadFile = { uri: string; name: string; type: string; file?: Blob 
 export type Member = {
   id: string;
   full_name: string;
+  isCurrentUser?: boolean;
 };
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 // Sends the request and throws an Error with the backend message if it fails
 export async function api(method: string, path: string, body?: object) {
@@ -86,7 +97,7 @@ async function readResponse(response: Response) {
   const data = await response.json();
   if (!response.ok) {
     const message = Array.isArray(data.message) ? data.message.join('\n') : data.message;
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
   return data;
 }

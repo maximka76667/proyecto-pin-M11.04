@@ -177,6 +177,11 @@ export class ScannerService {
     this.logger.debug(`Gemini raw response: ${(respuesta.text ?? '').slice(0, 2000)}`);
 
     const { ticket, lineasLeidas } = normalizarRespuesta(respuesta.text);
+    if (ticket.items.length === 0) {
+      throw new BadRequestException(
+        'Ticket no legible. Introduce el gasto manualmente.',
+      );
+    }
     const sinPrecio = ticket.items.filter((producto) => producto.unit_price === null).length;
     this.logger.log(
       `Ticket read: ${ticket.items.length} products ` +

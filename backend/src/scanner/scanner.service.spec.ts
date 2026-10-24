@@ -118,15 +118,21 @@ describe('ScannerService', () => {
     expect(items).toHaveLength(100);
   });
 
-  it('descarta líneas sin nombre ni precio y respuestas sin lista de productos', async () => {
+  it('rechaza tickets sin productos legibles', async () => {
     respuestaDeGemini({
       comercio: 'Bar',
       items: [{ name: ' ', quantity: 1, unit_price: null, category: 'other' }, 'basura'],
     });
-    expect((await crearServicio().escanearTicket(crearImagen())).items).toEqual([]);
+    await expect(crearServicio().escanearTicket(crearImagen())).rejects.toMatchObject({
+      status: 400,
+      message: 'Ticket no legible. Introduce el gasto manualmente.',
+    });
 
     respuestaDeGemini({ comercio: 'Bar' });
-    expect((await crearServicio().escanearTicket(crearImagen())).items).toEqual([]);
+    await expect(crearServicio().escanearTicket(crearImagen())).rejects.toMatchObject({
+      status: 400,
+      message: 'Ticket no legible. Introduce el gasto manualmente.',
+    });
   });
 
   it('rechaza la petición si no hay imagen o no es un formato admitido', async () => {
