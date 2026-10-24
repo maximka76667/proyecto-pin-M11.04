@@ -55,13 +55,17 @@ export class TransactionsController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateTransactionDto: UpdateTransactionDto,
+    @CurrentUser() userId: string,
   ) {
-    return this.transactionsService.update(id, updateTransactionDto);
+    return this.transactionsService.update(id, updateTransactionDto, userId);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.transactionsService.remove(id);
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.transactionsService.remove(id, userId);
   }
 
   

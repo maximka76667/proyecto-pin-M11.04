@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -73,7 +74,9 @@ export class TransactionsService {
   ) {}
 
   async create(createTransactionDto: CreateTransactionDto) {
-    const hasMultipleDebtors = Boolean(createTransactionDto.to_user_ids?.length);
+    const hasMultipleDebtors = Boolean(
+      createTransactionDto.to_user_ids?.length,
+    );
     const debtorIds = hasMultipleDebtors
       ? Array.from(new Set(createTransactionDto.to_user_ids))
       : createTransactionDto.to_user_id
@@ -99,11 +102,14 @@ export class TransactionsService {
       : undefined;
 
     try {
+      const expenseId = actualDebtorIds.length > 1 ? randomUUID() : undefined;
       const creates = actualDebtorIds.map((debtorId, index) => {
         const shareCents = baseCents + (index < remainder ? 1 : 0);
 
         return this.prisma.transaction.create({
           data: {
+            ...(expenseId ? { expense_id: expenseId } : {}),
+            ...(expenseId ? { total_amount: createTransactionDto.amount } : {}),
             apartment_id: createTransactionDto.apartment_id,
             from_user_id: payerId,
             to_user_id: debtorId,
@@ -239,11 +245,85 @@ export class TransactionsService {
     return transaction;
   }
 
-  async update(id: string, updateTransactionDto: UpdateTransactionDto) {
-    await this.asegurarEditable(id);
+  async update(
+    id: string,
+    updateTransactionDto: UpdateTransactionDto,
+    userId: string,
+  ) {
+    await this.asegurarEditable(id, userId);
 
     try {
       const { date, ...rest } = updateTransactionDto;
+      const current = await this.prisma.transaction.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          expense_id: true,
+          total_amount: true,
+          apartment_id: true,
+          from_user_id: true,
+          category: true,
+          concept: true,
+          date: true,
+        },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Transaction not found');
+      }
+
+      const hasSplitUpdate = updateTransactionDto.to_user_ids !== undefined;
+      if (current.expense_id || hasSplitUpdate) {
+        const members = updateTransactionDto.to_user_ids ?? [id];
+        const debtorIds = Array.from(new Set(members)).filter(
+          (debtorId) => debtorId !== current.from_user_id,
+        );
+        if (debtorIds.length === 0) {
+          throw new BadRequestException(
+            'At least one debtor must be specified',
+          );
+        }
+
+        const rows = await this.prisma.transaction.findMany({
+          where: current.expense_id
+            ? { expense_id: current.expense_id }
+            : { id },
+          select: { id: true, amount: true },
+        });
+        const totalCents =
+          updateTransactionDto.amount === undefined
+            ? current.total_amount
+              ? Math.round(Number(current.total_amount) * 100)
+              : rows.reduce(
+                  (sum, row) => sum + Math.round(Number(row.amount) * 100),
+                  0,
+                )
+            : Math.round(Number(updateTransactionDto.amount) * 100);
+        const baseCents = Math.floor(totalCents / members.length);
+        const remainder = totalCents % members.length;
+        const expenseId =
+          current.expense_id ?? (rows.length > 1 ? randomUUID() : undefined);
+        const data = debtorIds.map((debtorId, index) => ({
+          ...(expenseId ? { expense_id: expenseId } : {}),
+          ...(expenseId ? { total_amount: (totalCents / 100).toFixed(2) } : {}),
+          apartment_id: current.apartment_id,
+          from_user_id: current.from_user_id,
+          to_user_id: debtorId,
+          amount: ((baseCents + (index < remainder ? 1 : 0)) / 100).toFixed(2),
+          concept: updateTransactionDto.concept ?? current.concept,
+          category: updateTransactionDto.category ?? current.category,
+          date: date ? new Date(date) : current.date,
+        }));
+        await this.prisma.$transaction(async (tx) => {
+          await tx.transaction.deleteMany({
+            where: { id: { in: rows.map((row) => row.id) } },
+          });
+          await Promise.all(
+            data.map((row) => tx.transaction.create({ data: row })),
+          );
+        });
+        return data;
+      }
 
       return await this.prisma.transaction.update({
         where: { id },
@@ -254,10 +334,19 @@ export class TransactionsService {
     }
   }
 
-  async remove(id: string) {
-    await this.asegurarEditable(id);
+  async remove(id: string, userId: string) {
+    await this.asegurarEditable(id, userId);
 
     try {
+      const transaction = await this.prisma.transaction.findUnique({
+        where: { id },
+        select: { expense_id: true },
+      });
+      if (transaction?.expense_id) {
+        return await this.prisma.transaction.deleteMany({
+          where: { expense_id: transaction.expense_id },
+        });
+      }
       return await this.prisma.transaction.delete({
         where: { id },
       });
@@ -668,10 +757,10 @@ export class TransactionsService {
 
   // Los pagos y los avisos solo se gestionan desde el flujo de saldar deudas:
   // editar o borrar un pago confirmado resucitaría la deuda.
-  private async asegurarEditable(id: string) {
+  private async asegurarEditable(id: string, userId: string) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
-      select: { category: true },
+      select: { category: true, from_user_id: true },
     });
 
     if (!transaction) {
@@ -680,6 +769,11 @@ export class TransactionsService {
     if (CATEGORIAS_DE_LIQUIDACION.includes(transaction.category)) {
       throw new ConflictException(
         'Los pagos de deudas no se pueden editar ni borrar desde aquí',
+      );
+    }
+    if (transaction.from_user_id !== userId) {
+      throw new ForbiddenException(
+        'Solo quien creó el gasto puede editarlo o eliminarlo',
       );
     }
   }

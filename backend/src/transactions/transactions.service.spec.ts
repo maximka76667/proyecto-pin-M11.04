@@ -445,7 +445,7 @@ describe('Servicio de transacciones', () => {
       const result = await service.update('tx-1', {
         amount: '55.50',
         category: 'utilities',
-      });
+      }, 'user-1');
 
       expect(prisma.transaction.update).toHaveBeenCalledWith({
         where: { id: 'tx-1' },
@@ -457,7 +457,7 @@ describe('Servicio de transacciones', () => {
     it('solo envía los campos que han cambiado', async () => {
       prisma.transaction.update.mockResolvedValue({ ...transaction, amount: '10.00' });
 
-      await service.update('tx-1', { amount: '10.00' });
+      await service.update('tx-1', { amount: '10.00' }, 'user-1');
 
       expect(prisma.transaction.update).toHaveBeenCalledWith({
         where: { id: 'tx-1' },
@@ -468,7 +468,7 @@ describe('Servicio de transacciones', () => {
     it('devuelve 404 cuando el gasto no existe', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
-      await expect(service.update('missing', { amount: '10.00' })).rejects.toThrow(
+      await expect(service.update('missing', { amount: '10.00' }, 'user-1')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -477,7 +477,7 @@ describe('Servicio de transacciones', () => {
       prisma.transaction.update.mockRejectedValue(prismaError('P2003'));
 
       await expect(
-        service.update('tx-1', { to_user_id: '99999999-9999-9999-9999-999999999999' }),
+        service.update('tx-1', { to_user_id: '99999999-9999-9999-9999-999999999999' }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -485,7 +485,7 @@ describe('Servicio de transacciones', () => {
       const unexpected = new Error('Database down');
       prisma.transaction.update.mockRejectedValue(unexpected);
 
-      await expect(service.update('tx-1', { amount: '10.00' })).rejects.toBe(unexpected);
+      await expect(service.update('tx-1', { amount: '10.00' }, 'user-1')).rejects.toBe(unexpected);
     });
   });
 
@@ -493,7 +493,7 @@ describe('Servicio de transacciones', () => {
     it('elimina el gasto por identificador y lo devuelve', async () => {
       prisma.transaction.delete.mockResolvedValue(transaction);
 
-      const result = await service.remove('tx-1');
+      const result = await service.remove('tx-1', 'user-1');
 
       expect(prisma.transaction.delete).toHaveBeenCalledWith({
         where: { id: 'tx-1' },
@@ -504,7 +504,7 @@ describe('Servicio de transacciones', () => {
     it('devuelve 404 cuando el gasto no existe', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
-      await expect(service.remove('missing')).rejects.toThrow(NotFoundException);
+      await expect(service.remove('missing', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
   });

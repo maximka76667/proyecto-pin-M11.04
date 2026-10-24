@@ -1,21 +1,22 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { SettleUpCard } from '@/components/settle-up';
-import { APARTMENT_ID } from '@/constants/dev-session';
-import { Palette } from '@/constants/onboarding';
-import { api, errorMessage } from '@/lib/api';
+import { SettleUpCard } from "@/components/settle-up";
+import { APARTMENT_ID } from "@/constants/dev-session";
+import { Palette } from "@/constants/onboarding";
+import { api, errorMessage } from "@/lib/api";
 
 type PersonalSummary = {
   miResumen: {
@@ -28,6 +29,8 @@ type PersonalSummary = {
 
 type Transaction = {
   id: string;
+  expense_id?: string | null;
+  total_amount?: number | string | null;
   apartment_id: string;
   from_user_id: string;
   to_user_id: string;
@@ -61,34 +64,49 @@ type DisplayTransaction = {
   debtorsCount: number;
 };
 
-// Keep every database transaction as a separate visible expense.
 function groupTransactions(list: Transaction[]): DisplayTransaction[] {
-  return list.map((t) => ({
-    id: t.id,
-    rawIds: [t.id],
-    apartment_id: t.apartment_id,
-    from_user_id: t.from_user_id,
-    to_user_ids: [t.to_user_id],
-    amount: Number(t.amount) || 0,
-    concept: t.concept,
-    category: t.category,
-    date: t.date,
-    paidByMe: t.paidByCurrentUser,
-    fromUser: t.fromUser,
-    debtorsCount: 1,
-  }));
+  const groups = new Map<string, Transaction[]>();
+  for (const transaction of list) {
+    const key = transaction.expense_id ?? transaction.id;
+    const group = groups.get(key) ?? [];
+    group.push(transaction);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].map((group) => {
+    const first = group[0];
+    return {
+      id: first.id,
+      rawIds: group.map((transaction) => transaction.id),
+      apartment_id: first.apartment_id,
+      from_user_id: first.from_user_id,
+      to_user_ids: group.map((transaction) => transaction.to_user_id),
+      amount:
+        Number(first.total_amount) ||
+        group.reduce((sum, transaction) => sum + Number(transaction.amount), 0),
+      concept: first.concept,
+      category: first.category,
+      date: first.date,
+      paidByMe: first.paidByCurrentUser,
+      fromUser: first.fromUser,
+      debtorsCount: group.length,
+    };
+  });
 }
 
 export default function Transactions() {
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
   const [refreshKey, setRefreshKey] = useState(0);
-  const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
-  const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
+  const [transactionMenu, setTransactionMenu] =
+    useState<DisplayTransaction | null>(null);
+  const [transactionToDelete, setTransactionToDelete] =
+    useState<DisplayTransaction | null>(null);
 
   const displayTransactions = useMemo(
     () => groupTransactions(transactions),
@@ -100,7 +118,9 @@ export default function Transactions() {
 
     try {
       await Promise.all(
-        transactionToDelete.rawIds.map((id) => api('DELETE', `/transactions/${id}`)),
+        transactionToDelete.rawIds.map((id) =>
+          api("DELETE", `/transactions/${id}`),
+        ),
       );
       const deletedIds = new Set(transactionToDelete.rawIds);
       setTransactionToDelete(null);
@@ -111,7 +131,7 @@ export default function Transactions() {
 
       try {
         const updatedSummary = (await api(
-          'GET',
+          "GET",
           `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
         )) as PersonalSummary;
         setSummary(updatedSummary);
@@ -129,24 +149,24 @@ export default function Transactions() {
 
       const loadTransactions = async () => {
         setLoading(true);
-        setError('');
+        setError("");
         try {
           const apartmentTransactions = (await api(
-            'GET',
+            "GET",
             `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
           )) as Transaction[];
 
           if (active) {
             setTransactions(
               apartmentTransactions.filter(
-                (transaction) => transaction.category !== 'pending',
+                (transaction) => transaction.category !== "pending",
               ),
             );
           }
 
           try {
             const summaryData = (await api(
-              'GET',
+              "GET",
               `/transactions/${encodeURIComponent(APARTMENT_ID)}/my-summary`,
             )) as PersonalSummary;
             if (active) setSummary(summaryData);
@@ -167,11 +187,34 @@ export default function Transactions() {
     }, [refreshKey]),
   );
 
+  const refreshTransactions = () => {
+    setRefreshing(true);
+    setRefreshKey((key) => key + 1);
+    setTimeout(() => setRefreshing(false), 500);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.back}>
-          <MaterialCommunityIcons name="arrow-left" size={24} color={Palette.text} />
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshTransactions}
+            tintColor={Palette.primary}
+          />
+        }
+      >
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={12}
+          style={styles.back}
+        >
+          <MaterialCommunityIcons
+            name="arrow-left"
+            size={24}
+            color={Palette.text}
+          />
         </Pressable>
 
         <View style={styles.header}>
@@ -180,36 +223,61 @@ export default function Transactions() {
               <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
               <Text style={styles.title}>Dinero</Text>
             </View>
-            <Pressable onPress={() => router.push('/escanearticket')} style={styles.scanButton}>
-              <MaterialCommunityIcons name="line-scan" size={20} color={Palette.onPrimary} />
+            <Pressable
+              onPress={() => router.push("/escanearticket")}
+              style={styles.scanButton}
+            >
+              <MaterialCommunityIcons
+                name="line-scan"
+                size={20}
+                color={Palette.onPrimary}
+              />
               <Text style={styles.scanButtonText}>Ticket</Text>
             </Pressable>
           </View>
         </View>
 
         <Pressable
-          onPress={() => router.push('/transactions/new')}
-          style={({ pressed }) => [styles.newExpense, pressed && styles.pressed]}>
-          <MaterialCommunityIcons name="plus" size={20} color={Palette.onPrimary} />
+          onPress={() => router.push("/transactions/new")}
+          style={({ pressed }) => [
+            styles.newExpense,
+            pressed && styles.pressed,
+          ]}
+        >
+          <MaterialCommunityIcons
+            name="plus"
+            size={20}
+            color={Palette.onPrimary}
+          />
           <Text style={styles.newExpenseText}>Añadir gasto</Text>
         </Pressable>
 
-        {loading ? <ActivityIndicator color={Palette.primary} size="large" /> : null}
+        {loading ? (
+          <ActivityIndicator color={Palette.primary} size="large" />
+        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         {summary ? (
           <Pressable
-            onPress={() => router.push('/transactions/summary')}
-            style={({ pressed }) => [styles.balanceCard, pressed && styles.pressed]}>
+            onPress={() => router.push("/transactions/summary")}
+            style={({ pressed }) => [
+              styles.balanceCard,
+              pressed && styles.pressed,
+            ]}
+          >
             <Text style={styles.balanceLabel}>MI BALANCE</Text>
             <Text style={styles.balanceAmount}>
-              {summary.miResumen.esDeudor ? '-' : '+'}
+              {summary.miResumen.esDeudor ? "-" : "+"}
               {summary.miResumen.monto.toFixed(2)} €
             </Text>
             <Text style={styles.balanceMessage}>{summary.mensaje}</Text>
             <View style={styles.balanceFooter}>
               <Text style={styles.balanceHint}>Ver detalle del balance</Text>
-              <MaterialCommunityIcons name="arrow-right" size={20} color={Palette.onPrimary} />
+              <MaterialCommunityIcons
+                name="arrow-right"
+                size={20}
+                color={Palette.onPrimary}
+              />
             </View>
           </Pressable>
         ) : null}
@@ -222,22 +290,29 @@ export default function Transactions() {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
-          <Text style={styles.sectionCaption}>{displayTransactions.length}</Text>
+          <Text style={styles.sectionCaption}>
+            {displayTransactions.length}
+          </Text>
         </View>
 
         {displayTransactions.length > 0 ? (
           <View style={styles.transactionList}>
             {displayTransactions.map((transaction) => {
               const paidByMe = transaction.paidByMe;
-              const pendiente = transaction.category === 'pending';
+              const pendiente = transaction.category === "pending";
               // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
-              const editable = transaction.category !== 'payment' && !pendiente;
+              const editable = transaction.category !== "payment" && !pendiente;
 
               return (
                 <View key={transaction.id} style={styles.transaction}>
-                  <View style={[styles.categoryIcon, !paidByMe && styles.categoryIconOther]}>
+                  <View
+                    style={[
+                      styles.categoryIcon,
+                      !paidByMe && styles.categoryIconOther,
+                    ]}
+                  >
                     <MaterialCommunityIcons
-                      name={paidByMe ? 'cart-outline' : 'home-outline'}
+                      name={paidByMe ? "cart-outline" : "home-outline"}
                       size={20}
                       color={Palette.primary}
                     />
@@ -247,11 +322,13 @@ export default function Transactions() {
                       {transaction.concept || transaction.category}
                     </Text>
                     <Text style={styles.transactionStatus}>
-                      {paidByMe ? 'Pagaste tú' : `Pagó ${transaction.fromUser.full_name}`}
-                      {pendiente ? ' · pendiente de confirmar' : ''}
+                      {paidByMe
+                        ? "Pagaste tú"
+                        : `Pagó ${transaction.fromUser.full_name}`}
+                      {pendiente ? " · pendiente de confirmar" : ""}
                     </Text>
                     <Text style={styles.transactionDate}>
-                      {new Date(transaction.date).toLocaleDateString('es-ES')}
+                      {new Date(transaction.date).toLocaleDateString("es-ES")}
                     </Text>
                   </View>
                   <View style={styles.transactionActions}>
@@ -261,15 +338,22 @@ export default function Transactions() {
                         !paidByMe && styles.negativeAmount,
                         // todavía no cuenta en el balance
                         pendiente && styles.pendingAmount,
-                      ]}>
-                      {paidByMe ? '+' : '-'}{transaction.amount.toFixed(2)} €
+                      ]}
+                    >
+                      {paidByMe ? "+" : "-"}
+                      {transaction.amount.toFixed(2)} €
                     </Text>
                     {editable ? (
                       <Pressable
                         onPress={() => setTransactionMenu(transaction)}
                         hitSlop={8}
-                        style={styles.menuButton}>
-                        <MaterialCommunityIcons name="dots-horizontal" size={22} color={Palette.text} />
+                        style={styles.menuButton}
+                      >
+                        <MaterialCommunityIcons
+                          name="dots-horizontal"
+                          size={22}
+                          color={Palette.text}
+                        />
                       </Pressable>
                     ) : null}
                   </View>
@@ -285,24 +369,34 @@ export default function Transactions() {
         visible={transactionMenu !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setTransactionMenu(null)}>
+        onRequestClose={() => setTransactionMenu(null)}
+      >
         <Pressable
           style={[styles.modalBackdrop, styles.actionMenuBackdrop]}
-          onPress={() => setTransactionMenu(null)}>
+          onPress={() => setTransactionMenu(null)}
+        >
           <Pressable style={styles.actionMenu} onPress={() => undefined}>
             <View style={styles.actionMenuHandle} />
             <View style={styles.actionMenuHeader}>
               <View style={styles.actionMenuIcon}>
-                <MaterialCommunityIcons name="receipt-text-outline" size={23} color={Palette.primary} />
+                <MaterialCommunityIcons
+                  name="receipt-text-outline"
+                  size={23}
+                  color={Palette.primary}
+                />
               </View>
               <View style={styles.actionMenuHeaderText}>
                 <Text style={styles.actionMenuEyebrow}>OPCIONES DEL GASTO</Text>
                 <Text style={styles.actionMenuTitle}>
-                  {transactionMenu?.concept || transactionMenu?.category || 'Gasto'}
+                  {transactionMenu?.concept ||
+                    transactionMenu?.category ||
+                    "Gasto"}
                 </Text>
               </View>
               <Text style={styles.actionMenuAmount}>
-                {transactionMenu ? `${transactionMenu.amount.toFixed(2)} €` : ''}
+                {transactionMenu
+                  ? `${transactionMenu.amount.toFixed(2)} €`
+                  : ""}
               </Text>
             </View>
             <Pressable
@@ -311,32 +405,53 @@ export default function Transactions() {
                 const id = transactionMenu.id;
                 setTransactionMenu(null);
                 router.push({
-                  pathname: '/transactions/edit',
+                  pathname: "/transactions/edit",
                   params: { id },
                 });
               }}
-              style={styles.actionMenuItem}>
+              style={styles.actionMenuItem}
+            >
               <View style={styles.actionMenuItemIcon}>
-                <MaterialCommunityIcons name="pencil-outline" size={20} color={Palette.primary} />
+                <MaterialCommunityIcons
+                  name="pencil-outline"
+                  size={20}
+                  color={Palette.primary}
+                />
               </View>
               <Text style={styles.actionMenuItemText}>Editar gasto</Text>
-              <MaterialCommunityIcons name="chevron-right" size={21} color={Palette.textSecondary} />
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={21}
+                color={Palette.textSecondary}
+              />
             </Pressable>
             <Pressable
               onPress={() => {
                 setTransactionToDelete(transactionMenu);
                 setTransactionMenu(null);
               }}
-              style={styles.actionMenuItem}>
-              <View style={[styles.actionMenuItemIcon, styles.actionMenuDeleteIcon]}>
-                <MaterialCommunityIcons name="trash-can-outline" size={20} color={Palette.error} />
+              style={styles.actionMenuItem}
+            >
+              <View
+                style={[styles.actionMenuItemIcon, styles.actionMenuDeleteIcon]}
+              >
+                <MaterialCommunityIcons
+                  name="trash-can-outline"
+                  size={20}
+                  color={Palette.error}
+                />
               </View>
               <Text style={styles.actionMenuDeleteText}>Eliminar gasto</Text>
-              <MaterialCommunityIcons name="chevron-right" size={21} color={Palette.textSecondary} />
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={21}
+                color={Palette.textSecondary}
+              />
             </Pressable>
             <Pressable
               onPress={() => setTransactionMenu(null)}
-              style={styles.actionMenuCancel}>
+              style={styles.actionMenuCancel}
+            >
               <Text style={styles.actionMenuCancelText}>Cancelar</Text>
             </Pressable>
           </Pressable>
@@ -346,27 +461,36 @@ export default function Transactions() {
         visible={transactionToDelete !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setTransactionToDelete(null)}>
+        onRequestClose={() => setTransactionToDelete(null)}
+      >
         <View style={styles.modalBackdrop}>
           <View style={styles.confirmation}>
             <View style={styles.confirmationIcon}>
-              <MaterialCommunityIcons name="trash-can-outline" size={24} color={Palette.error} />
+              <MaterialCommunityIcons
+                name="trash-can-outline"
+                size={24}
+                color={Palette.error}
+              />
             </View>
             <Text style={styles.confirmationTitle}>Cancelar gasto</Text>
             <Text style={styles.confirmationMessage}>
-              ¿Quieres eliminar{' '}
+              ¿Quieres eliminar{" "}
               {transactionToDelete
                 ? `${transactionToDelete.amount.toFixed(2)} € de ${transactionToDelete.concept || transactionToDelete.category}`
-                : 'este gasto'}
+                : "este gasto"}
               ?
             </Text>
             <View style={styles.confirmationActions}>
               <Pressable
                 onPress={() => setTransactionToDelete(null)}
-                style={styles.cancelButton}>
+                style={styles.cancelButton}
+              >
                 <Text style={styles.cancelButtonText}>No</Text>
               </Pressable>
-              <Pressable onPress={() => void deleteTransaction()} style={styles.deleteButton}>
+              <Pressable
+                onPress={() => void deleteTransaction()}
+                style={styles.deleteButton}
+              >
                 <Text style={styles.deleteButtonText}>Sí, eliminar</Text>
               </Pressable>
             </View>
@@ -381,25 +505,37 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Palette.background },
   container: {
     flexGrow: 1,
-    width: '100%',
+    width: "100%",
     maxWidth: 560,
-    alignSelf: 'center',
+    alignSelf: "center",
     paddingHorizontal: 24,
     paddingBottom: 32,
     gap: 18,
   },
-  back: { alignSelf: 'flex-start', paddingTop: 8 },
+  back: { alignSelf: "flex-start", paddingTop: 8 },
   header: { gap: 6 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  scanButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: Palette.primary },
-  scanButtonText: { fontSize: 12, fontWeight: '800', color: Palette.onPrimary },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  scanButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: Palette.primary,
+  },
+  scanButtonText: { fontSize: 12, fontWeight: "800", color: Palette.onPrimary },
   eyebrow: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 1.5,
     color: Palette.primary,
   },
-  title: { fontSize: 32, fontWeight: '800', color: Palette.text },
+  title: { fontSize: 32, fontWeight: "800", color: Palette.text },
   balanceCard: {
     gap: 8,
     padding: 20,
@@ -408,40 +544,45 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.85 },
   newExpense: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     minHeight: 48,
     borderRadius: 16,
     backgroundColor: Palette.primary,
   },
-  newExpenseText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
-  balanceLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: Palette.onPrimary },
-  balanceAmount: { fontSize: 36, fontWeight: '800', color: Palette.onPrimary },
+  newExpenseText: { fontSize: 15, fontWeight: "800", color: Palette.onPrimary },
+  balanceLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    color: Palette.onPrimary,
+  },
+  balanceAmount: { fontSize: 36, fontWeight: "800", color: Palette.onPrimary },
   balanceMessage: { fontSize: 14, lineHeight: 20, color: Palette.onPrimary },
   balanceFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 8,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.25)',
+    borderTopColor: "rgba(255,255,255,0.25)",
   },
-  balanceHint: { fontSize: 14, fontWeight: '700', color: Palette.onPrimary },
+  balanceHint: { fontSize: 14, fontWeight: "700", color: Palette.onPrimary },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 6,
   },
-  sectionTitle: { fontSize: 21, fontWeight: '800', color: Palette.text },
+  sectionTitle: { fontSize: 21, fontWeight: "800", color: Palette.text },
   sectionCaption: { fontSize: 13, color: Palette.textSecondary },
   transactionList: { gap: 10 },
   transaction: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     padding: 12,
     borderWidth: 1,
@@ -452,18 +593,22 @@ const styles = StyleSheet.create({
   categoryIcon: {
     width: 42,
     height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 14,
     backgroundColor: Palette.peach,
   },
   categoryIconOther: { backgroundColor: Palette.mint },
   transactionInfo: { flex: 1, gap: 3 },
-  transactionCategory: { fontSize: 15, fontWeight: '700', color: Palette.text },
+  transactionCategory: { fontSize: 15, fontWeight: "700", color: Palette.text },
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
   transactionDate: { fontSize: 11, color: Palette.textSecondary },
-  transactionAmount: { fontSize: 14, fontWeight: '800', color: Palette.primary },
-  transactionActions: { alignItems: 'flex-end', gap: 8 },
+  transactionAmount: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.primary,
+  },
+  transactionActions: { alignItems: "flex-end", gap: 8 },
   menuButton: {
     padding: 4,
     borderRadius: 12,
@@ -474,12 +619,12 @@ const styles = StyleSheet.create({
   error: { fontSize: 14, color: Palette.error },
   muted: { fontSize: 14, color: Palette.textSecondary },
   actionMenuBackdrop: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
+    alignItems: "center",
+    justifyContent: "flex-end",
     padding: 0,
   },
   actionMenu: {
-    width: '100%',
+    width: "100%",
     maxWidth: 560,
     gap: 6,
     padding: 24,
@@ -489,7 +634,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.background,
   },
   actionMenuHandle: {
-    alignSelf: 'center',
+    alignSelf: "center",
     width: 42,
     height: 5,
     marginBottom: 20,
@@ -497,31 +642,31 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.border,
   },
   actionMenuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 14,
   },
   actionMenuIcon: {
     width: 46,
     height: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 15,
     backgroundColor: Palette.mint,
   },
   actionMenuHeaderText: { flex: 1, gap: 3 },
   actionMenuEyebrow: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 1,
     color: Palette.textSecondary,
   },
-  actionMenuTitle: { fontSize: 19, fontWeight: '800', color: Palette.text },
-  actionMenuAmount: { fontSize: 16, fontWeight: '800', color: Palette.primary },
+  actionMenuTitle: { fontSize: 19, fontWeight: "800", color: Palette.text },
+  actionMenuAmount: { fontSize: 16, fontWeight: "800", color: Palette.primary },
   actionMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     minHeight: 58,
     paddingHorizontal: 10,
@@ -531,32 +676,40 @@ const styles = StyleSheet.create({
   actionMenuItemIcon: {
     width: 34,
     height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 11,
     backgroundColor: Palette.mint,
   },
-  actionMenuDeleteIcon: { backgroundColor: '#F9E4E0' },
-  actionMenuItemText: { fontSize: 16, fontWeight: '700', color: Palette.text },
-  actionMenuDeleteText: { fontSize: 16, fontWeight: '700', color: Palette.error },
+  actionMenuDeleteIcon: { backgroundColor: "#F9E4E0" },
+  actionMenuItemText: { fontSize: 16, fontWeight: "700", color: Palette.text },
+  actionMenuDeleteText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Palette.error,
+  },
   actionMenuCancel: {
-    alignItems: 'center',
+    alignItems: "center",
     minHeight: 48,
-    justifyContent: 'center',
+    justifyContent: "center",
     marginTop: 6,
     borderRadius: 15,
     backgroundColor: Palette.segment,
   },
-  actionMenuCancelText: { fontSize: 15, fontWeight: '800', color: Palette.text },
+  actionMenuCancelText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: Palette.text,
+  },
   modalBackdrop: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     padding: 24,
-    backgroundColor: 'rgba(31,42,36,0.45)',
+    backgroundColor: "rgba(31,42,36,0.45)",
   },
   confirmation: {
-    width: '100%',
+    width: "100%",
     maxWidth: 380,
     gap: 12,
     padding: 24,
@@ -566,30 +719,38 @@ const styles = StyleSheet.create({
   confirmationIcon: {
     width: 48,
     height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 24,
-    backgroundColor: '#FBE9E7',
+    backgroundColor: "#FBE9E7",
   },
-  confirmationTitle: { fontSize: 22, fontWeight: '800', color: Palette.text },
-  confirmationMessage: { fontSize: 15, lineHeight: 22, color: Palette.textSecondary },
-  confirmationActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  confirmationTitle: { fontSize: 22, fontWeight: "800", color: Palette.text },
+  confirmationMessage: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: Palette.textSecondary,
+  },
+  confirmationActions: { flexDirection: "row", gap: 10, marginTop: 8 },
   cancelButton: {
     flex: 1,
     minHeight: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 14,
     backgroundColor: Palette.segment,
   },
-  cancelButtonText: { fontSize: 15, fontWeight: '800', color: Palette.text },
+  cancelButtonText: { fontSize: 15, fontWeight: "800", color: Palette.text },
   deleteButton: {
     flex: 1,
     minHeight: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 14,
     backgroundColor: Palette.error,
   },
-  deleteButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
-})
+  deleteButtonText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: Palette.onPrimary,
+  },
+});

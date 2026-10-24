@@ -47,7 +47,10 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Gasto editable por defecto; se establece aquí porque clearAllMocks conserva los valores simulados.
-    prisma.transaction.findUnique.mockResolvedValue({ category: 'utilities' });
+    prisma.transaction.findUnique.mockResolvedValue({
+      category: 'utilities',
+      from_user_id: '22222222-2222-2222-2222-222222222222',
+    });
   });
 
   it('modifica el gasto cuando los datos son válidos', async () => {
