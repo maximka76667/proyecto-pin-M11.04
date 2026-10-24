@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
-describe('UsersController', () => {
+describe('Controlador de usuarios', () => {
   let controller: UsersController;
 
   beforeEach(async () => {
@@ -18,7 +18,7 @@ describe('UsersController', () => {
     controller = module.get<UsersController>(UsersController);
   });
 
-  it('should be defined', () => {
+  it('está definido correctamente', () => {
     expect(controller).toBeDefined();
   });
 });

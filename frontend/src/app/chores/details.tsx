@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
@@ -30,15 +31,36 @@ export default function ChoreDetailsScreen() {
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
   const [completed, setCompleted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  // sin taskId no hay nada que cargar: el error se muestra desde el principio
+  const [loading, setLoading] = useState(Boolean(taskId));
+  const [error, setError] = useState(taskId ? '' : 'Chore not found.');
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const openDeleteDialog = () => {
+    setDeleteError('');
+    setDeleteDialogVisible(true);
+  };
+
+  const deleteTask = async () => {
+    if (!taskId) return;
+
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api('DELETE', `/tasks/${encodeURIComponent(taskId)}`);
+      setDeleteDialogVisible(false);
+      router.dismissTo({ pathname: '/chores', params: { notice: 'deleted' } });
+    } catch (e) {
+      setDeleteError(errorMessage(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
-    if (!taskId) {
-      setError('Chore not found.');
-      setLoading(false);
-      return;
-    }
+    if (!taskId) return;
 
     void (async () => {
       try {
@@ -117,8 +139,26 @@ export default function ChoreDetailsScreen() {
             <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
             <Text style={styles.secondaryText}>Request a swap</Text>
           </Pressable>
+          <Pressable
+            onPress={() => router.push({ pathname: '/chores/edit', params: { taskId } })}
+            style={styles.secondaryButton}>
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={Palette.primary} />
+            <Text style={styles.secondaryText}>Edit chore</Text>
+          </Pressable>
+          <Pressable onPress={openDeleteDialog} style={[styles.secondaryButton, styles.deleteButton]}>
+            <MaterialCommunityIcons name="trash-can-outline" size={18} color={Palette.error} />
+            <Text style={[styles.secondaryText, styles.deleteText]}>Delete chore</Text>
+          </Pressable>
         </> : null}
       </ScrollView>
+      <DeleteChoreDialog
+        visible={deleteDialogVisible}
+        chore={task}
+        deleting={deleting}
+        error={deleteError}
+        onCancel={() => setDeleteDialogVisible(false)}
+        onConfirm={() => void deleteTask()}
+      />
     </SafeAreaView>
   );
 }
@@ -198,4 +238,6 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
   },
   secondaryText: { fontSize: 15, fontWeight: '700', color: Palette.primary },
+  deleteButton: { borderColor: Palette.error },
+  deleteText: { color: Palette.error },
 });

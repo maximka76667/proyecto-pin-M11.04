@@ -72,20 +72,64 @@ export class TransactionsService {
     private readonly usersService: UsersService,
   ) {}
 
-  create(createTransactionDto: CreateTransactionDto) {
-    return this.prisma.transaction.create({
-      data: {
-        apartment_id: createTransactionDto.apartment_id,
-        from_user_id: createTransactionDto.from_user_id,
-        to_user_id: createTransactionDto.to_user_id,
-        amount: createTransactionDto.amount,
-        category: createTransactionDto.category,
-        // sin fecha, la columna aplica su valor por defecto (hoy)
-        date: createTransactionDto.date
-          ? new Date(createTransactionDto.date)
-          : undefined,
-      },
-    });
+  async create(createTransactionDto: CreateTransactionDto) {
+    const hasMultipleDebtors = Boolean(createTransactionDto.to_user_ids?.length);
+    const debtorIds = hasMultipleDebtors
+      ? Array.from(new Set(createTransactionDto.to_user_ids))
+      : createTransactionDto.to_user_id
+        ? [createTransactionDto.to_user_id]
+        : [];
+
+    if (debtorIds.length === 0) {
+      throw new BadRequestException('At least one debtor must be specified');
+    }
+
+    const payerId = createTransactionDto.from_user_id;
+    const actualDebtorIds = debtorIds.filter((id) => id !== payerId);
+
+    if (actualDebtorIds.length === 0) {
+      return [];
+    }
+
+    const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
+    const baseCents = Math.floor(totalCents / debtorIds.length);
+    const remainder = totalCents % debtorIds.length;
+    const date = createTransactionDto.date
+      ? new Date(createTransactionDto.date)
+      : undefined;
+
+    try {
+      const creates = actualDebtorIds.map((debtorId, index) => {
+        const shareCents = baseCents + (index < remainder ? 1 : 0);
+
+        return this.prisma.transaction.create({
+          data: {
+            apartment_id: createTransactionDto.apartment_id,
+            from_user_id: payerId,
+            to_user_id: debtorId,
+            amount: (shareCents / 100).toFixed(2),
+            concept: createTransactionDto.concept,
+            category: createTransactionDto.category,
+            date,
+          },
+        });
+      });
+
+      if (creates.length === 1 && !hasMultipleDebtors) {
+        return await creates[0];
+      }
+
+      if (
+        typeof (this.prisma as unknown as { $transaction?: unknown })
+          .$transaction === 'function'
+      ) {
+        return await this.prisma.$transaction(creates);
+      }
+
+      return await Promise.all(creates);
+    } catch (error) {
+      this.handlePrismaError(error);
+    }
   }
 
   async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {

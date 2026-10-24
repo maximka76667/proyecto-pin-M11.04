@@ -8,10 +8,10 @@ import { UsersService } from '../users/users.service';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 
-// PA-1000.03: modifying an expense with invalid data is blocked.
-// Sends real HTTP requests through the same validation as the real app,
-// with a fake database so we can check it is never touched.
-describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
+// PA-1000.03: se bloquea la modificación de un gasto con datos inválidos.
+// Envía peticiones HTTP reales usando la misma validación que la aplicación,
+// con una base de datos simulada para comprobar que nunca se toca.
+describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
   let app: INestApplication<App>;
 
   const prisma = {
@@ -22,7 +22,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
     },
   };
 
-  // A real random (v4) uuid, like the ones Prisma generates
+  // Un UUID aleatorio real (v4), como los que genera Prisma.
   const id = '3f0c9a4e-8b1d-4c2a-9e7f-5a6b7c8d9e0f';
 
   beforeAll(async () => {
@@ -46,11 +46,11 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Editable expense by default; set here because clearAllMocks keeps mocked values
+    // Gasto editable por defecto; se establece aquí porque clearAllMocks conserva los valores simulados.
     prisma.transaction.findUnique.mockResolvedValue({ category: 'utilities' });
   });
 
-  it('modifies the expense when the data is valid', async () => {
+  it('modifica el gasto cuando los datos son válidos', async () => {
     prisma.transaction.update.mockResolvedValue({ id, amount: '12.50', category: 'utilities' });
 
     await request(app.getHttpServer())
@@ -67,6 +67,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
   it.each([
     ['a negative amount', { amount: '-5' }, 'amount'],
     ['a zero amount', { amount: '0' }, 'amount'],
+    ['an amount with more than 6 integer digits', { amount: '1000000' }, 'amount'],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an amount that is not a number', { amount: 'abc' }, 'amount'],
     ['an unknown category', { category: 'food' }, 'category'],
@@ -78,12 +79,12 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
       .send(body)
       .expect(400);
 
-    // The message tells which field was wrong
+    // El mensaje indica qué campo era incorrecto.
     expect(response.body.message.join(' ')).toContain(field);
     expect(prisma.transaction.update).not.toHaveBeenCalled();
   });
 
-  it('blocks an id that is not a uuid with 400', async () => {
+  it('bloquea con 400 un identificador que no es un UUID', async () => {
     await request(app.getHttpServer())
       .patch('/transactions/abc')
       .send({ amount: '12.50' })
@@ -92,7 +93,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
     expect(prisma.transaction.update).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when the expense does not exist', async () => {
+  it('devuelve 404 cuando el gasto no existe', async () => {
     prisma.transaction.findUnique.mockResolvedValue(null);
 
     const response = await request(app.getHttpServer())
@@ -103,7 +104,7 @@ describe('PATCH /transactions/:id validation (PA-1000.03)', () => {
     expect(response.body.message).toBe('Transaction not found');
   });
 
-  it('DELETE blocks an id that is not a uuid with 400', async () => {
+  it('DELETE bloquea con 400 un identificador que no es un UUID', async () => {
     await request(app.getHttpServer()).delete('/transactions/abc').expect(400);
 
     expect(prisma.transaction.delete).not.toHaveBeenCalled();

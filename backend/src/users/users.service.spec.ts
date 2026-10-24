@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
 
-describe('UsersService', () => {
+describe('Servicio de usuarios', () => {
   let service: UsersService;
 
   beforeEach(async () => {
@@ -16,7 +16,7 @@ describe('UsersService', () => {
     service = module.get<UsersService>(UsersService);
   });
 
-  it('should be defined', () => {
+  it('está definido correctamente', () => {
     expect(service).toBeDefined();
   });
 });

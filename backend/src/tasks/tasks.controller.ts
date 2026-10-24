@@ -1,6 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Patch, Delete } from '@nestjs/common';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { TasksService } from './tasks.service';
+import { CurrentUser } from '../common/current-user.decorator';
+import { UpdateTaskDto } from './dto/update-task.dto';
+
 
 @Controller('tasks')
 export class TasksController {
@@ -27,5 +30,19 @@ export class TasksController {
     }
 
     return this.tasksService.findOne(id);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() updateTaskDto: UpdateTaskDto,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.update(id, updateTaskDto, userId);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string, @CurrentUser() userId: string) {
+    return this.tasksService.remove(id, userId);
   }
 }
