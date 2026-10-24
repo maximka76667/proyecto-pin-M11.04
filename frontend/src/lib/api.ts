@@ -1,8 +1,8 @@
 import { Platform } from 'react-native';
 import { File as ExpoFile } from 'expo-file-system';
 
-//export const API_URL = 'http://localhost:3000';
-export const API_URL = 'http://192.168.1.48:3000';
+export const API_URL = 'http://localhost:3000';
+//export const API_URL = 'http://192.168.1.48:3000';
 
 export type Apartment = {
   id: string;
