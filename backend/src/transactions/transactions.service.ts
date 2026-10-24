@@ -49,7 +49,8 @@ export interface RespuestaMiBalancePersonal {
 }
 
 export type RolEnDeuda = 'deudor' | 'acreedor' | 'ajeno';
-export type AccionSettleUp = 'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
+export type AccionSettleUp =
+  'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
 
 export interface DeudaSettleUp {
   deudorId: string;
@@ -72,7 +73,8 @@ export class TransactionsService {
   ) {}
 
   async create(createTransactionDto: CreateTransactionDto) {
-    const debtorIds = createTransactionDto.to_user_ids?.length
+    const hasMultipleDebtors = Boolean(createTransactionDto.to_user_ids?.length);
+    const debtorIds = hasMultipleDebtors
       ? Array.from(new Set(createTransactionDto.to_user_ids))
       : createTransactionDto.to_user_id
         ? [createTransactionDto.to_user_id]
@@ -85,19 +87,18 @@ export class TransactionsService {
     const payerId = createTransactionDto.from_user_id;
     const actualDebtorIds = debtorIds.filter((id) => id !== payerId);
 
+    if (actualDebtorIds.length === 0) {
+      return [];
+    }
+
+    const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
+    const baseCents = Math.floor(totalCents / debtorIds.length);
+    const remainder = totalCents % debtorIds.length;
     const date = createTransactionDto.date
       ? new Date(createTransactionDto.date)
       : undefined;
 
     try {
-      if (actualDebtorIds.length === 0) {
-        return [];
-      }
-
-      const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
-      const baseCents = Math.floor(totalCents / debtorIds.length);
-      const remainder = totalCents % debtorIds.length;
-
       const creates = actualDebtorIds.map((debtorId, index) => {
         const shareCents = baseCents + (index < remainder ? 1 : 0);
 
@@ -114,7 +115,7 @@ export class TransactionsService {
         });
       });
 
-      if (debtorIds.length === 1) {
+      if (creates.length === 1 && !hasMultipleDebtors) {
         return await creates[0];
       }
 
@@ -131,10 +132,7 @@ export class TransactionsService {
     }
   }
 
-  async createFromReceipt(
-    dto: CreateReceiptTransactionDto,
-    payerId: string,
-  ) {
+  async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {
     const participantIds = [...new Set(dto.participant_ids)].filter(
       (participantId) => participantId !== payerId,
     );
@@ -142,14 +140,9 @@ export class TransactionsService {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id: dto.apartment_id },
       select: {
-        user_apartments: {
-          select: {
-            user_id: true,
-          },
-        },
+        user_apartments: { select: { user_id: true } },
       },
     });
-
     if (!apartment) {
       throw new NotFoundException('Apartment not found');
     }
@@ -157,19 +150,16 @@ export class TransactionsService {
     const memberIds = new Set(
       apartment.user_apartments.map(({ user_id }) => user_id),
     );
-
     if (!memberIds.has(payerId)) {
       throw new BadRequestException(
         'The current user must belong to the apartment',
       );
     }
-
     if (participantIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException(
         'All participants must belong to the apartment',
       );
     }
-
     if (participantIds.length === 0) {
       throw new BadRequestException(
         'Select at least one person to share the receipt with',
@@ -180,17 +170,16 @@ export class TransactionsService {
       (total, item) => total + this.itemCents(item) * item.quantity,
       0,
     );
-
     if (totalCents <= 0) {
       throw new BadRequestException('Receipt total must be positive');
     }
 
     const participantCount = participantIds.length + 1;
-    const shareCents = Math.floor(totalCents / participantCount);
-
+    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
+    const shareCents = Math.ceil(totalCents / participantCount);
     const transactions = await this.prisma.$transaction(
-      participantIds.map((debtorId) =>
-        this.prisma.transaction.create({
+      participantIds.map((debtorId) => {
+        return this.prisma.transaction.create({
           data: {
             apartment_id: dto.apartment_id,
             from_user_id: payerId,
@@ -199,8 +188,8 @@ export class TransactionsService {
             category: dto.category,
             date: dto.date ? new Date(dto.date) : undefined,
           },
-        }),
-      ),
+        });
+      }),
     );
 
     return {
@@ -653,7 +642,10 @@ export class TransactionsService {
     }
   }
 
-  private async asegurarAvisoDelAcreedor(transactionId: string, userId: string) {
+  private async asegurarAvisoDelAcreedor(
+    transactionId: string,
+    userId: string,
+  ) {
     const aviso = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       select: { category: true, to_user_id: true },
@@ -742,5 +734,4 @@ export class TransactionsService {
 
     return Promise.all(balancePromises);
   }
-
 }

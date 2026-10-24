@@ -24,6 +24,11 @@ Crea un archivo `backend/.env` (no se sube al repositorio) con la conexión a la
 DATABASE_URL="postgresql://USUARIO:PASSWORD@HOST:5432/BASEDEDATOS"
 DIRECT_URL="postgresql://USUARIO:PASSWORD@HOST:5432/BASEDEDATOS"
 # PORT=3000   # opcional, por defecto 3000
+
+# Escáner de tickets (POST /scanner/ticket). Clave gratuita en https://aistudio.google.com/apikey
+# Sin clave el backend arranca igual; solo falla el escaneo.
+GEMINI_API_KEY="tu_clave"
+# GEMINI_MODEL="gemini-3-flash-preview"   # opcional
 ```
 
 > Si usas una base de datos sin pooler (p. ej. PostgreSQL local), `DIRECT_URL` puede ser igual que `DATABASE_URL`.

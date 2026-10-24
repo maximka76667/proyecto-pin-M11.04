@@ -114,32 +114,27 @@ export class ApartmentsService {
     });
   }
 
-  async findMembers(id: string, currentUserId: string) {
+  async findMembers(id: string, currentUserId?: string) {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id },
-      select: {
-        landlord: { select: { id: true, full_name: true } },
-        user_apartments: {
-          select: { user: { select: { id: true, full_name: true } } },
-        },
-      },
+      select: { id: true },
     });
-
     if (!apartment) {
       throw new NotFoundException('Apartment not found');
     }
 
-    const members = new Map<string, { id: string; full_name: string }>();
-    if (apartment.landlord) {
-      members.set(apartment.landlord.id, apartment.landlord);
-    }
-    for (const { user } of apartment.user_apartments) {
-      members.set(user.id, user);
-    }
+    // Solo user_apartments: es la misma regla que usa createFromReceipt para aceptar
+    // participantes. El casero aparece si es miembro (create() lo añade al crear el piso).
+    const members = await this.prisma.user.findMany({
+      where: { user_apartments: { some: { apartment_id: id } } },
+      select: { id: true, full_name: true },
+      orderBy: { full_name: 'asc' },
+    });
 
-    return [...members.values()].sort((a, b) =>
-      a.full_name.localeCompare(b.full_name),
-    );
+    return members.map((member) => ({
+      ...member,
+      isCurrentUser: member.id === currentUserId,
+    }));
   }
 
   async update(id: string, updateApartmentDto: UpdateApartmentDto) {
