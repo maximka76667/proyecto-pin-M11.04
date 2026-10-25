@@ -30,6 +30,8 @@ type Props = {
   initialValues?: Partial<TransactionFormValues>;
   onCancel: () => void;
   onSubmit: (values: TransactionFormValues) => Promise<void>;
+  allowMultipleDebtors?: boolean;
+  excludeCurrentUser?: boolean;
 };
 
 const categories: {
@@ -54,6 +56,8 @@ export function TransactionForm({
   initialValues,
   onCancel,
   onSubmit,
+  allowMultipleDebtors = true,
+  excludeCurrentUser = false,
 }: Props) {
   const [amount, setAmount] = useState(initialValues?.amount ?? "");
   const [concept, setConcept] = useState(initialValues?.concept ?? "");
@@ -94,6 +98,7 @@ export function TransactionForm({
       : null;
 
   const toggleAll = () => {
+    if (!allowMultipleDebtors) return;
     setSelectedDebtorIds(
       selectedDebtorIds.length === roommates.length
         ? []
@@ -226,7 +231,7 @@ export function TransactionForm({
 
         <View style={styles.debtorHeaderRow}>
           <Text style={styles.label}>Who shares the expense?</Text>
-          {roommates.length > 0 ? (
+          {allowMultipleDebtors && roommates.length > 0 ? (
             <Pressable onPress={toggleAll} hitSlop={8}>
               <Text style={styles.selectAllText}>
                 {selectedDebtorIds.length === roommates.length
@@ -236,7 +241,7 @@ export function TransactionForm({
             </Pressable>
           ) : null}
         </View>
-        {selectedDebtorIds.length > 1 && perPerson ? (
+        {allowMultipleDebtors && selectedDebtorIds.length > 1 && perPerson ? (
           <View style={styles.splitBadge}>
             <MaterialCommunityIcons
               name="calculator"
@@ -250,34 +255,46 @@ export function TransactionForm({
         ) : null}
         {loadingMembers ? <ActivityIndicator color={Palette.primary} /> : null}
         <View style={styles.chipGrid}>
-          {roommates.map((member) => {
-            const selected = selectedDebtorIds.includes(member.id);
-            return (
-              <Pressable
-                key={member.id}
-                onPress={() =>
-                  setSelectedDebtorIds((current) =>
-                    selected
-                      ? current.filter((id) => id !== member.id)
-                      : [...current, member.id],
-                  )
-                }
-                style={[styles.chip, selected && styles.chipActive]}
-              >
-                <MaterialCommunityIcons
-                  name={selected ? "checkbox-marked" : "checkbox-blank-outline"}
-                  size={18}
-                  color={selected ? Palette.text : Palette.primary}
-                />
-                <Text
-                  style={[styles.chipText, selected && styles.chipTextActive]}
+          {roommates
+            .filter((member) => !excludeCurrentUser || member.id !== USER_ID)
+            .map((member) => {
+              const selected = selectedDebtorIds.includes(member.id);
+              return (
+                <Pressable
+                  key={member.id}
+                  onPress={() =>
+                    setSelectedDebtorIds((current) =>
+                      allowMultipleDebtors
+                        ? selected
+                          ? current.filter((id) => id !== member.id)
+                          : [...current, member.id]
+                        : [member.id],
+                    )
+                  }
+                  style={[styles.chip, selected && styles.chipActive]}
                 >
-                  {member.id === USER_ID ? "Yo" : member.full_name}
-                  {selected && perPerson ? ` (${perPerson} €)` : ""}
-                </Text>
-              </Pressable>
-            );
-          })}
+                  <MaterialCommunityIcons
+                    name={
+                      allowMultipleDebtors
+                        ? selected
+                          ? "checkbox-marked"
+                          : "checkbox-blank-outline"
+                        : selected
+                          ? "radiobox-marked"
+                          : "radiobox-blank"
+                    }
+                    size={18}
+                    color={selected ? Palette.text : Palette.primary}
+                  />
+                  <Text
+                    style={[styles.chipText, selected && styles.chipTextActive]}
+                  >
+                    {member.id === USER_ID ? "Yo" : member.full_name}
+                    {selected && perPerson ? ` (${perPerson} €)` : ""}
+                  </Text>
+                </Pressable>
+              );
+            })}
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}

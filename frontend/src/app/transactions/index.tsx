@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { SettleUpCard } from "@/components/settle-up";
-import { APARTMENT_ID } from "@/constants/dev-session";
+import { APARTMENT_ID, USER_ID } from "@/constants/dev-session";
 import { Palette } from "@/constants/onboarding";
 import { api, errorMessage } from "@/lib/api";
 
@@ -29,8 +29,6 @@ type PersonalSummary = {
 
 type Transaction = {
   id: string;
-  expense_id?: string | null;
-  total_amount?: number | string | null;
   apartment_id: string;
   from_user_id: string;
   to_user_id: string;
@@ -65,31 +63,20 @@ type DisplayTransaction = {
 };
 
 function groupTransactions(list: Transaction[]): DisplayTransaction[] {
-  const groups = new Map<string, Transaction[]>();
-  for (const transaction of list) {
-    const key = transaction.expense_id ?? transaction.id;
-    const group = groups.get(key) ?? [];
-    group.push(transaction);
-    groups.set(key, group);
-  }
-
-  return [...groups.values()].map((group) => {
-    const first = group[0];
+  return list.map((first) => {
     return {
       id: first.id,
-      rawIds: group.map((transaction) => transaction.id),
+      rawIds: [first.id],
       apartment_id: first.apartment_id,
       from_user_id: first.from_user_id,
-      to_user_ids: group.map((transaction) => transaction.to_user_id),
-      amount:
-        Number(first.total_amount) ||
-        group.reduce((sum, transaction) => sum + Number(transaction.amount), 0),
+      to_user_ids: [first.to_user_id],
+      amount: Number(first.amount) || 0,
       concept: first.concept,
       category: first.category,
       date: first.date,
       paidByMe: first.paidByCurrentUser,
       fromUser: first.fromUser,
-      debtorsCount: group.length,
+      debtorsCount: 1,
     };
   });
 }
@@ -301,7 +288,11 @@ export default function Transactions() {
               const paidByMe = transaction.paidByMe;
               const pendiente = transaction.category === "pending";
               // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
-              const editable = transaction.category !== "payment" && !pendiente;
+              const editable =
+                transaction.from_user_id === USER_ID &&
+                transaction.category !== "payment" &&
+                !pendiente &&
+                transaction.concept?.trim().toLowerCase() !== "payment";
 
               return (
                 <View key={transaction.id} style={styles.transaction}>

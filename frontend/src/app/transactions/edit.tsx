@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { APARTMENT_ID } from "@/constants/dev-session";
 import { api, errorMessage, TransactionCategory } from "@/lib/api";
 import { Palette } from "@/constants/onboarding";
 import {
@@ -13,8 +12,6 @@ import {
 
 type Transaction = {
   id: string;
-  expense_id?: string | null;
-  total_amount?: string | number | null;
   amount: string;
   from_user_id: string;
   concept: string | null;
@@ -38,32 +35,16 @@ export default function EditExpenseScreen() {
     void (async () => {
       try {
         const loaded = (await api("GET", `/transactions/${id}`)) as Transaction;
-        const all = (await api(
-          "GET",
-          `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-        )) as Transaction[];
-        const group = loaded.expense_id
-          ? all.filter((item) => item.expense_id === loaded.expense_id)
-          : [loaded];
-        const totalAmount = Number(
-          loaded.total_amount ??
-            group.reduce((sum, item) => sum + Number(item.amount), 0),
-        );
-        const recordedShares = group.reduce(
-          (sum, item) => sum + Number(item.amount),
-          0,
-        );
-        const debtorIds = group.map((item) => item.to_user_id);
-        const payerParticipates = totalAmount - recordedShares > 0.01;
         setTransaction(loaded);
         setInitialValues({
-          amount: String(totalAmount),
+          amount: String(loaded.amount),
           concept: loaded.concept ?? "",
           category: loaded.category,
           date: loaded.date.slice(0, 10),
-          debtorIds: payerParticipates
-            ? Array.from(new Set([...debtorIds, loaded.from_user_id]))
-            : debtorIds,
+          debtorIds:
+            loaded.to_user_id === loaded.from_user_id
+              ? []
+              : [loaded.to_user_id],
         });
       } catch (e) {
         setError(errorMessage(e));
@@ -96,6 +77,8 @@ export default function EditExpenseScreen() {
       title="Edit expense"
       submitLabel="Save changes"
       initialValues={initialValues}
+      allowMultipleDebtors={false}
+      excludeCurrentUser
       onCancel={() => router.back()}
       onSubmit={async ({ amount, concept, category, date, debtorIds }) => {
         await api("PATCH", `/transactions/${transaction.id}`, {
@@ -103,7 +86,7 @@ export default function EditExpenseScreen() {
           concept,
           category,
           date,
-          to_user_ids: debtorIds,
+          to_user_id: debtorIds[0],
         });
         router.back();
       }}
