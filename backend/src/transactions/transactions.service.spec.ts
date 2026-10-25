@@ -1,5 +1,8 @@
-
-import { BadRequestException, NotFoundException, ConflictException, } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionCategory } from '@prisma/client';
 
@@ -85,7 +88,8 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
           transaccion.apartment_id === where.apartment_id) &&
         (where.from_user_id === undefined ||
           transaccion.from_user_id === where.from_user_id) &&
-        (where.to_user_id === undefined || transaccion.to_user_id === where.to_user_id),
+        (where.to_user_id === undefined ||
+          transaccion.to_user_id === where.to_user_id),
     );
 
   return {
@@ -103,7 +107,9 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
               ...transaccion,
               id: `transaction-${index}`,
               date: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`),
-              created_at: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`),
+              created_at: new Date(
+                `2026-01-${String(index + 1).padStart(2, '0')}`,
+              ),
               fromUser: { full_name: NOMBRES[transaccion.from_user_id] },
               toUser: { full_name: NOMBRES[transaccion.to_user_id] },
             })),
@@ -111,9 +117,13 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
         }
 
         const campo = distinct[0];
-        const valores = new Set(filtrar(where).map((transaccion) => transaccion[campo]));
+        const valores = new Set(
+          filtrar(where).map((transaccion) => transaccion[campo]),
+        );
 
-        return Promise.resolve([...valores].map((valor) => ({ [campo]: valor })));
+        return Promise.resolve(
+          [...valores].map((valor) => ({ [campo]: valor })),
+        );
       },
 
       aggregate: ({ where }: { where: FiltroFalso }) => {
@@ -122,8 +132,10 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
         const amount =
           filas.length === 0
             ? null
-            : filas.reduce((centimos, fila) => centimos + Math.round(fila.amount * 100), 0) /
-              100;
+            : filas.reduce(
+                (centimos, fila) => centimos + Math.round(fila.amount * 100),
+                0,
+              ) / 100;
 
         return Promise.resolve({ _sum: { amount } });
       },
@@ -135,7 +147,9 @@ async function crearServicio(transacciones: TransaccionFalsa[]) {
   const usersService = {
     getUserNames: (ids: string[]) =>
       Promise.resolve(
-        Object.fromEntries(ids.filter((id) => NOMBRES[id]).map((id) => [id, NOMBRES[id]])),
+        Object.fromEntries(
+          ids.filter((id) => NOMBRES[id]).map((id) => [id, NOMBRES[id]]),
+        ),
       ),
   };
 
@@ -175,7 +189,11 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
       const service = await crearServicio([...GASTOS_DEL_PISO]);
 
       const pagos = await service.getPagoMinimo(PISO_A);
-      const balanceEsperado: Record<string, number> = { [ANA]: 40, [BRUNO]: 10, [CARLA]: -50 };
+      const balanceEsperado: Record<string, number> = {
+        [ANA]: 40,
+        [BRUNO]: 10,
+        [CARLA]: -50,
+      };
 
       for (const [usuario, balance] of Object.entries(balanceEsperado)) {
         const cobra = pagos
@@ -205,7 +223,10 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
 
     it('minimiza las transacciones cruzadas: una cadena de deudas se salda con un solo pago', async () => {
       // Ana paga 30€ por Bruno y Bruno paga 30€ por Carla: Bruno queda a cero y desaparece
-      const service = await crearServicio([gasto(ANA, BRUNO, 30), gasto(BRUNO, CARLA, 30)]);
+      const service = await crearServicio([
+        gasto(ANA, BRUNO, 30),
+        gasto(BRUNO, CARLA, 30),
+      ]);
 
       await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([
         { deudorId: CARLA, acreedorId: ANA, monto: 30 },
@@ -224,7 +245,10 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
 
     it('cuadra al céntimo un gasto que no se puede dividir de forma exacta', async () => {
       // 100€ entre tres: 33,33 para Ana, 33,33 para Bruno y 33,34 para Carla
-      const service = await crearServicio([gasto(ANA, BRUNO, 33.33), gasto(ANA, CARLA, 33.34)]);
+      const service = await crearServicio([
+        gasto(ANA, BRUNO, 33.33),
+        gasto(ANA, CARLA, 33.34),
+      ]);
 
       const pagos = await service.getPagoMinimo(PISO_A);
 
@@ -232,7 +256,10 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
         { deudorId: CARLA, acreedorId: ANA, monto: 33.34 },
         { deudorId: BRUNO, acreedorId: ANA, monto: 33.33 },
       ]);
-      expect(pagos.reduce((total, p) => total + p.monto, 0)).toBeCloseTo(66.67, 2);
+      expect(pagos.reduce((total, p) => total + p.monto, 0)).toBeCloseTo(
+        66.67,
+        2,
+      );
     });
 
     it('muestra el saldo neto del usuario que debe dinero', async () => {
@@ -245,7 +272,9 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
         monto: 50,
         conceptos: ['Debes 40€ a Ana', 'Debes 10€ a Bruno'],
       });
-      expect(resumen.mensaje).toBe('En total, debes 50.00€ para saldar cuentas.');
+      expect(resumen.mensaje).toBe(
+        'En total, debes 50.00€ para saldar cuentas.',
+      );
     });
 
     it('muestra el saldo neto del usuario al que le deben dinero', async () => {
@@ -258,7 +287,9 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
         monto: 40,
         conceptos: ['Carla te debe 40€'],
       });
-      expect(resumen.mensaje).toBe('En total, tienes 40.00€ pendientes de cobro.');
+      expect(resumen.mensaje).toBe(
+        'En total, tienes 40.00€ pendientes de cobro.',
+      );
     });
 
     // La PA exige que los gastos activos sean los registrados "para ese hogar", así que el
@@ -267,7 +298,10 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
       // Ana vive en los dos pisos con papeles opuestos: en A le deben 40€ y en B debe 70€.
       // Si los hogares se mezclaran, los balances serían Ana -30, Bruno +10, Carla -50 y
       // Diego +70, y saldrían tres pagos que no cuadran con ninguno de los dos pisos.
-      const GASTOS_DE_DOS_PISOS = [...GASTOS_DEL_PISO, gasto(DIEGO, ANA, 70, PISO_B)];
+      const GASTOS_DE_DOS_PISOS = [
+        ...GASTOS_DEL_PISO,
+        gasto(DIEGO, ANA, 70, PISO_B),
+      ];
 
       it('el balance de un hogar solo tiene en cuenta sus propios gastos', async () => {
         const service = await crearServicio([...GASTOS_DE_DOS_PISOS]);
@@ -281,7 +315,9 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
             { deudorId: CARLA, acreedorId: BRUNO, monto: 10 },
           ]),
         );
-        expect(pagos.some((p) => p.deudorId === DIEGO || p.acreedorId === DIEGO)).toBe(false);
+        expect(
+          pagos.some((p) => p.deudorId === DIEGO || p.acreedorId === DIEGO),
+        ).toBe(false);
       });
 
       it('el otro hogar calcula su propio balance, ajeno al primero', async () => {
@@ -291,7 +327,9 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
 
         expect(pagos).toHaveLength(1);
         expect(pagos).toEqual(
-          expect.arrayContaining([{ deudorId: ANA, acreedorId: DIEGO, monto: 70 }]),
+          expect.arrayContaining([
+            { deudorId: ANA, acreedorId: DIEGO, monto: 70 },
+          ]),
         );
       });
 
@@ -362,7 +400,10 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
     });
 
     it('no genera pagos de 0€ cuando dos convivientes se compensan exactamente', async () => {
-      const service = await crearServicio([gasto(ANA, BRUNO, 50), gasto(BRUNO, ANA, 50)]);
+      const service = await crearServicio([
+        gasto(ANA, BRUNO, 50),
+        gasto(BRUNO, ANA, 50),
+      ]);
 
       await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([]);
     });
@@ -403,6 +444,7 @@ describe('Servicio de transacciones', () => {
     to_user_id: 'user-2',
     amount: '40.00',
     category: 'supplies',
+    created_at: new Date('2026-10-01T10:00:00.000Z'),
   };
 
   const apartmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -422,8 +464,8 @@ describe('Servicio de transacciones', () => {
       user_id: deudorId,
     });
     prisma.transaction.findFirst.mockResolvedValue(null);
-    prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => unknown) =>
-      callback(prisma),
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -439,13 +481,21 @@ describe('Servicio de transacciones', () => {
 
   describe('update (modificar gasto)', () => {
     it('actualiza el gasto por identificador con los datos recibidos', async () => {
-      const updated = { ...transaction, amount: '55.50', category: 'utilities' };
-      prisma.transaction.update.mockResolvedValue(updated);
-
-      const result = await service.update('tx-1', {
+      const updated = {
+        ...transaction,
         amount: '55.50',
         category: 'utilities',
-      }, 'user-1');
+      };
+      prisma.transaction.update.mockResolvedValue(updated);
+
+      const result = await service.update(
+        'tx-1',
+        {
+          amount: '55.50',
+          category: 'utilities',
+        },
+        'user-1',
+      );
 
       expect(prisma.transaction.update).toHaveBeenCalledWith({
         where: { id: 'tx-1' },
@@ -455,7 +505,10 @@ describe('Servicio de transacciones', () => {
     });
 
     it('solo envía los campos que han cambiado', async () => {
-      prisma.transaction.update.mockResolvedValue({ ...transaction, amount: '10.00' });
+      prisma.transaction.update.mockResolvedValue({
+        ...transaction,
+        amount: '10.00',
+      });
 
       await service.update('tx-1', { amount: '10.00' }, 'user-1');
 
@@ -468,24 +521,51 @@ describe('Servicio de transacciones', () => {
     it('devuelve 404 cuando el gasto no existe', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
-      await expect(service.update('missing', { amount: '10.00' }, 'user-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.update('missing', { amount: '10.00' }, 'user-1'),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('devuelve 400 cuando el nuevo apartamento o usuario no existe', async () => {
       prisma.transaction.update.mockRejectedValue(prismaError('P2003'));
 
       await expect(
-        service.update('tx-1', { to_user_id: '99999999-9999-9999-9999-999999999999' }, 'user-1'),
+        service.update(
+          'tx-1',
+          { to_user_id: '99999999-9999-9999-9999-999999999999' },
+          'user-1',
+        ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('bloquea un gasto anterior a una pago confirmado de la misma relación', async () => {
+      prisma.transaction.findFirst.mockResolvedValue({ id: 'payment-1' });
+
+      await expect(
+        service.update('tx-1', { amount: '10.00' }, 'user-1'),
+      ).rejects.toThrow(
+        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
+      );
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+      expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+        where: {
+          apartment_id: 'apt-1',
+          from_user_id: 'user-2',
+          to_user_id: 'user-1',
+          category: TransactionCategory.payment,
+          created_at: { gt: transaction.created_at },
+        },
+        select: { id: true },
+      });
     });
 
     it('propaga los errores inesperados', async () => {
       const unexpected = new Error('Database down');
       prisma.transaction.update.mockRejectedValue(unexpected);
 
-      await expect(service.update('tx-1', { amount: '10.00' }, 'user-1')).rejects.toBe(unexpected);
+      await expect(
+        service.update('tx-1', { amount: '10.00' }, 'user-1'),
+      ).rejects.toBe(unexpected);
     });
   });
 
@@ -504,9 +584,19 @@ describe('Servicio de transacciones', () => {
     it('devuelve 404 cuando el gasto no existe', async () => {
       prisma.transaction.findUnique.mockResolvedValue(null);
 
-      await expect(service.remove('missing', 'user-1')).rejects.toThrow(NotFoundException);
+      await expect(service.remove('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
+    it('bloquea eliminar un gasto anterior a una pago confirmado', async () => {
+      prisma.transaction.findFirst.mockResolvedValue({ id: 'payment-1' });
+
+      await expect(service.remove('tx-1', 'user-1')).rejects.toThrow(
+        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
+      );
+      expect(prisma.transaction.delete).not.toHaveBeenCalled();
+    });
   });
 
   describe('markAsPaid (marcar deuda como pagada)', () => {
@@ -544,7 +634,12 @@ describe('Servicio de transacciones', () => {
       ['la deuda ya está saldada', []],
       [
         'el usuario actual no es el acreedor',
-        [{ ...pendingDebt, acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
+        [
+          {
+            ...pendingDebt,
+            acreedorId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          },
+        ],
       ],
       [
         'el usuario actual no es el deudor',

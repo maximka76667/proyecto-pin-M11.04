@@ -218,10 +218,17 @@ export class TransactionsService {
       orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
     });
 
-    return transactions.map((transaction) => ({
-      ...transaction,
-      paidByCurrentUser: transaction.from_user_id === userId,
-    }));
+    return await Promise.all(
+      transactions.map(async (transaction) => ({
+        ...transaction,
+        paidByCurrentUser: transaction.from_user_id === userId,
+        canEdit:
+          transaction.from_user_id === userId &&
+          !CATEGORIAS_DE_LIQUIDACION.includes(transaction.category) &&
+          transaction.concept?.trim().toLowerCase() !== 'payment' &&
+          !(await this.hasConfirmedPaymentAfter(transaction)),
+      })),
+    );
   }
 
   async findOne(id: string) {
@@ -699,7 +706,14 @@ export class TransactionsService {
   private async asegurarEditable(id: string, userId: string) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
-      select: { category: true, concept: true, from_user_id: true },
+      select: {
+        apartment_id: true,
+        category: true,
+        concept: true,
+        from_user_id: true,
+        to_user_id: true,
+        created_at: true,
+      },
     });
 
     if (!transaction) {
@@ -718,6 +732,31 @@ export class TransactionsService {
         'Solo quien creó el gasto puede editarlo o eliminarlo',
       );
     }
+    if (await this.hasConfirmedPaymentAfter(transaction)) {
+      throw new ConflictException(
+        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
+      );
+    }
+  }
+
+  private async hasConfirmedPaymentAfter(transaction: {
+    apartment_id: string;
+    from_user_id: string;
+    to_user_id: string;
+    created_at: Date;
+  }) {
+    const payment = await this.prisma.transaction.findFirst({
+      where: {
+        apartment_id: transaction.apartment_id,
+        from_user_id: transaction.to_user_id,
+        to_user_id: transaction.from_user_id,
+        category: TransactionCategory.payment,
+        created_at: { gt: transaction.created_at },
+      },
+      select: { id: true },
+    });
+
+    return payment !== null;
   }
 
   private async calcularAllBalances(

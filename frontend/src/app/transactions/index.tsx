@@ -37,6 +37,7 @@ type Transaction = {
   category: string;
   date: string;
   paidByCurrentUser: boolean;
+  canEdit?: boolean;
   fromUser: {
     full_name: string;
   };
@@ -56,6 +57,7 @@ type DisplayTransaction = {
   category: string;
   date: string;
   paidByMe: boolean;
+  canEdit: boolean;
   fromUser: {
     full_name: string;
   };
@@ -75,6 +77,7 @@ function groupTransactions(list: Transaction[]): DisplayTransaction[] {
       category: first.category,
       date: first.date,
       paidByMe: first.paidByCurrentUser,
+      canEdit: first.canEdit ?? false,
       fromUser: first.fromUser,
       debtorsCount: 1,
     };
@@ -289,6 +292,7 @@ export default function Transactions() {
               const pendiente = transaction.category === "pending";
               // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
               const editable =
+                transaction.canEdit === true &&
                 transaction.from_user_id === USER_ID &&
                 transaction.category !== "payment" &&
                 !pendiente &&
