@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,12 +10,18 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SettleUpCard } from '@/components/settle-up';
 import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
+
+// Aviso que se muestra al volver de guardar un gasto
+const notices: Record<string, string> = {
+  receipt: 'Gasto del ticket guardado. Tu balance se ha actualizado.',
+};
 
 type PersonalSummary = {
   miResumen: {
@@ -80,6 +86,7 @@ function groupTransactions(list: Transaction[]): DisplayTransaction[] {
 }
 
 export default function Transactions() {
+  const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
@@ -89,6 +96,15 @@ export default function Transactions() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [transactionMenu, setTransactionMenu] = useState<DisplayTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<DisplayTransaction | null>(null);
+  // Al cerrarse el aviso se quita el parámetro, para que no vuelva a salir al recargar la página,
+  // y se guarda el texto para que no desaparezca mientras se desvanece
+  const noticeText = notice ? notices[notice] : undefined;
+  const [lastNoticeText, setLastNoticeText] = useState('');
+
+  const dismissNotice = () => {
+    setLastNoticeText(noticeText ?? '');
+    router.setParams({ notice: undefined });
+  };
 
   const displayTransactions = useMemo(
     () => groupTransactions(transactions),
@@ -373,6 +389,13 @@ export default function Transactions() {
           </View>
         </View>
       </Modal>
+      <Snackbar
+        visible={Boolean(noticeText)}
+        onDismiss={dismissNotice}
+        duration={3000}
+        style={styles.snackbar}>
+        {noticeText ?? lastNoticeText}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -592,4 +615,5 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.error,
   },
   deleteButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
+  snackbar: { backgroundColor: Palette.primary },
 })
