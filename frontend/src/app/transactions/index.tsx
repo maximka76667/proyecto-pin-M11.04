@@ -11,12 +11,19 @@ import {
   Text,
   View,
 } from "react-native";
+import { Snackbar } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { SettleUpCard } from "@/components/settle-up";
 import { APARTMENT_ID, USER_ID } from "@/constants/dev-session";
 import { Palette } from "@/constants/onboarding";
 import { api, errorMessage } from "@/lib/api";
+
+// Aviso que se muestra al volver de guardar un gasto
+const notices: Record<string, string> = {
+  receipt: 'Gasto del ticket guardado. Tu balance se ha actualizado.',
+  updated: "Gasto actualizado correctamente.",
+};
 
 type PersonalSummary = {
   miResumen: {
@@ -103,6 +110,15 @@ export default function Transactions() {
     useState<DisplayTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] =
     useState<DisplayTransaction | null>(null);
+  // Al cerrarse el aviso se quita el parámetro, para que no vuelva a salir al recargar la página,
+  // y se guarda el texto para que no desaparezca mientras se desvanece
+  const noticeText = notice ? notices[notice] : undefined;
+  const [lastNoticeText, setLastNoticeText] = useState('');
+
+  const dismissNotice = () => {
+    setLastNoticeText(noticeText ?? '');
+    router.setParams({ notice: undefined });
+  };
 
   const displayTransactions = useMemo(
     () => groupTransactions(transactions),
@@ -139,11 +155,6 @@ export default function Transactions() {
       setError(errorMessage(e));
     }
   };
-
-  const successNotice =
-    notice === "updated"
-      ? "Gasto actualizado correctamente."
-      : success;
 
   useFocusEffect(
     useCallback(() => {
@@ -258,8 +269,8 @@ export default function Transactions() {
           <ActivityIndicator color={Palette.primary} size="large" />
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {successNotice ? (
-          <Text style={styles.success}>{successNotice}</Text>
+        {success ? (
+          <Text style={styles.success}>{success}</Text>
         ) : null}
 
         {summary ? (
@@ -507,6 +518,13 @@ export default function Transactions() {
           </View>
         </View>
       </Modal>
+      <Snackbar
+        visible={Boolean(noticeText)}
+        onDismiss={dismissNotice}
+        duration={3000}
+        style={styles.snackbar}>
+        {noticeText ?? lastNoticeText}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -764,4 +782,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Palette.onPrimary,
   },
+  snackbar: { backgroundColor: Palette.primary },
 });
