@@ -14,6 +14,7 @@ import {
 import { Type } from 'class-transformer';
 import { TransactionCategory } from '@prisma/client';
 import { CATEGORIAS_DE_GASTO } from '../categorias';
+import { IsNotFutureDate } from './not-future-date.validator';
 
 // Límites elegidos para que ninguna combinación pueda desbordar: el peor total posible es
 // 99.999,99 € x 999 x 100 productos = 9.989.999.001 €, que cabe en la columna
@@ -68,5 +69,6 @@ export class CreateReceiptTransactionDto {
 
   @IsOptional()
   @IsDateString()
+  @IsNotFutureDate()
   date?: string;
 }

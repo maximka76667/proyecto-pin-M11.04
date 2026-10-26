@@ -72,20 +72,28 @@ describe('POST /transactions/from-receipt límites de importe y cantidad', () =>
     prisma.$transaction.mockImplementation((operaciones: unknown[]) => Promise.all(operaciones));
   });
 
-  it('acepta los valores justo en el límite y el reparto cabe en Decimal(12, 2)', async () => {
-    const items = Array.from({ length: MAX_PRODUCTOS }, () =>
-      producto({ quantity: MAX_CANTIDAD, unit_price: MAX_PRECIO_UNIDAD }),
-    );
+  it('acepta un ticket de 10.000,00 €', async () => {
+    const items = [producto({ unit_price: '10000.00' })];
 
     const response = await request(app.getHttpServer())
       .post('/transactions/from-receipt')
       .send(ticket(items))
       .expect(201);
 
-    // El peor caso posible: 99.999,99 x 999 x 100 productos
-    expect(response.body.total).toBe('9989999001.00');
+    expect(response.body.total).toBe('10000.00');
     const [deuda] = response.body.transactions;
-    expect(Number(deuda.amount)).toBeLessThanOrEqual(9999999999.99);
+    expect(Number(deuda.amount)).toBeLessThanOrEqual(10000);
+  });
+
+  it('bloquea un ticket superior a 10.000,00 €', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/transactions/from-receipt')
+      .send(ticket([producto({ unit_price: '10000.01' })]))
+      .expect(400);
+
+    expect(response.body.message).toContain('Receipt total must not exceed 10000.00');
+    expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
+    expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
   it.each([

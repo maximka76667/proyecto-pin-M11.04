@@ -25,6 +25,9 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
 
   // Un UUID aleatorio real (v4), como los que genera Prisma.
   const id = '3f0c9a4e-8b1d-4c2a-9e7f-5a6b7c8d9e0f';
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
@@ -86,6 +89,7 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
     ],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an amount that is not a number', { amount: 'abc' }, 'amount'],
+    ['a future date', { date: tomorrow }, 'date'],
     ['an empty concept', { concept: '' }, 'concept'],
     ['a whitespace-only concept', { concept: '   ' }, 'concept'],
     ['an unknown category', { category: 'food' }, 'category'],

@@ -89,15 +89,15 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.transaction.create.mock.calls[0][0].data.concept).toBe('Internet');
   });
 
-  it('acepta el importe máximo de 999999.99', async () => {
+  it('acepta el importe máximo de 10000.00', async () => {
     prisma.transaction.create.mockResolvedValue({ id: 'new-id' });
 
     await request(app.getHttpServer())
       .post('/transactions')
-      .send({ ...validBody, amount: '999999.99' })
+      .send({ ...validBody, amount: '10000.00' })
       .expect(201);
 
-    expect(prisma.transaction.create.mock.calls[0][0].data.amount).toBe('999999.99');
+    expect(prisma.transaction.create.mock.calls[0][0].data.amount).toBe('10000.00');
   });
 
   it('acepta entertainment como categoría de gasto', async () => {
@@ -125,8 +125,7 @@ describe('POST /transactions (UT998)', () => {
     ['a concept longer than 100 characters', { concept: 'a'.repeat(101) }, 'concept'],
     ['a zero amount', { amount: '0' }, 'amount'],
     ['a negative amount', { amount: '-5' }, 'amount'],
-    ['an amount with more than 6 integer digits', { amount: '1000000' }, 'amount'],
-    ['an amount one cent over the maximum', { amount: '1000000.00' }, 'amount'],
+    ['an amount over the maximum', { amount: '10000.01' }, 'amount'],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an unknown category', { category: 'food' }, 'category'],
     ['a debtor id that is not a uuid', { to_user_id: 'abc' }, 'to_user_id'],

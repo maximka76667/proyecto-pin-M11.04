@@ -16,6 +16,8 @@ import { Palette, Radius } from "@/constants/onboarding";
 import { api, errorMessage, Member, TransactionCategory } from "@/lib/api";
 import { limitTransactionAmountInput } from "@/lib/transaction-amount";
 
+const MAX_TRANSACTION_AMOUNT = 10000;
+
 export type TransactionFormValues = {
   amount: string;
   concept: string;
@@ -111,10 +113,11 @@ export function TransactionForm({
   const save = async () => {
     if (
       !/^\d{1,6}(\.\d{1,2})?$/.test(normalizedAmount) ||
-      Number(normalizedAmount) <= 0
+      Number(normalizedAmount) <= 0 ||
+      Number(normalizedAmount) > MAX_TRANSACTION_AMOUNT
     ) {
       setError(
-        "Introduce un importe positivo válido (hasta 6 dígitos enteros y 2 decimales).",
+        "Introduce un importe positivo de hasta 10.000,00 €.",
       );
       return;
     }
@@ -128,6 +131,10 @@ export function TransactionForm({
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       setError("Introduce una fecha válida con el formato AAAA-MM-DD.");
+      return;
+    }
+    if (date > today()) {
+      setError("La fecha no puede ser posterior a hoy.");
       return;
     }
 

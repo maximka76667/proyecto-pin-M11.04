@@ -99,6 +99,10 @@ export function ReceiptSplit({
       );
       return;
     }
+    if (Math.round(total * 100) > 1_000_000) {
+      onError(new Error("El gasto no puede superar los 10.000,00 €."));
+      return;
+    }
     setSaving(true);
     try {
       const expense = (await api("POST", "/transactions/from-receipt", {

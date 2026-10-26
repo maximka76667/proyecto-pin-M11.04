@@ -17,6 +17,7 @@ import {
 
 import { TransactionCategory } from '@prisma/client';
 import { CATEGORIAS_DE_GASTO } from '../categorias';
+import { IsNotFutureDate } from './not-future-date.validator';
 
 // Accepts RFC 4122 UUIDs and general PostgreSQL 32-hex UUIDs (e.g. seed data)
 const UUID_REGEX =
@@ -49,11 +50,11 @@ export class CreateTransactionDto {
   })
   to_user_ids?: string[];
 
-  // Positive, up to 2 decimals and capped at six integer digits.
+  // Positive, up to 2 decimals and capped at 10,000.00.
   // The lookahead rejects zero ("0", "0.0", "00.00")
-  @Matches(/^(?!0+(\.0{1,2})?$)\d{1,6}(\.\d{1,2})?$/, {
+  @Matches(/^(?!0+(\.0{1,2})?$)(?:(?:\d{1,4}(\.\d{1,2})?)|10000(\.0{1,2})?)$/, {
     message:
-      'amount must be a positive number with up to 6 integer digits and 2 decimals (e.g. "12.50")',
+      'amount must be a positive number no greater than 10000.00 with up to 2 decimals (e.g. "12.50")',
   })
   amount: string;
   // What the expense was for (e.g. "Compra del súper"). Optional in the API so older
@@ -75,5 +76,6 @@ export class CreateTransactionDto {
   // Día en que ocurrió el gasto (YYYY-MM-DD). Si no se envía, la base de datos pone hoy.
   @IsOptional()
   @IsDateString()
+  @IsNotFutureDate()
   date?: string;
 }

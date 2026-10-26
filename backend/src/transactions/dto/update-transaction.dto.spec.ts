@@ -16,6 +16,10 @@ async function errorsFor(body: object) {
 }
 
 describe('DTO de actualización de transacciones', () => {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
   it('acepta un importe y una categoría válidos', async () => {
     expect(await errorsFor({ amount: '12.50', category: 'utilities' })).toEqual([]);
   });
@@ -24,7 +28,7 @@ describe('DTO de actualización de transacciones', () => {
     expect(await errorsFor({})).toEqual([]);
   });
 
-  it.each(['12', '12.5', '12.50', '0.01', '999999.99'])(
+  it.each(['12', '12.5', '12.50', '0.01', '10000', '10000.00'])(
     'acepta el importe %p',
     async (amount) => {
       expect(await errorsFor({ amount })).toEqual([]);
@@ -39,7 +43,7 @@ describe('DTO de actualización de transacciones', () => {
     ['cero con decimales', '0.00'],
     ['más de 2 decimales', '12.999'],
     ['coma como separador decimal', '12,50'],
-    ['más de 6 dígitos enteros', '1000000'],
+    ['supera el máximo de 10.000,00', '10000.01'],
     ['demasiado grande para la base de datos', '12345678901'],
     ['notación científica', '1e3'],
     ['rodeado de espacios', ' 12 '],
@@ -53,6 +57,10 @@ describe('DTO de actualización de transacciones', () => {
 
   it('rechaza una categoría desconocida', async () => {
     expect(await errorsFor({ category: 'food' })).toEqual(['category']);
+  });
+
+  it('rechaza una fecha posterior a hoy', async () => {
+    expect(await errorsFor({ date: tomorrow })).toEqual(['date']);
   });
 
   it.each(['apartment_id', 'from_user_id', 'to_user_id', 'to_user_ids'])(

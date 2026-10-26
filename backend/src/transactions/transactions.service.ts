@@ -16,6 +16,8 @@ import {
   CreateReceiptTransactionDto,
   ReceiptItemDto,
 } from './dto/create-receipt-transaction.dto';
+
+const MAX_RECEIPT_TOTAL_CENTS = 1_000_000;
 import {
   BalanceUsuario,
   calcularMinimosPagos,
@@ -139,6 +141,17 @@ export class TransactionsService {
       (participantId) => participantId !== payerId,
     );
 
+    const totalCents = dto.items.reduce(
+      (total, item) => total + this.itemCents(item) * item.quantity,
+      0,
+    );
+    if (totalCents <= 0) {
+      throw new BadRequestException('Receipt total must be positive');
+    }
+    if (totalCents > MAX_RECEIPT_TOTAL_CENTS) {
+      throw new BadRequestException('Receipt total must not exceed 10000.00');
+    }
+
     const apartment = await this.prisma.apartment.findUnique({
       where: { id: dto.apartment_id },
       select: {
@@ -166,14 +179,6 @@ export class TransactionsService {
       throw new BadRequestException(
         'Select at least one person to share the receipt with',
       );
-    }
-
-    const totalCents = dto.items.reduce(
-      (total, item) => total + this.itemCents(item) * item.quantity,
-      0,
-    );
-    if (totalCents <= 0) {
-      throw new BadRequestException('Receipt total must be positive');
     }
 
     const participantCount = participantIds.length + 1;
