@@ -83,20 +83,20 @@ export function SegmentedControl<T extends string>({
   );
 }
 
-// Only visual for now: shows the initial of the name, no image picker yet
+// Solo visual por ahora: muestra la inicial del nombre, todavía no permite elegir imágenes
 export function PhotoField({ name }: { name: string }) {
   const initial = name.trim().charAt(0).toUpperCase() || 'A';
 
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>Your photo</Text>
+      <Text style={styles.fieldLabel}>Tu foto</Text>
       <View style={styles.photoRow}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{initial}</Text>
         </View>
         <View style={styles.photoButton}>
           <MaterialCommunityIcons name="camera-outline" size={16} color={Palette.primary} />
-          <Text style={styles.photoButtonText}>Add a photo</Text>
+          <Text style={styles.photoButtonText}>Añadir una foto</Text>
         </View>
       </View>
     </View>

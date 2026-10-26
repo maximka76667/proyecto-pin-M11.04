@@ -29,27 +29,36 @@ import {
 import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
 const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'other'];
+const CATEGORY_LABELS: Record<TransactionCategory, string> = {
+  utilities: 'Suministros',
+  maintenance: 'Hogar',
+  supplies: 'Compra',
+  entertainment: 'Ocio',
+  payment: 'Pago',
+  other: 'Otro',
+  pending: 'Pendiente',
+};
 
 type Tab = 'apartments' | 'expenses' | 'scanner';
 
 const TABS: { value: Tab; label: string; title: string; subtitle: string }[] = [
   {
     value: 'apartments',
-    label: 'Apartments',
-    title: 'Apartments',
-    subtitle: 'Create, edit and delete apartments to test the API.',
+    label: 'Hogares',
+    title: 'Hogares',
+    subtitle: 'Crea, edita y elimina hogares para probar la API.',
   },
   {
     value: 'expenses',
-    label: 'Expenses',
-    title: 'Expenses',
-    subtitle: 'Create, edit and delete expenses to test the API.',
+    label: 'Gastos',
+    title: 'Gastos',
+    subtitle: 'Crea, edita y elimina gastos para probar la API.',
   },
   {
     value: 'scanner',
-    label: 'Scanner',
-    title: 'Ticket scanner',
-    subtitle: 'Send a receipt photo to the scanner and see what it reads.',
+    label: 'Escáner',
+    title: 'Escáner de tickets',
+    subtitle: 'Envía una foto de un ticket al escáner y revisa lo que lee.',
   },
 ];
 
@@ -74,7 +83,7 @@ export default function DevScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Eyebrow>Developer tools</Eyebrow>
+          <Eyebrow>Herramientas de desarrollo</Eyebrow>
           <Text style={styles.title}>{current.title}</Text>
           <Text style={styles.subtitle}>{current.subtitle}</Text>
         </View>
@@ -175,29 +184,29 @@ function DevApartments({ showError }: { showError: ShowError }) {
   return (
     <>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>New apartment</Text>
-        <Field label="Name" placeholder="e.g. Piso Centro" value={name} onChangeText={setName} />
+        <Text style={styles.cardTitle}>Nuevo hogar</Text>
+        <Field label="Nombre" placeholder="p. ej. Piso Centro" value={name} onChangeText={setName} />
         <Field
-          label="Address"
-          placeholder="e.g. Calle Mayor 3, Valencia"
+          label="Dirección"
+          placeholder="p. ej. Calle Mayor 3, Valencia"
           value={address}
           onChangeText={setAddress}
         />
         <Field
-          label="Landlord ID (optional)"
-          placeholder="User uuid"
+          label="ID del propietario (opcional)"
+          placeholder="UUID del usuario"
           value={landlordId}
           onChangeText={setLandlordId}
           autoCapitalize="none"
         />
-        <PrimaryButton title="Create apartment" onPress={createApartment} loading={creating} />
+        <PrimaryButton title="Crear hogar" onPress={createApartment} loading={creating} />
       </View>
 
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>
-          All apartments <Text style={styles.count}>({apartments.length})</Text>
+          Todos los hogares <Text style={styles.count}>({apartments.length})</Text>
         </Text>
-        <IconButton icon="refresh" label="Reload" onPress={loadApartments} />
+        <IconButton icon="refresh" label="Recargar" onPress={loadApartments} />
       </View>
 
       {loading && apartments.length === 0 ? (
@@ -205,7 +214,7 @@ function DevApartments({ showError }: { showError: ShowError }) {
       ) : apartments.length === 0 ? (
         <View style={styles.empty}>
           <MaterialCommunityIcons name="home-outline" size={32} color={Palette.textSecondary} />
-          <Text style={styles.emptyText}>No apartments yet. Create the first one above.</Text>
+          <Text style={styles.emptyText}>Todavía no hay hogares. Crea el primero arriba.</Text>
         </View>
       ) : (
         apartments.map((apartment) => (
@@ -254,19 +263,19 @@ function ApartmentItem({
   if (editing) {
     return (
       <View style={[styles.card, styles.cardEditing]}>
-        <Text style={styles.cardTitle}>Edit apartment</Text>
-        <Field label="Name" value={name} onChangeText={setName} />
-        <Field label="Address" value={address} onChangeText={setAddress} />
+        <Text style={styles.cardTitle}>Editar hogar</Text>
+        <Field label="Nombre" value={name} onChangeText={setName} />
+        <Field label="Dirección" value={address} onChangeText={setAddress} />
         <Field
-          label="Landlord ID (empty = no landlord)"
+          label="ID del propietario (vacío = sin propietario)"
           value={landlordId}
           onChangeText={setLandlordId}
           autoCapitalize="none"
         />
         <View style={styles.row}>
-          <IconButton icon="close" label="Cancel" onPress={() => setEditing(false)} />
+          <IconButton icon="close" label="Cancelar" onPress={() => setEditing(false)} />
           <View style={styles.flex}>
-            <PrimaryButton title="Save" onPress={save} loading={saving} />
+            <PrimaryButton title="Guardar" onPress={save} loading={saving} />
           </View>
         </View>
       </View>
@@ -381,49 +390,49 @@ function DevExpenses({ showError }: { showError: ShowError }) {
   return (
     <>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>New expense</Text>
+        <Text style={styles.cardTitle}>Nuevo gasto</Text>
         <Field
-          label="Apartment ID"
-          placeholder="Apartment uuid"
+          label="ID del hogar"
+          placeholder="UUID del hogar"
           value={apartmentId}
           onChangeText={setApartmentId}
           autoCapitalize="none"
         />
         <Field
-          label="Paid by (from user ID)"
-          placeholder="User uuid"
+          label="Pagado por (ID del usuario)"
+          placeholder="UUID del usuario"
           value={fromUserId}
           onChangeText={setFromUserId}
           autoCapitalize="none"
         />
         <Field
-          label="Owed by (to user ID)"
-          placeholder="User uuid"
+          label="A cargo de (ID del usuario)"
+          placeholder="UUID del usuario"
           value={toUserId}
           onChangeText={setToUserId}
           autoCapitalize="none"
         />
         <Field
-          label="Amount"
-          placeholder="e.g. 12.50"
+          label="Importe"
+          placeholder="p. ej. 12,50"
           value={amount}
           onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
           keyboardType="decimal-pad"
         />
         <CategoryPicker value={category} onChange={setCategory} />
-        <PrimaryButton title="Create expense" onPress={createTransaction} loading={creating} />
+        <PrimaryButton title="Crear gasto" onPress={createTransaction} loading={creating} />
       </View>
 
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>
-          {filterApartmentId.trim() ? 'Filtered expenses' : 'All expenses'}{' '}
+          {filterApartmentId.trim() ? 'Gastos filtrados' : 'Todos los gastos'}{' '}
           <Text style={styles.count}>({transactions.length})</Text>
         </Text>
-        <IconButton icon="refresh" label="Reload" onPress={loadTransactions} />
+        <IconButton icon="refresh" label="Recargar" onPress={loadTransactions} />
       </View>
       <Field
-        label="Filter by apartment ID (optional)"
-        placeholder="Apartment uuid, then press Reload"
+        label="Filtrar por ID del hogar (opcional)"
+        placeholder="UUID del hogar y pulsa Recargar"
         value={filterApartmentId}
         onChangeText={setFilterApartmentId}
         autoCapitalize="none"
@@ -434,7 +443,7 @@ function DevExpenses({ showError }: { showError: ShowError }) {
       ) : transactions.length === 0 ? (
         <View style={styles.empty}>
           <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
-          <Text style={styles.emptyText}>No expenses yet. Create the first one above.</Text>
+          <Text style={styles.emptyText}>Todavía no hay gastos. Crea el primero arriba.</Text>
         </View>
       ) : (
         transactions.map((transaction) => (
@@ -489,18 +498,18 @@ function TransactionItem({
   if (editing) {
     return (
       <View style={[styles.card, styles.cardEditing]}>
-        <Text style={styles.cardTitle}>Edit expense</Text>
+        <Text style={styles.cardTitle}>Editar gasto</Text>
         <Field
-          label="Amount"
+          label="Importe"
           value={amount}
           onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
           keyboardType="decimal-pad"
         />
         <CategoryPicker value={category} onChange={setCategory} />
         <View style={styles.row}>
-          <IconButton icon="close" label="Cancel" onPress={() => setEditing(false)} />
+          <IconButton icon="close" label="Cancelar" onPress={() => setEditing(false)} />
           <View style={styles.flex}>
-            <PrimaryButton title="Save" onPress={save} loading={saving} />
+            <PrimaryButton title="Guardar" onPress={save} loading={saving} />
           </View>
         </View>
       </View>
@@ -517,7 +526,7 @@ function TransactionItem({
         <Text style={styles.itemName}>{Number(transaction.amount).toFixed(2)} €</Text>
         <View style={styles.badge}>
           <MaterialCommunityIcons name="tag-outline" size={12} color={Palette.primary} />
-          <Text style={styles.badgeText}>{transaction.category}</Text>
+          <Text style={styles.badgeText}>{CATEGORY_LABELS[transaction.category] ?? transaction.category}</Text>
         </View>
         <Text style={styles.itemId} numberOfLines={1}>
           id: {transaction.id}
@@ -582,7 +591,7 @@ function DevScanner({ showError }: { showError: ShowError }) {
   return (
     <>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Receipt photo</Text>
+        <Text style={styles.cardTitle}>Foto del ticket</Text>
         {/* Same component as the review screen (escanearticket) */}
         <TicketScanner
           onScanned={(ticket, asset) => {
@@ -592,14 +601,14 @@ function DevScanner({ showError }: { showError: ShowError }) {
           onError={(e) => showError('Scan ticket', e)}
         />
         {image && !scanning ? (
-          <IconButton icon="refresh" label="Scan same photo again" onPress={() => scanAgain(image)} />
+          <IconButton icon="refresh" label="Escanear la misma foto de nuevo" onPress={() => scanAgain(image)} />
         ) : null}
         {image ? (
           <Image source={{ uri: image.uri }} style={styles.preview} resizeMode="contain" />
         ) : (
           <View style={styles.empty}>
             <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
-            <Text style={styles.emptyText}>Pick a receipt photo to send it to POST /scanner/ticket.</Text>
+            <Text style={styles.emptyText}>Elige una foto de ticket para enviarla a POST /scanner/ticket.</Text>
           </View>
         )}
         {scanning ? <ActivityIndicator color={Palette.primary} /> : null}
@@ -610,7 +619,7 @@ function DevScanner({ showError }: { showError: ShowError }) {
           <View style={styles.listHeader}>
             <Text style={styles.listTitle}>
               {result.comercio ?? 'Unknown store'}{' '}
-              <Text style={styles.count}>({result.items.length} products)</Text>
+              <Text style={styles.count}>({result.items.length} productos)</Text>
             </Text>
             <IconButton
               icon="code-json"
@@ -621,11 +630,11 @@ function DevScanner({ showError }: { showError: ShowError }) {
 
           {showJson ? (
             <>
-              <Text style={styles.cardTitle}>Scanner response</Text>
+              <Text style={styles.cardTitle}>Respuesta del escáner</Text>
               <Text selectable style={styles.json}>
                 {JSON.stringify(result, null, 2)}
               </Text>
-              <Text style={styles.cardTitle}>Items escanearticket would send</Text>
+              <Text style={styles.cardTitle}>Productos que enviaría escanearticket</Text>
               <Text selectable style={styles.json}>
                 {JSON.stringify(receiptRequestItems(items), null, 2)}
               </Text>
@@ -634,7 +643,7 @@ function DevScanner({ showError }: { showError: ShowError }) {
 
           {result.items.length === 0 ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>No products found. Is it a receipt?</Text>
+              <Text style={styles.emptyText}>No se han encontrado productos. ¿Es un ticket?</Text>
             </View>
           ) : null}
         </>
@@ -646,17 +655,17 @@ function DevScanner({ showError }: { showError: ShowError }) {
           <ReceiptEditor items={items} onChange={setItems} />
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Create expense</Text>
+            <Text style={styles.cardTitle}>Crear gasto</Text>
             <Text style={styles.subtitle}>
-              Same split as escanearticket: the current user pays and the shared products are
-              split with the selected members. No frontend checks here, so invalid data reaches
-              the backend validation.
+              Igual que en escanearticket: el usuario actual paga y los productos compartidos se
+              reparten entre los miembros seleccionados. Aquí no se hacen comprobaciones en el
+              frontend, por lo que los datos no válidos llegan a la validación del backend.
             </Text>
             <View style={styles.row}>
               <View style={styles.flex}>
                 <Field
-                  label="Apartment ID"
-                  placeholder="Apartment uuid"
+                  label="ID del hogar"
+                  placeholder="UUID del hogar"
                   value={apartmentId}
                   onChangeText={setApartmentId}
                   autoCapitalize="none"
@@ -664,7 +673,7 @@ function DevScanner({ showError }: { showError: ShowError }) {
               </View>
               <IconButton
                 icon="account-multiple-outline"
-                label="Load members"
+                label="Cargar miembros"
                 onPress={() => {
                   setCreated(null);
                   setSplitApartmentId(apartmentId.trim());
@@ -686,7 +695,7 @@ function DevScanner({ showError }: { showError: ShowError }) {
           {created ? (
             <>
               <Text style={styles.listTitle}>
-                Created <Text style={styles.count}>({created.transactions.length} debts)</Text>
+                Creado <Text style={styles.count}>({created.transactions.length} deudas)</Text>
               </Text>
               <Text selectable style={styles.json}>
                 {JSON.stringify(created, null, 2)}
@@ -715,7 +724,9 @@ function CategoryPicker({
             key={category}
             onPress={() => onChange(category)}
             style={[styles.chip, selected && styles.chipSelected]}>
-            <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{category}</Text>
+            <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+              {CATEGORY_LABELS[category]}
+            </Text>
           </Pressable>
         );
       })}

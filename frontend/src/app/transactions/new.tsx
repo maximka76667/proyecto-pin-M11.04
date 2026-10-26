@@ -12,8 +12,8 @@ export default function NewExpenseScreen() {
 
   return (
     <TransactionForm
-      title="New expense"
-      submitLabel="Save expense"
+      title="Nuevo gasto"
+      submitLabel="Guardar gasto"
       onCancel={goBack}
       onSubmit={async ({ amount, concept, category, date, debtorIds }) => {
         await api("POST", "/transactions", {

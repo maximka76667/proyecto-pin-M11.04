@@ -40,11 +40,11 @@ const categories: {
   label: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }[] = [
-  { value: "supplies", label: "Groceries", icon: "cart-outline" },
-  { value: "utilities", label: "Utilities", icon: "flash-outline" },
-  { value: "maintenance", label: "Home", icon: "home-outline" },
-  { value: "entertainment", label: "Entertainment", icon: "movie-outline" },
-  { value: "other", label: "Other", icon: "dots-horizontal" },
+  { value: "supplies", label: "Compra", icon: "cart-outline" },
+  { value: "utilities", label: "Suministros", icon: "flash-outline" },
+  { value: "maintenance", label: "Hogar", icon: "home-outline" },
+  { value: "entertainment", label: "Ocio", icon: "movie-outline" },
+  { value: "other", label: "Otro", icon: "dots-horizontal" },
 ];
 
 function today() {
@@ -114,20 +114,20 @@ export function TransactionForm({
       Number(normalizedAmount) <= 0
     ) {
       setError(
-        "Enter a valid positive amount (up to 6 integer digits and 2 decimals).",
+        "Introduce un importe positivo válido (hasta 6 dígitos enteros y 2 decimales).",
       );
       return;
     }
     if (!concept.trim()) {
-      setError("Write what the expense was for.");
+      setError("Escribe en qué se ha gastado.");
       return;
     }
     if (selectedDebtorIds.length === 0) {
-      setError("Choose at least one person who shares the expense.");
+      setError("Elige al menos una persona con quien compartir el gasto.");
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      setError("Enter a valid date using YYYY-MM-DD.");
+      setError("Introduce una fecha válida con el formato AAAA-MM-DD.");
       return;
     }
 
@@ -167,12 +167,12 @@ export function TransactionForm({
             {saving ? (
               <ActivityIndicator color={Palette.primary} />
             ) : (
-              <Text style={styles.saveLink}>Save</Text>
+              <Text style={styles.saveLink}>Guardar</Text>
             )}
           </Pressable>
         </View>
 
-        <Text style={styles.label}>Amount</Text>
+        <Text style={styles.label}>Importe</Text>
         <View style={styles.amountField}>
           <Text style={styles.currency}>€</Text>
           <TextInput
@@ -187,7 +187,7 @@ export function TransactionForm({
           />
         </View>
 
-        <Text style={styles.label}>Concept</Text>
+        <Text style={styles.label}>Concepto</Text>
         <TextInput
           value={concept}
           onChangeText={setConcept}
@@ -197,7 +197,7 @@ export function TransactionForm({
           placeholderTextColor={Palette.textSecondary}
         />
 
-        <Text style={styles.label}>Date</Text>
+        <Text style={styles.label}>Fecha</Text>
         <TextInput
           value={date}
           onChangeText={setDate}
@@ -206,7 +206,7 @@ export function TransactionForm({
           placeholderTextColor={Palette.textSecondary}
         />
 
-        <Text style={styles.label}>Category</Text>
+        <Text style={styles.label}>Categoría</Text>
         <View style={styles.chipGrid}>
           {categories.map((item) => {
             const selected = category === item.value;
@@ -232,15 +232,15 @@ export function TransactionForm({
         </View>
 
         <View style={styles.debtorHeaderRow}>
-          <Text style={styles.label}>Who shares the expense?</Text>
+          <Text style={styles.label}>¿Quién comparte el gasto?</Text>
           {allowDebtorChange &&
           allowMultipleDebtors &&
           roommates.length > 0 ? (
             <Pressable onPress={toggleAll} hitSlop={8}>
               <Text style={styles.selectAllText}>
                 {selectedDebtorIds.length === roommates.length
-                  ? "Deselect all"
-                  : "Select all"}
+                  ? "Deseleccionar todo"
+                  : "Seleccionar todo"}
               </Text>
             </Pressable>
           ) : null}

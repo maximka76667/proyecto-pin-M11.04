@@ -6,24 +6,24 @@ import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 const frequencies = [
-  { value: 'once', label: 'Once' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'daily', label: 'Daily' },
+  { value: 'once', label: 'Una vez' },
+  { value: 'weekly', label: 'Semanal' },
+  { value: 'daily', label: 'Diaria' },
 ] as const;
 
 const categories = [
-  { value: 'cleaning', label: 'Cleaning', icon: 'broom' },
-  { value: 'maintenance', label: 'Maintenance', icon: 'tools' },
-  { value: 'shopping', label: 'Shopping', icon: 'cart-outline' },
-  { value: 'other', label: 'Other', icon: 'dots-horizontal' },
+  { value: 'cleaning', label: 'Limpieza', icon: 'broom' },
+  { value: 'maintenance', label: 'Mantenimiento', icon: 'tools' },
+  { value: 'shopping', label: 'Compras', icon: 'cart-outline' },
+  { value: 'other', label: 'Otra', icon: 'dots-horizontal' },
 ] as const;
 
 export default function CreateChoreScreen() {
   return (
     <ChoreForm
-      heading="Create a chore"
-      subtitle="Make the invisible work visible, then let Room8 help share it fairly."
-      submitLabel="Create chore"
+      heading="Crear una tarea"
+      subtitle="Haz visible el trabajo invisible y deja que Room8 ayude a repartirlo de forma justa."
+      submitLabel="Crear tarea"
       onSubmit={async (values) => {
         await api('POST', '/tasks', {
           apartment_id: APARTMENT_ID,
@@ -38,7 +38,7 @@ export default function CreateChoreScreen() {
       <View style={styles.infoCard}>
         <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
         <Text style={styles.infoText}>
-          Assignments will be added later when the household schedule is ready.
+          Las asignaciones se añadirán más adelante, cuando el calendario del hogar esté preparado.
         </Text>
       </View>
     </ChoreForm>

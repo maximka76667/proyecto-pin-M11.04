@@ -52,7 +52,7 @@ export default function EditExpenseScreen() {
     })();
   }, [id]);
 
-  const loadError = error || (!id ? "Expense not found." : "");
+  const loadError = error || (!id ? "No se encontró el gasto." : "");
 
   if (loadError) {
     return (
@@ -74,8 +74,8 @@ export default function EditExpenseScreen() {
 
   return (
     <TransactionForm
-      title="Edit expense"
-      submitLabel="Save changes"
+      title="Editar gasto"
+      submitLabel="Guardar cambios"
       initialValues={initialValues}
       allowMultipleDebtors={false}
       excludeCurrentUser

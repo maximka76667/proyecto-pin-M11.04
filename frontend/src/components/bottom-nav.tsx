@@ -14,10 +14,10 @@ type Tab = {
 // Página a la que lleva cada botón: para cambiar un destino basta con cambiar su href.
 // La barra solo aparece en estas páginas, así que se mueve sola con el destino.
 const tabs: Tab[] = [
-  { label: 'Home', icon: 'home-outline', href: '/' },
-  { label: 'Chores', icon: 'checkbox-marked-outline', href: '/chores' },
-  { label: 'Money', icon: 'credit-card-outline', href: '/transactions' },
-  { label: 'You', icon: 'account-outline', href: '/household' },
+  { label: 'Inicio', icon: 'home-outline', href: '/' },
+  { label: 'Tareas', icon: 'checkbox-marked-outline', href: '/chores' },
+  { label: 'Dinero', icon: 'credit-card-outline', href: '/transactions' },
+  { label: 'Tú', icon: 'account-outline', href: '/household' },
 ];
 
 export function BottomNav() {

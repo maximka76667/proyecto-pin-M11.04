@@ -26,7 +26,7 @@ export default function EditChoreScreen() {
   const [initialValues, setInitialValues] = useState<ChoreFormValues | null>(null);
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
-  const [error, setError] = useState(taskId ? '' : 'Chore not found.');
+  const [error, setError] = useState(taskId ? '' : 'No se encontró la tarea.');
 
   useEffect(() => {
     if (!taskId) return;
@@ -55,7 +55,7 @@ export default function EditChoreScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
-          <Pressable onPress={closeChoreForm} hitSlop={12} accessibilityLabel="Close">
+          <Pressable onPress={closeChoreForm} hitSlop={12} accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={24} color={Palette.text} />
           </Pressable>
           {loading ? <ActivityIndicator color={Palette.primary} /> : null}
@@ -67,9 +67,9 @@ export default function EditChoreScreen() {
 
   return (
     <ChoreForm
-      heading="Edit chore"
-      subtitle="Changes are saved for everyone in the household."
-      submitLabel="Save changes"
+      heading="Editar tarea"
+      subtitle="Los cambios se guardan para todas las personas del hogar."
+      submitLabel="Guardar cambios"
       initialValues={initialValues}
       onSubmit={async (values) => {
         // El PATCH rechaza cualquier campo que no sea uno de estos (p. ej. apartment_id).

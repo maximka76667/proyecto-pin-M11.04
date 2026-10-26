@@ -37,7 +37,7 @@ export default function Household() {
 
   const createHousehold = async () => {
     if (!householdName.trim() || !address.trim()) {
-      setError('Please fill in the household name and address.');
+      setError('Completa el nombre y la dirección del hogar.');
       return;
     }
 
@@ -66,7 +66,7 @@ export default function Household() {
 
   const joinHousehold = async () => {
     if (!yourName.trim() || !inviteCode.trim()) {
-      setError('Please enter your name and an invite code.');
+      setError('Introduce tu nombre y un código de invitación.');
       return;
     }
 
@@ -95,17 +95,17 @@ export default function Household() {
         </Pressable>
 
         <View style={styles.header}>
-          <Eyebrow>Let&apos;s set up home</Eyebrow>
-          <Text style={styles.title}>Who are you living with?</Text>
+          <Eyebrow>Configuremos tu hogar</Eyebrow>
+          <Text style={styles.title}>¿Con quién vives?</Text>
           <Text style={styles.subtitle}>
-            Create a new household or join one your roommate already started.
+            Crea un hogar nuevo o únete a uno que ya haya creado tu compañero de piso.
           </Text>
         </View>
 
         <SegmentedControl
           options={[
-            { value: 'create', label: 'Create new' },
-            { value: 'join', label: 'Join household' },
+            { value: 'create', label: 'Crear nuevo' },
+            { value: 'join', label: 'Unirme a un hogar' },
           ]}
           value={mode}
           onChange={changeMode}
@@ -113,8 +113,8 @@ export default function Household() {
 
         <View style={styles.form}>
           <Field
-            label={mode === 'join' ? 'Your name' : 'Your name (not saved in DB yet)'}
-            placeholder="e.g. Alex"
+            label={mode === 'join' ? 'Tu nombre' : 'Tu nombre (todavía no se guarda en la base de datos)'}
+            placeholder="p. ej. Alex"
             value={yourName}
             onChangeText={setYourName}
           />
@@ -122,22 +122,22 @@ export default function Household() {
           {mode === 'create' ? (
             <>
               <Field
-                label="Household name"
+                label="Nombre del hogar"
                 placeholder="e.g. Piso Centro"
                 value={householdName}
                 onChangeText={setHouseholdName}
               />
               <Field
-                label="Address"
-                placeholder="e.g. Calle Mayor 3, Valencia"
+                label="Dirección"
+                placeholder="p. ej. Calle Mayor 3, Valencia"
                 value={address}
                 onChangeText={setAddress}
               />
             </>
           ) : (
             <Field
-              label="Invite code"
-              placeholder="e.g. H7K4Q"
+              label="Código de invitación"
+              placeholder="p. ej. H7K4Q"
               value={inviteCode}
               onChangeText={setInviteCode}
               autoCapitalize="characters"
@@ -150,9 +150,9 @@ export default function Household() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         {mode === 'create' ? (
-          <PrimaryButton title="Continue" onPress={createHousehold} loading={loading} />
+          <PrimaryButton title="Continuar" onPress={createHousehold} loading={loading} />
         ) : (
-          <PrimaryButton title="Join household" onPress={joinHousehold} loading={loading} />
+          <PrimaryButton title="Unirme al hogar" onPress={joinHousehold} loading={loading} />
         )}
       </ScrollView>
     </SafeAreaView>

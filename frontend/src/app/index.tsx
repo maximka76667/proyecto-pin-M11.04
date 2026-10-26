@@ -18,21 +18,21 @@ export default function Welcome() {
             </View>
             <Text style={styles.brandText}>room8</Text>
           </View>
-          <Text style={styles.step}>1 of 3</Text>
+          <Text style={styles.step}>1 de 3</Text>
         </View>
 
         <HouseIllustration />
 
         <View style={styles.copy}>
-          <Eyebrow>Welcome home</Eyebrow>
-          <Text style={styles.title}>A happier home starts together.</Text>
+          <Eyebrow>Bienvenido a casa</Eyebrow>
+          <Text style={styles.title}>Un hogar más feliz empieza juntos.</Text>
           <Text style={styles.subtitle}>
-            Room8 makes chores and shared expenses feel fair, simple, and a little more human.
+            Room8 hace que las tareas y los gastos compartidos sean más justos, sencillos y humanos.
           </Text>
         </View>
 
         <View style={styles.actions}>
-          <PrimaryButton title="Create a household" onPress={() => router.push('/household')} />
+          <PrimaryButton title="Crear un hogar" onPress={() => router.push('/household')} />
           <Pressable
             onPress={() =>
               router.push({
@@ -40,9 +40,9 @@ export default function Welcome() {
                 params: { mode: 'join', inviteCode },
               })
             }>
-            <Text style={styles.link}>Join with an invite code</Text>
+            <Text style={styles.link}>Unirme con un código de invitación</Text>
           </Pressable>
-          <Text style={styles.footer}>Made for the people you live with.</Text>
+          <Text style={styles.footer}>Hecho para las personas con las que vives.</Text>
         </View>
       </View>
     </SafeAreaView>

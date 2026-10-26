@@ -74,6 +74,16 @@ type DisplayTransaction = {
   debtorsCount: number;
 };
 
+const categoryLabels: Record<string, string> = {
+  supplies: "Compra",
+  utilities: "Suministros",
+  maintenance: "Hogar",
+  entertainment: "Ocio",
+  other: "Otro",
+  payment: "Pago",
+  pending: "Pendiente",
+};
+
 function groupTransactions(list: Transaction[]): DisplayTransaction[] {
   return list.map((first) => {
     return {
@@ -340,7 +350,9 @@ export default function Transactions() {
                   </View>
                   <View style={styles.transactionInfo}>
                     <Text style={styles.transactionCategory}>
-                      {transaction.concept || transaction.category}
+                      {transaction.concept ||
+                        categoryLabels[transaction.category] ||
+                        transaction.category}
                     </Text>
                     <Text style={styles.transactionStatus}>
                       {paidByMe
@@ -497,7 +509,11 @@ export default function Transactions() {
             <Text style={styles.confirmationMessage}>
               ¿Quieres eliminar{" "}
               {transactionToDelete
-                ? `${transactionToDelete.amount.toFixed(2)} € de ${transactionToDelete.concept || transactionToDelete.category}`
+                ? `${transactionToDelete.amount.toFixed(2)} € de ${
+                    transactionToDelete.concept ||
+                    categoryLabels[transactionToDelete.category] ||
+                    transactionToDelete.category
+                  }`
                 : "este gasto"}
               ?
             </Text>
