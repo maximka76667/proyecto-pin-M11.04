@@ -1,10 +1,17 @@
 import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
+import { validate, ValidatorOptions } from 'class-validator';
 import { UpdateTransactionDto } from './update-transaction.dto';
 
 // Misma validación que ejecuta el ValidationPipe global en PATCH /transactions/:id.
 async function errorsFor(body: object) {
-  const errors = await validate(plainToInstance(UpdateTransactionDto, body));
+  const options: ValidatorOptions = {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+  };
+  const errors = await validate(
+    plainToInstance(UpdateTransactionDto, body),
+    options,
+  );
   return errors.map((error) => error.property);
 }
 
@@ -48,8 +55,8 @@ describe('DTO de actualización de transacciones', () => {
     expect(await errorsFor({ category: 'food' })).toEqual(['category']);
   });
 
-  it.each(['apartment_id', 'from_user_id', 'to_user_id'])(
-    'rechaza un campo %s que no es un UUID',
+  it.each(['apartment_id', 'from_user_id', 'to_user_id', 'to_user_ids'])(
+    'rechaza el campo %s porque la persona no se puede cambiar al editar',
     async (field) => {
       expect(await errorsFor({ [field]: 'not-a-uuid' })).toEqual([field]);
     },

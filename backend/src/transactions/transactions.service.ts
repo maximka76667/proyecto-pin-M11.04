@@ -73,7 +73,9 @@ export class TransactionsService {
   ) {}
 
   async create(createTransactionDto: CreateTransactionDto) {
-    const hasMultipleDebtors = Boolean(createTransactionDto.to_user_ids?.length);
+    const hasMultipleDebtors = Boolean(
+      createTransactionDto.to_user_ids?.length,
+    );
     const debtorIds = hasMultipleDebtors
       ? Array.from(new Set(createTransactionDto.to_user_ids))
       : createTransactionDto.to_user_id
@@ -216,10 +218,17 @@ export class TransactionsService {
       orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
     });
 
-    return transactions.map((transaction) => ({
-      ...transaction,
-      paidByCurrentUser: transaction.from_user_id === userId,
-    }));
+    return await Promise.all(
+      transactions.map(async (transaction) => ({
+        ...transaction,
+        paidByCurrentUser: transaction.from_user_id === userId,
+        canEdit:
+          transaction.from_user_id === userId &&
+          !CATEGORIAS_DE_LIQUIDACION.includes(transaction.category) &&
+          transaction.concept?.trim().toLowerCase() !== 'payment' &&
+          !(await this.hasConfirmedPaymentAfter(transaction)),
+      })),
+    );
   }
 
   async findOne(id: string) {
@@ -239,11 +248,23 @@ export class TransactionsService {
     return transaction;
   }
 
-  async update(id: string, updateTransactionDto: UpdateTransactionDto) {
-    await this.asegurarEditable(id);
+  async update(
+    id: string,
+    updateTransactionDto: UpdateTransactionDto,
+    userId: string,
+  ) {
+    await this.asegurarEditable(id, userId);
 
     try {
       const { date, ...rest } = updateTransactionDto;
+      if (
+        'to_user_id' in updateTransactionDto ||
+        'to_user_ids' in updateTransactionDto
+      ) {
+        throw new BadRequestException(
+          'The debtor cannot be changed when editing an expense',
+        );
+      }
 
       return await this.prisma.transaction.update({
         where: { id },
@@ -254,8 +275,8 @@ export class TransactionsService {
     }
   }
 
-  async remove(id: string) {
-    await this.asegurarEditable(id);
+  async remove(id: string, userId: string) {
+    await this.asegurarEditable(id, userId);
 
     try {
       return await this.prisma.transaction.delete({
@@ -668,20 +689,60 @@ export class TransactionsService {
 
   // Los pagos y los avisos solo se gestionan desde el flujo de saldar deudas:
   // editar o borrar un pago confirmado resucitaría la deuda.
-  private async asegurarEditable(id: string) {
+  private async asegurarEditable(id: string, userId: string) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
-      select: { category: true },
+      select: {
+        apartment_id: true,
+        category: true,
+        concept: true,
+        from_user_id: true,
+        to_user_id: true,
+        created_at: true,
+      },
     });
 
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
     }
-    if (CATEGORIAS_DE_LIQUIDACION.includes(transaction.category)) {
+    if (
+      CATEGORIAS_DE_LIQUIDACION.includes(transaction.category) ||
+      transaction.concept?.trim().toLowerCase() === 'payment'
+    ) {
       throw new ConflictException(
         'Los pagos de deudas no se pueden editar ni borrar desde aquí',
       );
     }
+    if (transaction.from_user_id !== userId) {
+      throw new ForbiddenException(
+        'Solo quien creó el gasto puede editarlo o eliminarlo',
+      );
+    }
+    if (await this.hasConfirmedPaymentAfter(transaction)) {
+      throw new ConflictException(
+        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
+      );
+    }
+  }
+
+  private async hasConfirmedPaymentAfter(transaction: {
+    apartment_id: string;
+    from_user_id: string;
+    to_user_id: string;
+    created_at: Date;
+  }) {
+    const payment = await this.prisma.transaction.findFirst({
+      where: {
+        apartment_id: transaction.apartment_id,
+        from_user_id: transaction.to_user_id,
+        to_user_id: transaction.from_user_id,
+        category: TransactionCategory.payment,
+        created_at: { gt: transaction.created_at },
+      },
+      select: { id: true },
+    });
+
+    return payment !== null;
   }
 
   private async calcularAllBalances(

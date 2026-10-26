@@ -16,6 +16,7 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
 
   const prisma = {
     transaction: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -47,11 +48,22 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Gasto editable por defecto; se establece aquí porque clearAllMocks conserva los valores simulados.
-    prisma.transaction.findUnique.mockResolvedValue({ category: 'utilities' });
+    prisma.transaction.findUnique.mockResolvedValue({
+      apartment_id: 'apt-1',
+      category: 'utilities',
+      from_user_id: '22222222-2222-2222-2222-222222222222',
+      to_user_id: '33333333-3333-4333-8333-333333333333',
+      created_at: new Date('2026-10-01T10:00:00.000Z'),
+    });
+    prisma.transaction.findFirst.mockResolvedValue(null);
   });
 
   it('modifica el gasto cuando los datos son válidos', async () => {
-    prisma.transaction.update.mockResolvedValue({ id, amount: '12.50', category: 'utilities' });
+    prisma.transaction.update.mockResolvedValue({
+      id,
+      amount: '12.50',
+      category: 'utilities',
+    });
 
     await request(app.getHttpServer())
       .patch(`/transactions/${id}`)
@@ -67,22 +79,31 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
   it.each([
     ['a negative amount', { amount: '-5' }, 'amount'],
     ['a zero amount', { amount: '0' }, 'amount'],
-    ['an amount with more than 6 integer digits', { amount: '1000000' }, 'amount'],
+    [
+      'an amount with more than 6 integer digits',
+      { amount: '1000000' },
+      'amount',
+    ],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an amount that is not a number', { amount: 'abc' }, 'amount'],
+    ['an empty concept', { concept: '' }, 'concept'],
+    ['a whitespace-only concept', { concept: '   ' }, 'concept'],
     ['an unknown category', { category: 'food' }, 'category'],
     ['a user id that is not a uuid', { to_user_id: 'abc' }, 'to_user_id'],
     ['a field that does not exist', { description: 'Pizza' }, 'description'],
-  ])('blocks %s with 400 and does not touch the database', async (_, body, field) => {
-    const response = await request(app.getHttpServer())
-      .patch(`/transactions/${id}`)
-      .send(body)
-      .expect(400);
+  ])(
+    'blocks %s with 400 and does not touch the database',
+    async (_, body, field) => {
+      const response = await request(app.getHttpServer())
+        .patch(`/transactions/${id}`)
+        .send(body)
+        .expect(400);
 
-    // El mensaje indica qué campo era incorrecto.
-    expect(response.body.message.join(' ')).toContain(field);
-    expect(prisma.transaction.update).not.toHaveBeenCalled();
-  });
+      // El mensaje indica qué campo era incorrecto.
+      expect(response.body.message.join(' ')).toContain(field);
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+    },
+  );
 
   it('bloquea con 400 un identificador que no es un UUID', async () => {
     await request(app.getHttpServer())
@@ -108,5 +129,17 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
     await request(app.getHttpServer()).delete('/transactions/abc').expect(400);
 
     expect(prisma.transaction.delete).not.toHaveBeenCalled();
+  });
+
+  it('DELETE elimina un gasto válido', async () => {
+    prisma.transaction.delete.mockResolvedValue({ id });
+
+    await request(app.getHttpServer())
+      .delete(`/transactions/${id}`)
+      .expect(200);
+
+    expect(prisma.transaction.delete).toHaveBeenCalledWith({
+      where: { id },
+    });
   });
 });

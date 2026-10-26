@@ -32,12 +32,12 @@ describe('Controlador de transacciones', () => {
     const updated = { id: 'tx-1', amount: '20.00', category: 'other' };
     transactionsService.update.mockResolvedValue(updated);
 
-    const result = await controller.update('tx-1', { amount: '20.00', category: 'other' });
+    const result = await controller.update('tx-1', { amount: '20.00', category: 'other' }, 'user-1');
 
     expect(transactionsService.update).toHaveBeenCalledWith('tx-1', {
       amount: '20.00',
       category: 'other',
-    });
+    }, 'user-1');
     expect(result).toEqual(updated);
   });
 
@@ -45,9 +45,9 @@ describe('Controlador de transacciones', () => {
     const deleted = { id: 'tx-1' };
     transactionsService.remove.mockResolvedValue(deleted);
 
-    const result = await controller.remove('tx-1');
+    const result = await controller.remove('tx-1', 'user-1');
 
-    expect(transactionsService.remove).toHaveBeenCalledWith('tx-1');
+    expect(transactionsService.remove).toHaveBeenCalledWith('tx-1', 'user-1');
     expect(result).toEqual(deleted);
   });
 
