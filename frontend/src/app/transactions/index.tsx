@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -61,6 +61,9 @@ type DisplayTransaction = {
   fromUser: {
     full_name: string;
   };
+  toUser: {
+    full_name: string;
+  };
   debtorsCount: number;
 };
 
@@ -79,15 +82,18 @@ function groupTransactions(list: Transaction[]): DisplayTransaction[] {
       paidByMe: first.paidByCurrentUser,
       canEdit: first.canEdit ?? false,
       fromUser: first.fromUser,
+      toUser: first.toUser,
       debtorsCount: 1,
     };
   });
 }
 
 export default function Transactions() {
+  const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -114,6 +120,7 @@ export default function Transactions() {
       );
       const deletedIds = new Set(transactionToDelete.rawIds);
       setTransactionToDelete(null);
+      setSuccess("Gasto eliminado correctamente.");
       setTransactions((current) =>
         current.filter(({ id }) => !deletedIds.has(id)),
       );
@@ -132,6 +139,11 @@ export default function Transactions() {
       setError(errorMessage(e));
     }
   };
+
+  const successNotice =
+    notice === "updated"
+      ? "Gasto actualizado correctamente."
+      : success;
 
   useFocusEffect(
     useCallback(() => {
@@ -246,6 +258,9 @@ export default function Transactions() {
           <ActivityIndicator color={Palette.primary} size="large" />
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {successNotice ? (
+          <Text style={styles.success}>{successNotice}</Text>
+        ) : null}
 
         {summary ? (
           <Pressable
@@ -318,7 +333,7 @@ export default function Transactions() {
                     </Text>
                     <Text style={styles.transactionStatus}>
                       {paidByMe
-                        ? "Pagaste tú"
+                        ? `Pagaste tú a ${transaction.toUser.full_name}`
                         : `Pagó ${transaction.fromUser.full_name}`}
                       {pendiente ? " · pendiente de confirmar" : ""}
                     </Text>
@@ -612,6 +627,7 @@ const styles = StyleSheet.create({
   negativeAmount: { color: Palette.error },
   pendingAmount: { color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
+  success: { fontSize: 14, color: Palette.primary, fontWeight: "700" },
   muted: { fontSize: 14, color: Palette.textSecondary },
   actionMenuBackdrop: {
     alignItems: "center",

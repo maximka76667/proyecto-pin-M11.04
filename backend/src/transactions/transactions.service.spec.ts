@@ -1,12 +1,10 @@
 import {
-  BadRequestException,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionCategory } from '@prisma/client';
 
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { TransactionsService } from './transactions.service';
@@ -407,16 +405,25 @@ describe('Servicio de transacciones: cálculo de balances del hogar (UT1002)', (
 
       await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([]);
     });
+
+    it('recalcula el balance al cambiar o eliminar gastos del historial', async () => {
+      const transacciones = [gasto(ANA, BRUNO, 40)];
+      const service = await crearServicio(transacciones);
+
+      await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([
+        { deudorId: BRUNO, acreedorId: ANA, monto: 40 },
+      ]);
+
+      transacciones[0].amount = 25;
+      await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([
+        { deudorId: BRUNO, acreedorId: ANA, monto: 25 },
+      ]);
+
+      transacciones.splice(0, 1);
+      await expect(service.getPagoMinimo(PISO_A)).resolves.toEqual([]);
+    });
   });
 });
-
-// Construye el error que lanza Prisma, por ejemplo P2025 = registro no encontrado.
-function prismaError(code: string) {
-  return new Prisma.PrismaClientKnownRequestError('Prisma error', {
-    code,
-    clientVersion: Prisma.prismaVersion.client,
-  });
-}
 
 describe('Servicio de transacciones', () => {
   let service: TransactionsService;
@@ -524,18 +531,6 @@ describe('Servicio de transacciones', () => {
       await expect(
         service.update('missing', { amount: '10.00' }, 'user-1'),
       ).rejects.toThrow(NotFoundException);
-    });
-
-    it('devuelve 400 cuando el nuevo apartamento o usuario no existe', async () => {
-      prisma.transaction.update.mockRejectedValue(prismaError('P2003'));
-
-      await expect(
-        service.update(
-          'tx-1',
-          { to_user_id: '99999999-9999-9999-9999-999999999999' },
-          'user-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
     });
 
     it('bloquea un gasto anterior a una pago confirmado de la misma relación', async () => {

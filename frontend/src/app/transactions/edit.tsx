@@ -79,16 +79,19 @@ export default function EditExpenseScreen() {
       initialValues={initialValues}
       allowMultipleDebtors={false}
       excludeCurrentUser
+      allowDebtorChange={false}
       onCancel={() => router.back()}
-      onSubmit={async ({ amount, concept, category, date, debtorIds }) => {
+      onSubmit={async ({ amount, concept, category, date }) => {
         await api("PATCH", `/transactions/${transaction.id}`, {
           amount,
           concept,
           category,
           date,
-          to_user_id: debtorIds[0],
         });
-        router.back();
+        router.dismissTo({
+          pathname: "/transactions",
+          params: { notice: "updated" },
+        });
       }}
     />
   );

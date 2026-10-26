@@ -86,6 +86,8 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
     ],
     ['an amount with more than 2 decimals', { amount: '12.999' }, 'amount'],
     ['an amount that is not a number', { amount: 'abc' }, 'amount'],
+    ['an empty concept', { concept: '' }, 'concept'],
+    ['a whitespace-only concept', { concept: '   ' }, 'concept'],
     ['an unknown category', { category: 'food' }, 'category'],
     ['a user id that is not a uuid', { to_user_id: 'abc' }, 'to_user_id'],
     ['a field that does not exist', { description: 'Pizza' }, 'description'],
@@ -127,5 +129,17 @@ describe('Validación de PATCH /transactions/:id (PA-1000.03)', () => {
     await request(app.getHttpServer()).delete('/transactions/abc').expect(400);
 
     expect(prisma.transaction.delete).not.toHaveBeenCalled();
+  });
+
+  it('DELETE elimina un gasto válido', async () => {
+    prisma.transaction.delete.mockResolvedValue({ id });
+
+    await request(app.getHttpServer())
+      .delete(`/transactions/${id}`)
+      .expect(200);
+
+    expect(prisma.transaction.delete).toHaveBeenCalledWith({
+      where: { id },
+    });
   });
 });

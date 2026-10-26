@@ -257,26 +257,12 @@ export class TransactionsService {
 
     try {
       const { date, ...rest } = updateTransactionDto;
-      const current = await this.prisma.transaction.findUnique({
-        where: { id },
-        select: {
-          apartment_id: true,
-          from_user_id: true,
-          category: true,
-          concept: true,
-          date: true,
-        },
-      });
-
-      if (!current) {
-        throw new NotFoundException('Transaction not found');
-      }
       if (
-        updateTransactionDto.to_user_id !== undefined &&
-        updateTransactionDto.to_user_id === current.from_user_id
+        'to_user_id' in updateTransactionDto ||
+        'to_user_ids' in updateTransactionDto
       ) {
         throw new BadRequestException(
-          'The payer cannot be selected as the debtor',
+          'The debtor cannot be changed when editing an expense',
         );
       }
 

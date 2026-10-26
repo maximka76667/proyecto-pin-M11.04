@@ -32,6 +32,7 @@ type Props = {
   onSubmit: (values: TransactionFormValues) => Promise<void>;
   allowMultipleDebtors?: boolean;
   excludeCurrentUser?: boolean;
+  allowDebtorChange?: boolean;
 };
 
 const categories: {
@@ -58,6 +59,7 @@ export function TransactionForm({
   onSubmit,
   allowMultipleDebtors = true,
   excludeCurrentUser = false,
+  allowDebtorChange = true,
 }: Props) {
   const [amount, setAmount] = useState(initialValues?.amount ?? "");
   const [concept, setConcept] = useState(initialValues?.concept ?? "");
@@ -231,7 +233,9 @@ export function TransactionForm({
 
         <View style={styles.debtorHeaderRow}>
           <Text style={styles.label}>Who shares the expense?</Text>
-          {allowMultipleDebtors && roommates.length > 0 ? (
+          {allowDebtorChange &&
+          allowMultipleDebtors &&
+          roommates.length > 0 ? (
             <Pressable onPress={toggleAll} hitSlop={8}>
               <Text style={styles.selectAllText}>
                 {selectedDebtorIds.length === roommates.length
@@ -241,7 +245,16 @@ export function TransactionForm({
             </Pressable>
           ) : null}
         </View>
-        {allowMultipleDebtors && selectedDebtorIds.length > 1 && perPerson ? (
+        {!allowDebtorChange ? (
+          <Text style={styles.readOnlyHint}>
+            La persona no se puede cambiar al editar un gasto. Para cambiarla,
+            elimina el gasto y crea uno nuevo.
+          </Text>
+        ) : null}
+        {allowDebtorChange &&
+        allowMultipleDebtors &&
+        selectedDebtorIds.length > 1 &&
+        perPerson ? (
           <View style={styles.splitBadge}>
             <MaterialCommunityIcons
               name="calculator"
@@ -257,20 +270,27 @@ export function TransactionForm({
         <View style={styles.chipGrid}>
           {roommates
             .filter((member) => !excludeCurrentUser || member.id !== USER_ID)
+            .filter(
+              (member) =>
+                allowDebtorChange || selectedDebtorIds.includes(member.id),
+            )
             .map((member) => {
               const selected = selectedDebtorIds.includes(member.id);
               return (
                 <Pressable
                   key={member.id}
                   onPress={() =>
-                    setSelectedDebtorIds((current) =>
-                      allowMultipleDebtors
-                        ? selected
-                          ? current.filter((id) => id !== member.id)
-                          : [...current, member.id]
-                        : [member.id],
-                    )
+                    !allowDebtorChange
+                      ? undefined
+                      : setSelectedDebtorIds((current) =>
+                          allowMultipleDebtors
+                            ? selected
+                              ? current.filter((id) => id !== member.id)
+                              : [...current, member.id]
+                            : [member.id],
+                        )
                   }
+                  disabled={!allowDebtorChange}
                   style={[styles.chip, selected && styles.chipActive]}
                 >
                   <MaterialCommunityIcons
@@ -394,6 +414,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.mint,
   },
   splitText: { fontSize: 13, fontWeight: "700", color: Palette.text },
+  readOnlyHint: { fontSize: 13, color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   pressed: { opacity: 0.85 },
   primaryButton: {
