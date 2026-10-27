@@ -18,6 +18,7 @@ model User {
   createdTransactions  Transaction[]    @relation("CreatedTransactions")
   receivedTransactions Transaction[]    @relation("ReceivedTransactions")
   taskAssignments      TaskAssignment[]
+  availability_blocks  AvailabilityBlock[]
 }
 
 model Apartment {
@@ -130,4 +131,27 @@ enum AssignmentStatus {
   rejected
   completed
   overdue
+}
+
+enum DayOfWeek {
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+  sunday
+}
+
+// Franja semanal en la que un usuario está ocupado. Los minutos cuentan desde las 00:00 (0-1440)
+model AvailabilityBlock {
+  id           String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  day_of_week  DayOfWeek
+  start_minute Int
+  end_minute   Int
+  label        String?
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, day_of_week])
 }

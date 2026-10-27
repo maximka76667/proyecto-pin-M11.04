@@ -256,6 +256,11 @@ export default function ChoresScreen() {
                     </Pressable>
                 </View>
 
+                <Pressable style={styles.availabilityButton} onPress={() => router.push('/availability')}>
+                    <MaterialCommunityIcons name="calendar-clock" size={18} color={Palette.primary} />
+                    <Text style={styles.availabilityButtonText}>Mi disponibilidad y la de la casa</Text>
+                </Pressable>
+
                 <View style={styles.segmented}>
                     <View style={styles.segmentSelected}>
                         <Text style={styles.segmentSelectedText}>Week</Text>
@@ -411,6 +416,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         backgroundColor: Palette.primary,
     },
+    availabilityButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 11, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+    availabilityButtonText: { fontSize: 13, fontWeight: '700', color: Palette.primary },
     segmented: { flexDirection: 'row', padding: 3, borderRadius: Radius.input, backgroundColor: Palette.segment },
     segment: { flex: 1, alignItems: 'center', paddingVertical: 9 },
     segmentSelected: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9, backgroundColor: Palette.surface },
