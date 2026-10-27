@@ -26,7 +26,7 @@ export default function HouseholdCreated() {
       const invitation = await api('POST', `/apartments/${encodeURIComponent(id)}/invitation`);
       setInviteCode(invitation.invite_code);
     } catch (e) {
-      Alert.alert('Could not generate invitation', errorMessage(e));
+      Alert.alert('No se pudo generar la invitación', errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -69,13 +69,13 @@ export default function HouseholdCreated() {
           <View style={styles.icon}>
             <MaterialCommunityIcons name="home-heart" size={40} color={Palette.onPrimary} />
           </View>
-          <Eyebrow>You&apos;re all set</Eyebrow>
-          <Text style={styles.title}>Your household is ready.</Text>
+          <Eyebrow>Todo listo</Eyebrow>
+          <Text style={styles.title}>Tu hogar está preparado.</Text>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{name}</Text>
             <Text style={styles.cardSubtitle}>{address}</Text>
-            <Text style={styles.inviteLabel}>Invite code</Text>
+            <Text style={styles.inviteLabel}>Código de invitación</Text>
             <Text selectable style={styles.inviteCode}>
               {inviteCode}
             </Text>
@@ -83,13 +83,13 @@ export default function HouseholdCreated() {
         </View>
 
         <View style={styles.actions}>
-          <PrimaryButton title="Share invite code" onPress={shareInvite} />
+          <PrimaryButton title="Compartir código de invitación" onPress={shareInvite} />
           <PrimaryButton
-            title="Generate a new code"
+            title="Generar un código nuevo"
             onPress={regenerateInvite}
             loading={loading}
           />
-          <PrimaryButton title="Done" onPress={() => router.replace('/')} />
+          <PrimaryButton title="Terminar" onPress={() => router.replace('/')} />
         </View>
         {shareNotice ? <Text style={styles.shareNotice}>{shareNotice}</Text> : null}
       </View>

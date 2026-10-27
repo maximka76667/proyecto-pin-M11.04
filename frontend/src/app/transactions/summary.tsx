@@ -56,7 +56,7 @@ export default function Transactions() {
 
         <View style={styles.header}>
           <Text style={styles.eyebrow}>DETALLE DEL BALANCE</Text>
-          <Text style={styles.title}>¿Cual es mi balance?</Text>
+          <Text style={styles.title}>¿Cuál es mi balance?</Text>
           <Text style={styles.subtitle}>
             Aquí puedes ver el detalle de tus pagos pendientes.
           </Text>

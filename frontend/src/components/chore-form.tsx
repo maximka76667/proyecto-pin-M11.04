@@ -26,16 +26,16 @@ export type ChoreFormValues = {
 
 // Los valores son los del backend: 'none' es una tarea que se hace una sola vez
 const frequencies = [
-  { value: 'none', label: 'Once' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'daily', label: 'Daily' },
+  { value: 'none', label: 'Una vez' },
+  { value: 'weekly', label: 'Semanal' },
+  { value: 'daily', label: 'Diaria' },
 ] as const;
 
 export const choreCategories = [
-  { value: 'cleaning', label: 'Cleaning', icon: 'broom', tint: Palette.lavender },
-  { value: 'maintenance', label: 'Maintenance', icon: 'tools', tint: Palette.mint },
-  { value: 'shopping', label: 'Shopping', icon: 'cart-outline', tint: Palette.peach },
-  { value: 'other', label: 'Other', icon: 'dots-horizontal', tint: Palette.sun },
+  { value: 'cleaning', label: 'Limpieza', icon: 'broom', tint: Palette.lavender },
+  { value: 'maintenance', label: 'Mantenimiento', icon: 'tools', tint: Palette.mint },
+  { value: 'shopping', label: 'Compras', icon: 'cart-outline', tint: Palette.peach },
+  { value: 'other', label: 'Otra', icon: 'dots-horizontal', tint: Palette.sun },
 ] as const;
 
 const emptyValues: ChoreFormValues = {
@@ -81,7 +81,7 @@ export function ChoreForm({
 
   const save = async () => {
     if (!title.trim()) {
-      setError('Add a name for the chore.');
+      setError('Añade un nombre para la tarea.');
       return;
     }
 
@@ -105,11 +105,11 @@ export function ChoreForm({
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.topBar}>
-          <Pressable onPress={closeChoreForm} hitSlop={12} accessibilityLabel="Close">
+          <Pressable onPress={closeChoreForm} hitSlop={12} accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={24} color={Palette.text} />
           </Pressable>
           <Pressable onPress={() => void save()} disabled={saving} hitSlop={12}>
-            <Text style={styles.save}>Save</Text>
+            <Text style={styles.save}>Guardar</Text>
           </Pressable>
         </View>
 
@@ -118,33 +118,33 @@ export function ChoreForm({
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 
-        <Text style={styles.label}>What needs doing?</Text>
+        <Text style={styles.label}>¿Qué hay que hacer?</Text>
         <TextInput
           value={title}
           onChangeText={(value) => {
             setTitle(value);
             if (error) setError('');
           }}
-          placeholder="e.g. Water the plants"
+          placeholder="p. ej. Regar las plantas"
           placeholderTextColor={Palette.textSecondary}
           style={styles.input}
-          accessibilityLabel="Chore name"
+          accessibilityLabel="Nombre de la tarea"
           returnKeyType="done"
         />
 
-        <Text style={styles.label}>Details (optional)</Text>
+        <Text style={styles.label}>Detalles (opcional)</Text>
         <TextInput
           value={description}
           onChangeText={setDescription}
-          placeholder="e.g. Use the blue cleaning products"
+          placeholder="p. ej. Usar los productos de limpieza azules"
           placeholderTextColor={Palette.textSecondary}
           style={[styles.input, styles.descriptionInput]}
-          accessibilityLabel="Chore details"
+          accessibilityLabel="Detalles de la tarea"
           multiline
           textAlignVertical="top"
         />
 
-        <Text style={styles.label}>Category</Text>
+        <Text style={styles.label}>Categoría</Text>
         <View style={styles.categoryGrid}>
           {choreCategories.map((item) => (
             <Pressable
@@ -167,7 +167,7 @@ export function ChoreForm({
           ))}
         </View>
 
-        <Text style={styles.label}>How often?</Text>
+        <Text style={styles.label}>¿Con qué frecuencia?</Text>
         <View style={styles.frequencyRow}>
           {frequencies.map((item) => (
             <Pressable
@@ -190,7 +190,7 @@ export function ChoreForm({
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable onPress={() => void save()} disabled={saving} style={styles.primaryButton}>
           {saving ? (
-            <Text style={styles.primaryButtonText}>Saving...</Text>
+            <Text style={styles.primaryButtonText}>Guardando...</Text>
           ) : (
             <Text style={styles.primaryButtonText}>{submitLabel}</Text>
           )}

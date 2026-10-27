@@ -22,9 +22,9 @@ import { api, errorMessage } from '@/lib/api';
 import { APARTMENT_ID } from '@/constants/dev-session';
 // Aviso que se muestra después de crear, editar o borrar una tarea
 const notices: Record<string, string> = {
-    created: 'Chore created successfully.',
-    updated: 'Chore updated successfully.',
-    deleted: 'Chore deleted successfully.',
+    created: 'Tarea creada correctamente.',
+    updated: 'Tarea actualizada correctamente.',
+    deleted: 'Tarea eliminada correctamente.',
 };
 
 
@@ -50,14 +50,14 @@ type ApartmentTaskRow = {
     assignment: Task['assignments'][number] | null;
 };
 
-const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
 const frequencyLabels: Record<ChoreFrequency, string> = {
-    none: 'Once',
-    daily: 'Daily',
-    weekly: 'Weekly',
-    biweekly: 'Every 2 weeks',
-    monthly: 'Monthly',
+    none: 'Una vez',
+    daily: 'Diaria',
+    weekly: 'Semanal',
+    biweekly: 'Cada 2 semanas',
+    monthly: 'Mensual',
 };
 
 function startOfWeek(date: Date) {
@@ -86,17 +86,17 @@ function dateKey(date: Date | string) {
 // "Sep 21 – 27", o "Sep 28 – Oct 4" cuando la semana cambia de mes
 function formatWeekTitle(weekStart: Date) {
     const weekEnd = addDays(weekStart, 6);
-    const start = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const start = weekStart.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
     const end = weekEnd.getMonth() === weekStart.getMonth()
         ? weekEnd.getDate()
-        : weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        : weekEnd.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
     return `${start} – ${end}`;
 }
 
 // "MON 21": se usa solo la fecha de due_date para que la zona horaria no la cambie de día
 function formatDueDay(dueDate: string) {
     const date = new Date(`${dateKey(dueDate)}T00:00:00`);
-    const weekday = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+    const weekday = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase();
     return `${weekday} ${date.getDate()}`;
 }
 
@@ -207,11 +207,11 @@ export default function ChoresScreen() {
     const renderWeek = (week: Date, position: number) => (
         <View key={position} style={[styles.weekPage, pageWidth ? { width: pageWidth } : null]}>
             <View style={styles.weekHeader}>
-                <Pressable accessibilityLabel="Previous week" hitSlop={10} onPress={() => changeWeek(-1)}>
+                <Pressable accessibilityLabel="Semana anterior" hitSlop={10} onPress={() => changeWeek(-1)}>
                     <MaterialCommunityIcons name="chevron-left" size={20} color={Palette.primary} />
                 </Pressable>
                 <Text style={styles.weekTitle}>{formatWeekTitle(week)}</Text>
-                <Pressable accessibilityLabel="Next week" hitSlop={10} onPress={() => changeWeek(1)}>
+                <Pressable accessibilityLabel="Semana siguiente" hitSlop={10} onPress={() => changeWeek(1)}>
                     <MaterialCommunityIcons name="chevron-right" size={20} color={Palette.primary} />
                 </Pressable>
             </View>
@@ -246,11 +246,11 @@ export default function ChoresScreen() {
                 <View style={styles.topBar}>
                     <View>
                         <Text style={styles.eyebrow}>MAPLE HOUSE</Text>
-                        <Text style={styles.title}>Chore plan</Text>
+                        <Text style={styles.title}>Plan de tareas</Text>
                     </View>
                     <Pressable
                         style={styles.addButton}
-                        accessibilityLabel="Add a chore"
+                        accessibilityLabel="Añadir una tarea"
                         onPress={() => router.push('/chores/create')}>
                         <MaterialCommunityIcons name="plus" size={25} color={Palette.onPrimary} />
                     </Pressable>
@@ -263,7 +263,7 @@ export default function ChoresScreen() {
 
                 <View style={styles.segmented}>
                     <View style={styles.segmentSelected}>
-                        <Text style={styles.segmentSelectedText}>Week</Text>
+                        <Text style={styles.segmentSelectedText}>Semana</Text>
                     </View>
                     <Pressable style={styles.segment}>
                         <Text style={styles.segmentText}>Balance</Text>
@@ -290,13 +290,13 @@ export default function ChoresScreen() {
                 <View style={styles.legend}>
                     <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: Palette.border }]} />
-                        <Text style={styles.legendText}>Free time</Text>
+                        <Text style={styles.legendText}>Tiempo libre</Text>
                     </View>
                     <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: Palette.peach }]} />
-                        <Text style={styles.legendText}>Busy</Text>
+                        <Text style={styles.legendText}>Ocupado</Text>
                     </View>
-                    <Text style={styles.privateText}>Private blocks</Text>
+                    <Text style={styles.privateText}>Bloques privados</Text>
                 </View>
 
                 {loading ? <ActivityIndicator color={Palette.primary} /> : null}
@@ -345,7 +345,7 @@ export default function ChoresScreen() {
                                 <View style={styles.choreActions}>
                                     <Pressable
                                         accessibilityRole="button"
-                                        accessibilityLabel={`Delete ${task.title}`}
+                                        accessibilityLabel={`Eliminar ${task.title}`}
                                         hitSlop={8}
                                         onPress={() => openDeleteDialog(task)}
                                         style={({ pressed }) => [styles.choreAction, pressed && styles.pressed]}>
@@ -353,7 +353,7 @@ export default function ChoresScreen() {
                                     </Pressable>
                                     <Pressable
                                         accessibilityRole="button"
-                                        accessibilityLabel={`Edit ${task.title}`}
+                                        accessibilityLabel={`Editar ${task.title}`}
                                         hitSlop={8}
                                         onPress={() =>
                                             router.push({
@@ -372,7 +372,7 @@ export default function ChoresScreen() {
                     })}
                 </View>
                 {!loading && !error && apartmentTasks.length === 0 ? (
-                    <Text style={styles.muted}>No chores have been created yet.</Text>
+                    <Text style={styles.muted}>Todavía no se ha creado ninguna tarea.</Text>
                 ) : null}
             </ScrollView>
             <DeleteChoreDialog

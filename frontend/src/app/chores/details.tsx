@@ -27,13 +27,21 @@ type TaskDetails = {
   }[];
 };
 
+const frequencyLabels: Record<string, string> = {
+  none: 'Una vez',
+  daily: 'Diaria',
+  weekly: 'Semanal',
+  biweekly: 'Cada 2 semanas',
+  monthly: 'Mensual',
+};
+
 export default function ChoreDetailsScreen() {
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
   const [completed, setCompleted] = useState(false);
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
-  const [error, setError] = useState(taskId ? '' : 'Chore not found.');
+  const [error, setError] = useState(taskId ? '' : 'No se encontró la tarea.');
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -79,7 +87,7 @@ export default function ChoreDetailsScreen() {
 
   const assignment = task?.assignments[0];
   const assignmentDate = assignment
-    ? new Date(`${assignment.due_date}T00:00:00`).toLocaleDateString('en-US', {
+    ? new Date(`${assignment.due_date}T00:00:00`).toLocaleDateString('es-ES', {
       month: 'short',
       day: 'numeric',
     })
@@ -89,8 +97,8 @@ export default function ChoreDetailsScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.topBar}>
-          <Text style={styles.title}>Chore details</Text>
-          <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Close">
+          <Text style={styles.title}>Detalles de la tarea</Text>
+          <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={23} color={Palette.text} />
           </Pressable>
         </View>
@@ -103,7 +111,7 @@ export default function ChoreDetailsScreen() {
           </View>
           <Text style={styles.choreTitle}>{task.title}</Text>
           <Text style={styles.meta}>
-            {task.frequency} · {assignmentDate ?? 'Anytime'}
+            {frequencyLabels[task.frequency] ?? task.frequency} · {assignmentDate ?? 'En cualquier momento'}
           </Text>
           {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
         </View> : null}
@@ -111,43 +119,43 @@ export default function ChoreDetailsScreen() {
         {task ? <View style={styles.assignmentCard}>
           <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
           <View style={styles.assignmentList}>
-            <Text style={styles.assignmentLabel}>ASSIGNMENTS</Text>
+            <Text style={styles.assignmentLabel}>ASIGNACIONES</Text>
             {task.assignments.length > 0 ? (
               task.assignments.map((item) => (
                 <Text key={`${item.user.full_name}-${item.due_date}`} style={styles.assignment}>
-                  {item.user.full_name} · {new Date(`${item.due_date}T00:00:00`).toLocaleDateString('en-US', {
+                  {item.user.full_name} · {new Date(`${item.due_date}T00:00:00`).toLocaleDateString('es-ES', {
                     month: 'short',
                     day: 'numeric',
-                  })} · {item.status}
+                  })} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
                 </Text>
               ))
             ) : (
-              <Text style={styles.assignment}>This chore has not been assigned yet.</Text>
+              <Text style={styles.assignment}>Esta tarea todavía no tiene asignaciones.</Text>
             )}
           </View>
         </View> : null}
 
         {task ? <>
-          <Text style={styles.sectionLabel}>WHAT DO YOU WANT TO DO?</Text>
+          <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
           <Pressable
             onPress={() => setCompleted(true)}
             style={[styles.actionButton, completed && styles.completedButton]}>
             <MaterialCommunityIcons name="check-circle-outline" size={18} color={Palette.onPrimary} />
-            <Text style={styles.actionText}>{completed ? 'Marked as done' : 'Mark as done'}</Text>
+            <Text style={styles.actionText}>{completed ? 'Marcada como hecha' : 'Marcar como hecha'}</Text>
           </Pressable>
           <Pressable style={styles.secondaryButton}>
             <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Request a swap</Text>
+            <Text style={styles.secondaryText}>Solicitar un cambio</Text>
           </Pressable>
           <Pressable
             onPress={() => router.push({ pathname: '/chores/edit', params: { taskId } })}
             style={styles.secondaryButton}>
             <MaterialCommunityIcons name="pencil-outline" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Edit chore</Text>
+            <Text style={styles.secondaryText}>Editar tarea</Text>
           </Pressable>
           <Pressable onPress={openDeleteDialog} style={[styles.secondaryButton, styles.deleteButton]}>
             <MaterialCommunityIcons name="trash-can-outline" size={18} color={Palette.error} />
-            <Text style={[styles.secondaryText, styles.deleteText]}>Delete chore</Text>
+            <Text style={[styles.secondaryText, styles.deleteText]}>Eliminar tarea</Text>
           </Pressable>
         </> : null}
       </ScrollView>

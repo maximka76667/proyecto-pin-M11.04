@@ -106,7 +106,7 @@ export default function ScanReceiptScreen() {
             <ReceiptSplit
               apartmentId={APARTMENT_ID}
               items={items}
-              onCreated={() => router.replace('/transactions')}
+              onCreated={() => router.replace({ pathname: '/transactions', params: { notice: 'receipt' } })}
               onError={onSplitError}
             />
             <Pressable onPress={() => setShowSplit(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Volver a productos</Text></Pressable>

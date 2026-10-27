@@ -33,21 +33,21 @@ export function DeleteChoreDialog({
           <View style={styles.confirmationIcon}>
             <MaterialCommunityIcons name="trash-can-outline" size={24} color={Palette.error} />
           </View>
-          <Text style={styles.confirmationTitle}>Delete chore</Text>
+          <Text style={styles.confirmationTitle}>Eliminar tarea</Text>
           <Text style={styles.confirmationMessage}>
-            {`“${chore?.title ?? ''}” will be removed for everyone in the household.`}
-            {chore && chore.assignments.length > 0 ? ' Its assignments will be deleted too.' : ''}
+            {`“${chore?.title ?? ''}” se eliminará para todas las personas del hogar.`}
+            {chore && chore.assignments.length > 0 ? ' También se eliminarán sus asignaciones.' : ''}
           </Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.confirmationActions}>
             <Pressable onPress={cancel} disabled={deleting} style={styles.cancelButton}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
             </Pressable>
             <Pressable onPress={onConfirm} disabled={deleting} style={styles.deleteButton}>
               {deleting ? (
                 <ActivityIndicator color={Palette.onPrimary} />
               ) : (
-                <Text style={styles.deleteButtonText}>Delete</Text>
+                <Text style={styles.deleteButtonText}>Eliminar</Text>
               )}
             </Pressable>
           </View>
