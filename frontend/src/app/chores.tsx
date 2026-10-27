@@ -9,6 +9,7 @@ import {
     Pressable,
     SafeAreaView,
     ScrollView,
+    type ScrollViewInstance,
     StyleSheet,
     Text,
     View,
@@ -104,8 +105,10 @@ function formatDueDay(dueDate: string) {
 export default function ChoresScreen() {
     const { notice } = useLocalSearchParams<{ notice?: string }>();
     const today = new Date();
+    const todayKey = dateKey(today);
     const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
     const [selectedDay, setSelectedDay] = useState(() => dateKey(today));
+    const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -120,7 +123,7 @@ export default function ChoresScreen() {
     // guarda el texto para que no desaparezca mientras se desvanece
     const noticeText = notice ? notices[notice] : undefined;
     const [lastNoticeText, setLastNoticeText] = useState('');
-    const calendarRef = useRef<ScrollView>(null);
+    const calendarRef = useRef<ScrollViewInstance>(null);
 
     const dismissNotice = () => {
         setLastNoticeText(noticeText ?? '');
@@ -202,6 +205,13 @@ export default function ChoresScreen() {
         }
         return rows;
     }, []);
+    const visibleTasks = showHouseTasks
+        ? tasks.map((task) => ({ task, assignment: null }))
+        : apartmentTasks.filter(({ assignment }) =>
+            assignment
+                ? dateKey(assignment.due_date) === selectedDay
+                : selectedDay === todayKey,
+        );
 
     // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
     // el scroll-snap volvería a encajar en la página movida, saltando a otra semana
@@ -258,52 +268,68 @@ export default function ChoresScreen() {
                 </View>
 
                 <View style={styles.segmented}>
-                    <View style={styles.segmentSelected}>
-                        <Text style={styles.segmentSelectedText}>Semana</Text>
-                    </View>
-                    <Pressable style={styles.segment}>
-                        <Text style={styles.segmentText}>Balance</Text>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: !showHouseTasks }}
+                        onPress={() => setShowHouseTasks(false)}
+                        style={[styles.segment, !showHouseTasks && styles.segmentSelected]}>
+                        <Text style={!showHouseTasks ? styles.segmentSelectedText : styles.segmentText}>Semana</Text>
+                    </Pressable>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: showHouseTasks }}
+                        onPress={() => setShowHouseTasks(true)}
+                        style={[styles.segment, showHouseTasks && styles.segmentSelected]}>
+                        <Text style={showHouseTasks ? styles.segmentSelectedText : styles.segmentText}>
+                            Tareas de la casa
+                        </Text>
                     </Pressable>
                 </View>
 
-                <View style={styles.weekCard}>
-                    {/* En web se ignoran contentOffset y onMomentumScrollEnd: la semana actual se centra al
-                        tener ancho las páginas, y onScroll llega al empezar y al terminar de deslizar */}
-                    <ScrollView
-                        ref={calendarRef}
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}
-                        contentOffset={{ x: pageWidth, y: 0 }}
-                        onContentSizeChange={() => calendarRef.current?.scrollTo({ x: pageWidth, animated: false })}
-                        onMomentumScrollEnd={handleCalendarScrollEnd}
-                        onScroll={Platform.OS === 'web' ? handleCalendarScrollEnd : undefined}>
-                        {weeks.map(renderWeek)}
-                    </ScrollView>
-                </View>
+                {!showHouseTasks ? (
+                    <>
+                        <View style={styles.weekCard}>
+                            {/* En web se ignoran contentOffset y onMomentumScrollEnd: la semana actual se centra al
+                                tener ancho las páginas, y onScroll llega al empezar y al terminar de deslizar */}
+                            <ScrollView
+                                ref={calendarRef}
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}
+                                contentOffset={{ x: pageWidth, y: 0 }}
+                                onContentSizeChange={() => calendarRef.current?.scrollTo({ x: pageWidth, animated: false })}
+                                onMomentumScrollEnd={handleCalendarScrollEnd}
+                                onScroll={Platform.OS === 'web' ? handleCalendarScrollEnd : undefined}>
+                                {weeks.map(renderWeek)}
+                            </ScrollView>
+                        </View>
 
-                <View style={styles.legend}>
-                    <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: Palette.border }]} />
-                        <Text style={styles.legendText}>Tiempo libre</Text>
-                    </View>
-                    <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: Palette.peach }]} />
-                        <Text style={styles.legendText}>Ocupado</Text>
-                    </View>
-                    <Text style={styles.privateText}>Bloques privados</Text>
-                </View>
+                        <View style={styles.legend}>
+                            <View style={styles.legendItem}>
+                                <View style={[styles.legendDot, { backgroundColor: Palette.border }]} />
+                                <Text style={styles.legendText}>Tiempo libre</Text>
+                            </View>
+                            <View style={styles.legendItem}>
+                                <View style={[styles.legendDot, { backgroundColor: Palette.peach }]} />
+                                <Text style={styles.legendText}>Ocupado</Text>
+                            </View>
+                            <Text style={styles.privateText}>Bloques privados</Text>
+                        </View>
+                    </>
+                ) : null}
 
                 {loading ? <ActivityIndicator color={Palette.primary} /> : null}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 <View style={styles.choreList}>
-                    {apartmentTasks.map(({ task, assignment }) => {
+                    {visibleTasks.map(({ task, assignment }) => {
                         const category = choreCategories.find(({ value }) => value === task.category);
 
                         return (
                             <View
-                                key={`${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}-${assignment?.due_time ?? ''}`}
+                                key={showHouseTasks
+                                    ? task.id
+                                    : `${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}-${assignment?.due_time ?? ''}`}
                                 style={styles.choreCard}>
                                 <Pressable
                                     accessibilityRole="button"
@@ -324,14 +350,18 @@ export default function ChoresScreen() {
                                         />
                                     </View>
                                     <View style={styles.choreCopy}>
-                                        <Text style={styles.choreDay}>
-                                            {assignment
-                                                ? `${formatDueDay(assignment.due_date)}${assignment.due_time ? ` · ${assignment.due_time}` : ''}`
-                                                : 'ANYTIME'}
-                                        </Text>
+                                        {!showHouseTasks ? (
+                                            <Text style={styles.choreDay}>
+                                                {assignment
+                                                    ? `${formatDueDay(assignment.due_date)}${assignment.due_time ? ` · ${assignment.due_time}` : ''}`
+                                                    : 'ANYTIME'}
+                                            </Text>
+                                        ) : null}
                                         <Text style={styles.choreTitle}>{task.title}</Text>
                                         <Text style={styles.choreMeta}>
-                                            {assignment?.user.full_name ?? 'Unassigned'} · {frequencyLabels[task.frequency]}
+                                            {showHouseTasks
+                                                ? frequencyLabels[task.frequency]
+                                                : `${assignment?.user.full_name ?? 'Unassigned'} · ${frequencyLabels[task.frequency]}`}
                                         </Text>
                                         {task.description ? (
                                             <Text style={styles.choreDescription} numberOfLines={1}>
@@ -369,8 +399,12 @@ export default function ChoresScreen() {
                         );
                     })}
                 </View>
-                {!loading && !error && apartmentTasks.length === 0 ? (
-                    <Text style={styles.muted}>Todavía no se ha creado ninguna tarea.</Text>
+                {!loading && !error && visibleTasks.length === 0 ? (
+                    <Text style={styles.muted}>
+                        {showHouseTasks || tasks.length === 0
+                            ? 'Todavía no se ha creado ninguna tarea.'
+                            : 'No hay tareas para este día.'}
+                    </Text>
                 ) : null}
             </ScrollView>
             <DeleteChoreDialog
