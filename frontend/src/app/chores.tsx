@@ -108,6 +108,7 @@ export default function ChoresScreen() {
     const todayKey = dateKey(today);
     const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
     const [selectedDay, setSelectedDay] = useState(() => dateKey(today));
+    const [showAllTasks, setShowAllTasks] = useState(false);
     const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
@@ -207,11 +208,13 @@ export default function ChoresScreen() {
     }, []);
     const visibleTasks = showHouseTasks
         ? tasks.map((task) => ({ task, assignment: null }))
-        : apartmentTasks.filter(({ assignment }) =>
-            assignment
-                ? dateKey(assignment.due_date) === selectedDay
-                : selectedDay === todayKey,
-        );
+        : showAllTasks
+            ? apartmentTasks
+            : apartmentTasks.filter(({ assignment }) =>
+                assignment
+                    ? dateKey(assignment.due_date) === selectedDay
+                    : selectedDay === todayKey,
+            );
 
     // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
     // el scroll-snap volvería a encajar en la página movida, saltando a otra semana
@@ -271,20 +274,43 @@ export default function ChoresScreen() {
                     <Pressable
                         accessibilityRole="button"
                         accessibilityState={{ selected: !showHouseTasks }}
-                        onPress={() => setShowHouseTasks(false)}
+                        onPress={() => {
+                            setShowHouseTasks(false);
+                            setShowAllTasks(false);
+                        }}
                         style={[styles.segment, !showHouseTasks && styles.segmentSelected]}>
                         <Text style={!showHouseTasks ? styles.segmentSelectedText : styles.segmentText}>Semana</Text>
                     </Pressable>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityState={{ selected: showHouseTasks }}
-                        onPress={() => setShowHouseTasks(true)}
+                        onPress={() => {
+                            setShowHouseTasks(true);
+                            setShowAllTasks(false);
+                        }}
                         style={[styles.segment, showHouseTasks && styles.segmentSelected]}>
                         <Text style={showHouseTasks ? styles.segmentSelectedText : styles.segmentText}>
                             Tareas de la casa
                         </Text>
                     </Pressable>
                 </View>
+
+                {!showHouseTasks ? (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: showAllTasks }}
+                        onPress={() => setShowAllTasks((current) => !current)}
+                        style={({ pressed }) => [styles.allTasksToggle, pressed && styles.pressed]}>
+                        <MaterialCommunityIcons
+                            name={showAllTasks ? 'calendar-week' : 'format-list-bulleted'}
+                            size={18}
+                            color={Palette.primary}
+                        />
+                        <Text style={styles.allTasksToggleText}>
+                            {showAllTasks ? 'Volver al día seleccionado' : 'Ver todas las tareas'}
+                        </Text>
+                    </Pressable>
+                ) : null}
 
                 {!showHouseTasks ? (
                     <>
@@ -403,7 +429,9 @@ export default function ChoresScreen() {
                     <Text style={styles.muted}>
                         {showHouseTasks || tasks.length === 0
                             ? 'Todavía no se ha creado ninguna tarea.'
-                            : 'No hay tareas para este día.'}
+                            : showAllTasks
+                                ? 'Todavía no se ha creado ninguna tarea.'
+                                : 'No hay tareas para este día.'}
                     </Text>
                 ) : null}
             </ScrollView>
@@ -453,6 +481,8 @@ const styles = StyleSheet.create({
     segmentSelected: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9, backgroundColor: Palette.surface },
     segmentText: { fontSize: 13, fontWeight: '600', color: Palette.textSecondary },
     segmentSelectedText: { fontSize: 13, fontWeight: '700', color: Palette.text },
+    allTasksToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
+    allTasksToggleText: { fontSize: 13, fontWeight: '700', color: Palette.primary },
     weekCard: { padding: 12, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
     weekPage: { flexGrow: 1 },
     weekHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 12 },
