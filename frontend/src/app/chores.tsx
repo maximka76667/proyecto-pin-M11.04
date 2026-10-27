@@ -41,6 +41,7 @@ type Task = {
         user_id: string;
         status: string;
         due_date: string;
+        due_time: string | null;
         user: { full_name: string };
     }[];
 };
@@ -302,7 +303,7 @@ export default function ChoresScreen() {
 
                         return (
                             <View
-                                key={`${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}`}
+                                key={`${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}-${assignment?.due_time ?? ''}`}
                                 style={styles.choreCard}>
                                 <Pressable
                                     accessibilityRole="button"
@@ -324,7 +325,9 @@ export default function ChoresScreen() {
                                     </View>
                                     <View style={styles.choreCopy}>
                                         <Text style={styles.choreDay}>
-                                            {assignment ? formatDueDay(assignment.due_date) : 'ANYTIME'}
+                                            {assignment
+                                                ? `${formatDueDay(assignment.due_date)}${assignment.due_time ? ` · ${assignment.due_time}` : ''}`
+                                                : 'ANYTIME'}
                                         </Text>
                                         <Text style={styles.choreTitle}>{task.title}</Text>
                                         <Text style={styles.choreMeta}>

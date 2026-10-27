@@ -81,8 +81,11 @@ model TaskAssignment {
   user_id  String           @db.Uuid
   status   AssignmentStatus
   due_date DateTime         @db.Date
+  due_time String?          @db.VarChar(5)
   task     Task             @relation(fields: [task_id], references: [id])
   user     User             @relation(fields: [user_id], references: [id])
+
+  @@unique([user_id, due_date, due_time])
 }
 
 enum TransactionCategory {

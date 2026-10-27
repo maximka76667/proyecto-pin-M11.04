@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -28,6 +29,8 @@ describe('TasksService', () => {
       delete: jest.fn(),
     },
     taskAssignment: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
       deleteMany: jest.fn(),
     },
     userApartment: {
@@ -132,7 +135,7 @@ describe('TasksService', () => {
       include: {
         assignments: {
           include: { user: { select: { id: true, full_name: true } } },
-          orderBy: { due_date: 'asc' },
+          orderBy: [{ due_date: 'asc' }, { due_time: 'asc' }],
         },
       },
     });
@@ -142,6 +145,255 @@ describe('TasksService', () => {
     prisma.task.findUnique.mockResolvedValue(null);
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
+  });
+
+  it('no consulta la tarea ni escribe si no se selecciona ningún responsable', async () => {
+    await expect(
+      service.createAssignment(
+        'task-1',
+        { user_ids: [], due_date: '2026-10-28' },
+        'user-1',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.task.findUnique).not.toHaveBeenCalled();
+    expect(prisma.taskAssignment.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('asigna una tarea a un miembro para el día y hora elegidos y actualiza su estado', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'user-1' });
+    const assignment = {
+      id: 'assignment-1',
+      task_id: 'task-1',
+      user_id: 'user-2',
+      due_date: new Date('2026-10-28T00:00:00.000Z'),
+      due_time: '10:00',
+      status: 'pending',
+      user: { id: 'user-2', full_name: 'Alex' },
+    };
+    prisma.taskAssignment.create.mockResolvedValue(assignment);
+    prisma.task.update.mockResolvedValue({ status: 'assigned' });
+    prisma.$transaction.mockImplementation((operations) =>
+      Promise.all(operations),
+    );
+
+    await expect(
+      service.createAssignment(
+        'task-1',
+        { user_id: 'user-2', due_date: '2026-10-28', due_time: '10:00' },
+        'user-1',
+      ),
+    ).resolves.toBe(assignment);
+
+    expect(prisma.taskAssignment.create).toHaveBeenCalledWith({
+      data: {
+        task_id: 'task-1',
+        user_id: 'user-2',
+        due_date: new Date('2026-10-28T00:00:00.000Z'),
+        due_time: '10:00',
+        status: 'pending',
+      },
+      include: { user: { select: { id: true, full_name: true } } },
+    });
+    expect(prisma.task.update).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+      data: { status: 'assigned' },
+    });
+    expect(prisma.taskAssignment.findFirst).toHaveBeenCalledWith({
+      where: {
+        user_id: { in: ['user-2'] },
+        due_date: new Date('2026-10-28T00:00:00.000Z'),
+        due_time: '10:00',
+      },
+      include: { user: { select: { full_name: true } } },
+    });
+  });
+
+  it('asigna la tarea a varios miembros en una sola transacción', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'member' });
+    const assignments = [
+      { id: 'assignment-1', user_id: 'user-2' },
+      { id: 'assignment-2', user_id: 'user-3' },
+    ];
+    prisma.taskAssignment.create
+      .mockResolvedValueOnce(assignments[0])
+      .mockResolvedValueOnce(assignments[1]);
+    prisma.task.update.mockResolvedValue({ status: 'assigned' });
+    prisma.$transaction.mockImplementation((operations) =>
+      Promise.all(operations),
+    );
+
+    await expect(
+      service.createAssignment(
+        'task-1',
+        {
+          user_ids: ['user-2', 'user-3'],
+          due_date: '2026-10-28',
+          due_time: '10:00',
+        },
+        'member',
+      ),
+    ).resolves.toEqual(assignments);
+
+    expect(prisma.userApartment.findUnique).toHaveBeenCalledTimes(3);
+    expect(prisma.taskAssignment.create).toHaveBeenCalledTimes(2);
+    expect(prisma.taskAssignment.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          task_id: 'task-1',
+          user_id: 'user-2',
+          due_date: new Date('2026-10-28T00:00:00.000Z'),
+          due_time: '10:00',
+        }),
+      }),
+    );
+    expect(prisma.taskAssignment.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          task_id: 'task-1',
+          user_id: 'user-3',
+          due_date: new Date('2026-10-28T00:00:00.000Z'),
+          due_time: '10:00',
+        }),
+      }),
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(3);
+  });
+
+  it('no crea una asignación si la persona elegida no pertenece al hogar', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique
+      .mockResolvedValueOnce({ user_id: 'user-1' })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      service.createAssignment(
+        'task-1',
+        { user_id: 'outsider', due_date: '2026-10-28', due_time: '10:00' },
+        'user-1',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.taskAssignment.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('no crea ninguna asignación si uno de los miembros elegidos no pertenece al hogar', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique
+      .mockResolvedValueOnce({ user_id: 'member' })
+      .mockResolvedValueOnce({ user_id: 'user-2' })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      service.createAssignment(
+        'task-1',
+        {
+          user_ids: ['user-2', 'outsider'],
+          due_date: '2026-10-28',
+          due_time: '10:00',
+        },
+        'member',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.taskAssignment.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('permite que el miembro que solicita la asignación se la asigne a sí mismo', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'user-1' });
+    prisma.taskAssignment.create.mockResolvedValue({ id: 'assignment-1' });
+    prisma.task.update.mockResolvedValue({ status: 'assigned' });
+    prisma.$transaction.mockImplementation((operations) =>
+      Promise.all(operations),
+    );
+
+    await expect(
+      service.createAssignment(
+        'task-1',
+        { user_id: 'user-1', due_date: '2026-10-28', due_time: '10:00' },
+        'user-1',
+      ),
+    ).resolves.toEqual({ id: 'assignment-1' });
+    expect(prisma.userApartment.findUnique).toHaveBeenCalledTimes(2);
+    expect(prisma.taskAssignment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ user_id: 'user-1' }),
+      }),
+    );
+  });
+
+  it('rechaza una hora ocupada antes de insertar asignaciones', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'member' });
+    prisma.taskAssignment.findFirst.mockResolvedValue({
+      user: { full_name: 'Joan Martí' },
+    });
+
+    await expect(
+      service.createAssignment(
+        'task-2',
+        {
+          user_ids: ['user-2', 'user-3'],
+          due_date: '2026-10-28',
+          due_time: '10:00',
+        },
+        'member',
+      ),
+    ).rejects.toThrow(
+      'Joan Martí ya tiene una tarea asignada en ese horario',
+    );
+
+    expect(prisma.taskAssignment.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('convierte un conflicto de unicidad concurrente en HTTP 409', async () => {
+    prisma.task.findUnique.mockResolvedValue({
+      apartment_id: 'apartment-1',
+      status: 'pending',
+    });
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'member' });
+    prisma.taskAssignment.findFirst.mockResolvedValue(null);
+    prisma.$transaction.mockRejectedValue(prismaError('P2002'));
+
+    await expect(
+      service.createAssignment(
+        'task-2',
+        {
+          user_ids: ['user-2'],
+          due_date: '2026-10-28',
+          due_time: '10:00',
+        },
+        'member',
+      ),
+    ).rejects.toThrow(ConflictException);
   });
 
   it('PA edición: actualiza nombre, descripción y frecuencia para un miembro del hogar', async () => {
