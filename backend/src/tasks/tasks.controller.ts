@@ -4,8 +4,6 @@ import { TasksService } from './tasks.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
-
-
 @Controller('tasks')
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
