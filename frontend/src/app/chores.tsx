@@ -50,6 +50,8 @@ type ApartmentTaskRow = {
     assignment: Task['assignments'][number] | null;
 };
 
+type CalendarEvent = { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' };
+
 const dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
 const frequencyLabels: Record<ChoreFrequency, string> = {
@@ -106,6 +108,7 @@ export default function ChoresScreen() {
     const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
     const [selectedDay, setSelectedDay] = useState(() => dateKey(today));
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [pageWidth, setPageWidth] = useState(0);
@@ -142,10 +145,21 @@ export default function ChoresScreen() {
         }
     }, []);
 
+    const loadCalendar = useCallback(async () => {
+        const from = dateKey(weekStart);
+        const to = dateKey(addDays(weekStart, 7));
+        try {
+            await api('POST', '/availability/google/sync', { from, to });
+            const result = await api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`);
+            setCalendarEvents(result.events);
+        } catch (e) { setError(errorMessage(e)); }
+    }, [weekStart]);
+
     useFocusEffect(
         useCallback(() => {
             void loadTasks();
-        }, [loadTasks]),
+            void loadCalendar();
+        }, [loadTasks, loadCalendar]),
     );
 
     const openDeleteDialog = (task: Task) => {
@@ -221,7 +235,7 @@ export default function ChoresScreen() {
                     const day = addDays(week, index);
                     const dayKey = dateKey(day);
                     const selected = dayKey === selectedDay;
-                    const hasTasks = tasks.some((task) =>
+                    const hasTasks = calendarEvents.some((event) => event.date === dayKey) || tasks.some((task) =>
                         task.assignments.some((assignment) => dateKey(assignment.due_date) === dayKey),
                     );
 
@@ -301,6 +315,19 @@ export default function ChoresScreen() {
 
                 {loading ? <ActivityIndicator color={Palette.primary} /> : null}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
+                <View style={styles.choreList}>
+                    <Text style={styles.agendaHeading}>Agenda · {new Date(`${selectedDay}T00:00:00`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
+                    {calendarEvents.filter((event) => event.date === selectedDay).map((event) => (
+                        <View key={event.id} style={[styles.agendaEvent, event.kind === 'task' && styles.agendaTask]}>
+                            <Text style={styles.agendaTime}>{event.start.slice(0, 5)}–{event.end.slice(0, 5)}</Text>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.agendaTitle}>{event.kind === 'task' ? event.title : 'Ocupado'}</Text>
+                                <Text style={styles.agendaPerson}>{event.person}</Text>
+                            </View>
+                        </View>
+                    ))}
+                    {!calendarEvents.some((event) => event.date === selectedDay) ? <Text style={styles.muted}>Sin eventos este día.</Text> : null}
+                </View>
                 <View style={styles.choreList}>
                     {apartmentTasks.map(({ task, assignment }) => {
                         const category = choreCategories.find(({ value }) => value === task.category);
@@ -442,6 +469,12 @@ const styles = StyleSheet.create({
     legendText: { fontSize: 10, color: Palette.textSecondary },
     privateText: { marginLeft: 'auto', fontSize: 10, color: Palette.textSecondary },
     choreList: { gap: 10 },
+    agendaHeading: { fontSize: 15, fontWeight: '800', color: Palette.text, textTransform: 'capitalize' },
+    agendaEvent: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: Radius.input, borderLeftWidth: 4, borderLeftColor: Palette.peach, backgroundColor: Palette.surface },
+    agendaTask: { borderLeftColor: Palette.primary },
+    agendaTime: { minWidth: 76, fontSize: 12, fontWeight: '800', color: Palette.primary },
+    agendaTitle: { fontSize: 14, fontWeight: '700', color: Palette.text },
+    agendaPerson: { fontSize: 12, color: Palette.textSecondary },
     error: { fontSize: 14, color: Palette.error },
     snackbar: { backgroundColor: Palette.primary },
     muted: { fontSize: 14, color: Palette.textSecondary, textAlign: 'center' },

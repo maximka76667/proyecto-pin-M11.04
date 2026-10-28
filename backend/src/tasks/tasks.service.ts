@@ -89,6 +89,23 @@ export class TasksService {
     return task;
   }
 
+  async assign(id: string, dto: CreateTaskAssignmentDto, requesterId: string) {
+    const task = await this.buscarTarea(id);
+    await this.asegurarMiembro(task.apartment_id, requesterId);
+    await this.asegurarMiembro(task.apartment_id, dto.user_id);
+    const [hour, minute] = dto.start_time.split(':').map(Number);
+    return this.prisma.taskAssignment.create({
+      data: {
+        task_id: id,
+        user_id: dto.user_id,
+        status: AssignmentStatus.pending,
+        due_date: new Date(`${dto.due_date.slice(0, 10)}T00:00:00.000Z`),
+        start_minute: hour * 60 + minute,
+      },
+      include: { user: { select: { id: true, full_name: true } } },
+    });
+  }
+
   async update(id: string, updateTaskDto: UpdateTaskDto, userId: string) {
     // Los datos se validan antes de consultar la base de datos
     const data = this.datosEditados(updateTaskDto);

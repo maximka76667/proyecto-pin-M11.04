@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import * as WebBrowser from 'expo-web-browser';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Snackbar } from 'react-native-paper';
 
@@ -18,9 +19,30 @@ import {
     type MyBlock,
 } from '@/lib/availability';
 
-// La barra del hogar muestra de 06:00 a 24:00
-const BAR_START = 6 * 60;
-const BAR_END = 24 * 60;
+type CalendarEvent = { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' };
+type MyGoogleEvent = { id: string; date: string; start: string; end: string; title: string };
+
+function dateKey(date: Date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function startOfWeek(date: Date) {
+    const result = new Date(date);
+    result.setHours(0, 0, 0, 0);
+    result.setDate(result.getDate() - ((result.getDay() + 6) % 7));
+    return result;
+}
+
+function addDays(date: Date, days: number) {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+}
+
+function weekdayOf(date: string): Day {
+    const dayIndex = new Date(`${date}T00:00:00`).getDay();
+    return DAYS[(dayIndex + 6) % 7].key;
+}
 
 export default function AvailabilityScreen() {
     const [tab, setTab] = useState<'mine' | 'house'>('mine');
@@ -29,27 +51,57 @@ export default function AvailabilityScreen() {
     const [members, setMembers] = useState<HouseMember[]>([]);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
+    const [googleConnected, setGoogleConnected] = useState(false);
+    const [googleConfigured, setGoogleConfigured] = useState(false);
+    const [connectingGoogle, setConnectingGoogle] = useState(false);
+    const [calendarWeek, setCalendarWeek] = useState(() => startOfWeek(new Date()));
+    const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
+    const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+    const [myGoogleEvents, setMyGoogleEvents] = useState<MyGoogleEvent[]>([]);
 
     const load = useCallback(async () => {
         try {
-            const [mine, house] = await Promise.all([
+            const [mine, house, google] = await Promise.all([
                 api('GET', '/availability/me'),
                 api('GET', `/availability/apartment/${APARTMENT_ID}`),
+                api('GET', '/availability/google/status'),
             ]);
             setBlocks(mine.blocks);
             setMembers(house.members);
+            setGoogleConnected(google.connected);
+            setGoogleConfigured(google.configured);
         } catch (e) {
             setMessage(errorMessage(e));
         }
     }, []);
 
+    const loadCalendar = useCallback(async () => {
+        const from = dateKey(calendarWeek);
+        const to = dateKey(addDays(calendarWeek, 90));
+        try {
+            await api('POST', '/availability/google/sync', { from, to });
+            const [result, mine] = await Promise.all([
+                api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`),
+                api('GET', `/availability/google/events?from=${from}&to=${to}`),
+            ]);
+            setCalendarEvents(result.events);
+            setMyGoogleEvents(mine.events);
+        } catch (e) {
+            setMessage(errorMessage(e));
+        }
+    }, [calendarWeek]);
+
     useFocusEffect(
         useCallback(() => {
             load();
-        }, [load]),
+            if (tab === 'house' || googleConnected) void loadCalendar();
+        }, [load, loadCalendar, tab, googleConnected]),
     );
 
     const dayBlocks = blocks.map((b, index) => ({ b, index })).filter(({ b }) => b.day_of_week === day);
+    const googleDayBlocks = myGoogleEvents
+        .filter((event) => weekdayOf(event.date) === day)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
     const configuredDays = DAYS.filter((d) => blocks.some((b) => b.day_of_week === d.key)).length;
 
     function update(index: number, patch: Partial<MyBlock>) {
@@ -115,6 +167,33 @@ export default function AvailabilityScreen() {
             })}
         </View>
     );
+
+    async function connectGoogle() {
+        setConnectingGoogle(true);
+        try {
+            const { url } = await api('GET', '/availability/google/connect');
+            const result = await WebBrowser.openAuthSessionAsync(url, 'frontend://calendar/google-callback');
+            if (result.type !== 'success') return;
+            const status = await api('GET', '/availability/google/status');
+            setGoogleConnected(status.connected);
+            if (status.connected) {
+                setTab('mine');
+                setMessage('Google Calendar conectado. Actualizando tus franjas…');
+            } else {
+                setMessage('No se pudo conectar Google Calendar');
+            }
+        } catch (e) { setMessage(errorMessage(e)); }
+        finally { setConnectingGoogle(false); }
+    }
+
+    async function disconnectGoogle() {
+        try {
+            await api('DELETE', '/availability/google');
+            setGoogleConnected(false);
+            setMyGoogleEvents([]);
+            setMessage('Google Calendar desconectado');
+        } catch (e) { setMessage(errorMessage(e)); }
+    }
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -199,62 +278,82 @@ export default function AvailabilityScreen() {
 
                         <View style={styles.google}>
                             <MaterialCommunityIcons name="google" size={18} color={Palette.textSecondary} />
-                            <Text style={styles.googleText}>Importar desde Google Calendar — próximamente</Text>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.googleText}>{googleConnected ? 'Google Calendar conectado' : 'Importar eventos como horas ocupadas'}</Text>
+                                <Text style={styles.googleHint}>Solo se comparten las horas, nunca sus títulos ni detalles.</Text>
+                            </View>
+                            <Pressable disabled={!googleConfigured || connectingGoogle} onPress={() => void (googleConnected ? disconnectGoogle() : connectGoogle())}>
+                                <Text style={[styles.googleAction, (!googleConfigured || connectingGoogle) && { opacity: 0.5 }]}>{googleConnected ? 'Desconectar' : connectingGoogle ? 'Conectando…' : 'Conectar'}</Text>
+                            </Pressable>
                         </View>
+                        {!googleConfigured ? <Text style={styles.googleHint}>Falta configurar OAuth de Google en el servidor.</Text> : null}
+
+                        {googleConnected && googleDayBlocks.map((event) => (
+                            <View key={event.id} style={styles.card}>
+                                <View style={styles.timeRow}>
+                                    <Text style={styles.importedTime}>{event.start}</Text>
+                                    <Text style={styles.dash}>–</Text>
+                                    <Text style={styles.importedTime}>{event.end}</Text>
+                                    <View style={styles.readOnlyTag}><Text style={styles.readOnlyTagText}>Google</Text></View>
+                                </View>
+                                <Text style={styles.importedLabel}>
+                                    {event.title} · {new Date(`${event.date}T00:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                </Text>
+                            </View>
+                        ))}
 
                         <Text style={styles.hint}>Días configurados: {configuredDays}/7</Text>
                         <PrimaryButton title="Guardar disponibilidad" onPress={save} loading={saving} />
                     </>
                 ) : (
                     <>
-                        {dayPills((d) => members.some((m) => m.blocks.some((b) => b.day_of_week === d)))}
+                        <View style={styles.calendarNav}>
+                            <Pressable accessibilityLabel="Semana anterior" onPress={() => { const next = addDays(calendarWeek, -7); setCalendarWeek(next); setSelectedDate(dateKey(next)); }}>
+                                <MaterialCommunityIcons name="chevron-left" size={24} color={Palette.primary} />
+                            </Pressable>
+                            <Text style={styles.calendarTitle}>{calendarWeek.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – {addDays(calendarWeek, 6).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+                            <Pressable accessibilityLabel="Semana siguiente" onPress={() => { const next = addDays(calendarWeek, 7); setCalendarWeek(next); setSelectedDate(dateKey(next)); }}>
+                                <MaterialCommunityIcons name="chevron-right" size={24} color={Palette.primary} />
+                            </Pressable>
+                        </View>
+                        <View style={styles.dateRow}>
+                            {DAYS.map((d, index) => {
+                                const date = addDays(calendarWeek, index);
+                                const key = dateKey(date);
+                                const selected = key === selectedDate;
+                                return <Pressable key={key} accessibilityLabel={date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })} onPress={() => setSelectedDate(key)} style={[styles.dateCell, selected && styles.dateCellSelected]}>
+                                    <Text style={[styles.dateWeekday, selected && styles.dateCellSelectedText]}>{d.short}</Text>
+                                    <Text style={[styles.dateNumber, selected && styles.dateCellSelectedText]}>{date.getDate()}</Text>
+                                    <View style={[styles.dateDot, calendarEvents.some((event) => event.date === key) && styles.dateDotActive]} />
+                                </Pressable>;
+                            })}
+                        </View>
+                        <Text style={styles.selectedDateTitle}>{new Date(`${selectedDate}T00:00:00`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</Text>
                         <View style={styles.scale}>
-                            {[6, 12, 18, 24].map((h) => (
-                                <Text key={h} style={styles.scaleText}>
-                                    {String(h).padStart(2, '0')}h
-                                </Text>
-                            ))}
+                            {[6, 12, 18, 24].map((hour) => <Text key={hour} style={styles.scaleText}>{String(hour).padStart(2, '0')}h</Text>)}
                         </View>
                         {members.length === 0 && <Text style={styles.empty}>No hay compañeros en esta casa.</Text>}
-                        {members.map((m) => {
-                            const busy = m.blocks.filter((b) => b.day_of_week === day);
-                            return (
-                                <View key={m.id} style={styles.card}>
-                                    <View style={styles.memberHeader}>
-                                        <Text style={styles.memberName}>
-                                            {m.full_name}
-                                            {m.isCurrentUser ? ' (tú)' : ''}
-                                        </Text>
-                                        <Text style={styles.memberState}>{busy.length === 0 ? 'Libre todo el día' : `${busy.length} franja(s) ocupada(s)`}</Text>
-                                    </View>
-                                    <View style={styles.bar}>
-                                        {busy.map((b, i) => {
-                                            const from = Math.max(toMinutes(b.start), BAR_START);
-                                            const to = Math.min(toMinutes(b.end), BAR_END);
-                                            if (to <= from) return null;
-                                            return (
-                                                <View
-                                                    key={i}
-                                                    accessibilityLabel={`Ocupado de ${b.start} a ${b.end}`}
-                                                    style={[
-                                                        styles.busy,
-                                                        {
-                                                            left: `${((from - BAR_START) / (BAR_END - BAR_START)) * 100}%`,
-                                                            width: `${((to - from) / (BAR_END - BAR_START)) * 100}%`,
-                                                        },
-                                                    ]}
-                                                />
-                                            );
-                                        })}
-                                    </View>
-                                    {busy.map((b, i) => (
-                                        <Text key={i} style={styles.busyText}>
-                                            Ocupado {b.start}–{b.end}
-                                        </Text>
-                                    ))}
+                        {members.map((member) => {
+                            const events = calendarEvents.filter((event) => event.date === selectedDate && event.user_id === member.id);
+                            return <View key={member.id} style={styles.card}>
+                                <View style={styles.memberHeader}>
+                                    <Text style={styles.memberName}>{member.full_name}{member.isCurrentUser ? ' (tú)' : ''}</Text>
+                                    <Text style={styles.memberState}>{events.length === 0 ? 'Libre todo el día' : `${events.length} franja(s) ocupada(s)`}</Text>
                                 </View>
-                            );
+                                <View style={styles.bar}>
+                                    {events.map((event) => {
+                                        const from = Math.max(toMinutes(event.start), 6 * 60);
+                                        const to = Math.min(toMinutes(event.end), 24 * 60);
+                                        if (to <= from) return null;
+                                        return <View key={event.id} accessibilityLabel={`${event.title} de ${event.start} a ${event.end}`} style={[styles.busy, event.kind === 'task' && styles.taskBusy, { left: `${((from - 360) / 1080) * 100}%`, width: `${((to - from) / 1080) * 100}%` }]} />;
+                                    })}
+                                </View>
+                                {events.map((event) => <Text key={`${event.id}-label`} style={event.kind === 'task' ? styles.taskText : styles.busyText}>
+                                    {event.start}–{event.end} · {event.kind === 'task' ? event.title : 'Ocupado'}
+                                </Text>)}
+                            </View>;
                         })}
+                        {!calendarEvents.some((event) => event.date === selectedDate) ? <Text style={styles.empty}>Sin franjas ocupadas ni tareas asignadas este día.</Text> : null}
                     </>
                 )}
             </ScrollView>
@@ -298,12 +397,31 @@ const styles = StyleSheet.create({
     link: { fontSize: 13, fontWeight: '600', color: Palette.primary, textAlign: 'center' },
     google: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: Radius.input, backgroundColor: Palette.mint, opacity: 0.8 },
     googleText: { fontSize: 13, color: Palette.textSecondary },
+    googleHint: { fontSize: 11, color: Palette.textSecondary },
+    googleAction: { fontSize: 12, fontWeight: '700', color: Palette.primary },
+    calendarNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    calendarTitle: { fontSize: 14, fontWeight: '700', color: Palette.text },
+    dateRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    dateCell: { width: 42, minHeight: 66, alignItems: 'center', justifyContent: 'center', borderRadius: 12, gap: 3 },
+    dateCellSelected: { backgroundColor: Palette.primary },
+    dateCellSelectedText: { color: Palette.onPrimary },
+    dateWeekday: { fontSize: 11, fontWeight: '700', color: Palette.textSecondary },
+    dateNumber: { fontSize: 17, fontWeight: '800', color: Palette.text },
+    dateDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'transparent' },
+    dateDotActive: { backgroundColor: Palette.peach },
+    selectedDateTitle: { fontSize: 15, fontWeight: '800', color: Palette.text, textTransform: 'capitalize' },
     scale: { flexDirection: 'row', justifyContent: 'space-between' },
     scaleText: { fontSize: 11, color: Palette.textSecondary },
+    bar: { height: 18, borderRadius: 9, backgroundColor: Palette.mint, overflow: 'hidden' },
+    busy: { position: 'absolute', top: 0, bottom: 0, backgroundColor: Palette.peach },
+    taskBusy: { backgroundColor: Palette.primary },
+    busyText: { fontSize: 12, color: Palette.textSecondary },
+    taskText: { fontSize: 12, fontWeight: '700', color: Palette.primary },
+    importedTime: { width: 76, paddingVertical: 8, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Palette.textSecondary, borderRadius: 10, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.background },
+    readOnlyTag: { marginLeft: 'auto', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: Palette.mint },
+    readOnlyTagText: { fontSize: 11, fontWeight: '700', color: Palette.primary },
+    importedLabel: { fontSize: 13, color: Palette.textSecondary },
     memberHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     memberName: { fontSize: 15, fontWeight: '700', color: Palette.text },
     memberState: { fontSize: 12, color: Palette.textSecondary },
-    bar: { height: 18, borderRadius: 9, backgroundColor: Palette.mint, overflow: 'hidden' },
-    busy: { position: 'absolute', top: 0, bottom: 0, backgroundColor: Palette.peach },
-    busyText: { fontSize: 12, color: Palette.textSecondary },
 });

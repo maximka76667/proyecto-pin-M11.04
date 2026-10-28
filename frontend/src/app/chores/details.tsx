@@ -8,12 +8,15 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import { Snackbar } from 'react-native-paper';
 
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
+import { APARTMENT_ID } from '@/constants/dev-session';
 
 type TaskDetails = {
   title: string;
@@ -23,9 +26,13 @@ type TaskDetails = {
   assignments: {
     user: { full_name: string };
     due_date: string;
+    start_minute: number;
+    user_id: string;
     status: string;
   }[];
 };
+
+type HouseMember = { id: string; full_name: string };
 
 const frequencyLabels: Record<string, string> = {
   none: 'Una vez',
@@ -45,6 +52,15 @@ export default function ChoreDetailsScreen() {
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [members, setMembers] = useState<HouseMember[]>([]);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [dueDate, setDueDate] = useState(() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+  const [startTime, setStartTime] = useState('09:00');
+  const [assigning, setAssigning] = useState(false);
+  const [message, setMessage] = useState('');
 
   const openDeleteDialog = () => {
     setDeleteError('');
@@ -77,6 +93,9 @@ export default function ChoreDetailsScreen() {
           `/tasks/${encodeURIComponent(taskId)}`,
         ) as TaskDetails;
         setTask(loaded);
+        const house = await api('GET', `/availability/apartment/${APARTMENT_ID}`);
+        setMembers(house.members);
+        setSelectedUser((current) => current || house.members[0]?.id || '');
       } catch (e) {
         setError(errorMessage(e));
       } finally {
@@ -84,6 +103,18 @@ export default function ChoreDetailsScreen() {
       }
     })();
   }, [taskId]);
+
+  const addAssignment = async () => {
+    if (!taskId || !selectedUser) return;
+    setAssigning(true);
+    try {
+      await api('POST', `/tasks/${encodeURIComponent(taskId)}/assignments`, { user_id: selectedUser, due_date: dueDate, start_time: startTime });
+      const loaded = await api('GET', `/tasks/${encodeURIComponent(taskId)}`) as TaskDetails;
+      setTask(loaded);
+      setMessage('Tarea asignada al calendario');
+    } catch (e) { setMessage(errorMessage(e)); }
+    finally { setAssigning(false); }
+  };
 
   const assignment = task?.assignments[0];
   const assignmentDate = assignment
@@ -126,13 +157,29 @@ export default function ChoreDetailsScreen() {
                   {item.user.full_name} · {new Date(`${item.due_date}T00:00:00`).toLocaleDateString('es-ES', {
                     month: 'short',
                     day: 'numeric',
-                  })} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
+                  })} · {`${String(Math.floor(item.start_minute / 60)).padStart(2, '0')}:${String(item.start_minute % 60).padStart(2, '0')}`}–{`${String(Math.floor((item.start_minute + 30) / 60)).padStart(2, '0')}:${String((item.start_minute + 30) % 60).padStart(2, '0')}`} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
                 </Text>
               ))
             ) : (
               <Text style={styles.assignment}>Esta tarea todavía no tiene asignaciones.</Text>
             )}
           </View>
+        </View> : null}
+
+        {task ? <View style={styles.scheduleCard}>
+          <Text style={styles.assignmentLabel}>PROGRAMAR 30 MINUTOS</Text>
+          <View style={styles.memberChoices}>
+            {members.map((member) => <Pressable key={member.id} onPress={() => setSelectedUser(member.id)} style={[styles.memberChoice, selectedUser === member.id && styles.memberChoiceSelected]}>
+              <Text style={[styles.memberChoiceText, selectedUser === member.id && styles.memberChoiceTextSelected]}>{member.full_name}</Text>
+            </Pressable>)}
+          </View>
+          <View style={styles.scheduleFields}>
+            <TextInput accessibilityLabel="Fecha de la tarea" value={dueDate} onChangeText={setDueDate} placeholder="AAAA-MM-DD" style={styles.scheduleInput} />
+            <TextInput accessibilityLabel="Hora de inicio" value={startTime} onChangeText={setStartTime} placeholder="09:00" maxLength={5} style={styles.scheduleInput} />
+          </View>
+          <Pressable disabled={!selectedUser || assigning} onPress={() => void addAssignment()} style={styles.scheduleButton}>
+            <Text style={styles.scheduleButtonText}>{assigning ? 'Guardando…' : 'Añadir al calendario'}</Text>
+          </Pressable>
         </View> : null}
 
         {task ? <>
@@ -167,6 +214,7 @@ export default function ChoreDetailsScreen() {
         onCancel={() => setDeleteDialogVisible(false)}
         onConfirm={() => void deleteTask()}
       />
+      <Snackbar visible={Boolean(message)} onDismiss={() => setMessage('')} duration={3000}>{message}</Snackbar>
     </SafeAreaView>
   );
 }
@@ -216,6 +264,16 @@ const styles = StyleSheet.create({
   assignment: { flex: 1, fontSize: 13, lineHeight: 18, color: Palette.text },
   assignmentList: { flex: 1, gap: 4 },
   assignmentLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: Palette.primary },
+  scheduleCard: { gap: 12, padding: 16, borderRadius: Radius.input, backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border },
+  memberChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  memberChoice: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: Palette.border },
+  memberChoiceSelected: { backgroundColor: Palette.primary, borderColor: Palette.primary },
+  memberChoiceText: { fontSize: 12, color: Palette.text },
+  memberChoiceTextSelected: { color: Palette.onPrimary, fontWeight: '700' },
+  scheduleFields: { flexDirection: 'row', gap: 10 },
+  scheduleInput: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: Palette.border, color: Palette.text },
+  scheduleButton: { alignItems: 'center', padding: 12, borderRadius: 12, backgroundColor: Palette.primary },
+  scheduleButtonText: { color: Palette.onPrimary, fontWeight: '700' },
   sectionLabel: {
     marginTop: 6,
     fontSize: 11,

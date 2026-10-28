@@ -3,6 +3,7 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { TasksService } from './tasks.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 
 
 @Controller('tasks')
@@ -30,6 +31,14 @@ export class TasksController {
     }
 
     return this.tasksService.findOne(id);
+  }
+
+  @Post(':id/assignments')
+  assign(@Param('id') id: string, @Body() dto: CreateTaskAssignmentDto, @CurrentUser() userId: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new BadRequestException('Validation failed (uuid is expected)');
+    }
+    return this.tasksService.assign(id, dto, userId);
   }
 
   @Patch(':id')

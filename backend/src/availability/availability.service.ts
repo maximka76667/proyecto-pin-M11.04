@@ -99,6 +99,66 @@ export class AvailabilityService {
         };
     }
 
+    async getCalendar(apartmentId: string, currentUserId: string, from: string, to: string) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from >= to) {
+            throw new BadRequestException('Invalid calendar date range');
+        }
+        const membership = await this.prisma.userApartment.findUnique({
+            where: { user_id_apartment_id: { user_id: currentUserId, apartment_id: apartmentId } },
+            select: { user_id: true },
+        });
+        if (!membership) throw new NotFoundException('Apartment not found');
+        const startDate = new Date(`${from}T00:00:00.000Z`);
+        const endDate = new Date(`${to}T00:00:00.000Z`);
+        const [users, assignments] = await Promise.all([
+            this.prisma.user.findMany({
+                where: { user_apartments: { some: { apartment_id: apartmentId } } },
+                select: { id: true, full_name: true, availability_blocks: true, google_busy_blocks: { where: { event_date: { gte: startDate, lt: endDate } } } },
+            }),
+            this.prisma.taskAssignment.findMany({
+                where: { due_date: { gte: startDate, lt: endDate }, task: { apartment_id: apartmentId } },
+                include: { user: { select: { id: true, full_name: true } }, task: { select: { id: true, title: true } } },
+            }),
+        ]);
+        const events: { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' }[] = [];
+        for (const user of users) {
+            for (const day of this.eachDate(from, to)) {
+                const dayName = this.weekday(day);
+                for (const block of user.availability_blocks.filter((b) => b.day_of_week === dayName)) {
+                    events.push({ id: `weekly-${user.id}-${day}-${block.start_minute}`, user_id: user.id, person: user.full_name, title: 'Ocupado', date: day, start: toHHmm(block.start_minute), end: toHHmm(block.end_minute), kind: 'busy' });
+                }
+            }
+            for (const block of user.google_busy_blocks) {
+                const allDay = block.end_at.getTime() - block.start_at.getTime() >= 24 * 60 * 60_000;
+                events.push({ id: `google-${block.id}`, user_id: user.id, person: user.full_name, title: 'Ocupado', date: block.event_date.toISOString().slice(0, 10), start: allDay ? '00:00' : this.localTime(block.start_at), end: allDay ? '24:00' : this.localTime(block.end_at), kind: 'busy' });
+            }
+        }
+        for (const assignment of assignments) {
+            events.push({
+                id: `task-${assignment.id}`, user_id: assignment.user_id, person: assignment.user.full_name, title: assignment.task.title,
+                date: assignment.due_date.toISOString().slice(0, 10), start: toHHmm(assignment.start_minute), end: toHHmm(assignment.start_minute + 30), kind: 'task',
+            });
+        }
+        return { events: events.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)) };
+    }
+
+    private eachDate(from: string, to: string) {
+        const result: string[] = [];
+        const date = new Date(`${from}T00:00:00.000Z`);
+        const end = new Date(`${to}T00:00:00.000Z`);
+        while (date < end) { result.push(date.toISOString().slice(0, 10)); date.setUTCDate(date.getUTCDate() + 1); }
+        return result;
+    }
+
+    private weekday(date: string) {
+        const index = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+        return DAYS[(index + 6) % 7];
+    }
+
+    private localTime(value: Date) {
+        return new Intl.DateTimeFormat('en-GB', { timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(value);
+    }
+
     private sort<T extends { day_of_week: string; start_minute: number }>(rows: T[]) {
         return [...rows].sort(
             (a, b) =>
