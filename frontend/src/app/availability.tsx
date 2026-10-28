@@ -19,7 +19,7 @@ import {
     type MyBlock,
 } from '@/lib/availability';
 
-type CalendarEvent = { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' };
+type SharedCalendarEntry = { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' };
 type MyGoogleEvent = { id: string; date: string; start: string; end: string; title: string };
 
 function dateKey(date: Date) {
@@ -56,7 +56,7 @@ export default function AvailabilityScreen() {
     const [connectingGoogle, setConnectingGoogle] = useState(false);
     const [calendarWeek, setCalendarWeek] = useState(() => startOfWeek(new Date()));
     const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
-    const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+    const [calendarEvents, setCalendarEvents] = useState<SharedCalendarEntry[]>([]);
     const [myGoogleEvents, setMyGoogleEvents] = useState<MyGoogleEvent[]>([]);
 
     const load = useCallback(async () => {
