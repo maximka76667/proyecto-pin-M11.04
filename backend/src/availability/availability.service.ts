@@ -130,7 +130,7 @@ export class AvailabilityService {
             }
             for (const block of user.google_busy_blocks) {
                 const allDay = block.end_at.getTime() - block.start_at.getTime() >= 24 * 60 * 60_000;
-                events.push({ id: `google-${block.id}`, user_id: user.id, person: user.full_name, title: 'Ocupado', date: block.event_date.toISOString().slice(0, 10), start: allDay ? '00:00' : this.localTime(block.start_at), end: allDay ? '24:00' : this.localTime(block.end_at), kind: 'busy' });
+                events.push({ id: `google-${block.id}`, user_id: user.id, person: user.full_name, title: user.id === currentUserId ? block.title || 'Ocupado' : 'Ocupado', date: block.event_date.toISOString().slice(0, 10), start: allDay ? '00:00' : this.localTime(block.start_at), end: allDay ? '24:00' : this.localTime(block.end_at), kind: 'busy' });
             }
         }
         for (const assignment of assignments) {

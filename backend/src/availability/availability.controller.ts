@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Put, Query, Post, Delete, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Put, Query, Post, Delete, Res, Headers, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AvailabilityService } from './availability.service';
@@ -7,6 +7,8 @@ import { GoogleCalendarService } from './google-calendar.service';
 
 @Controller('availability')
 export class AvailabilityController {
+    private readonly logger = new Logger(AvailabilityController.name);
+
     constructor(private readonly availabilityService: AvailabilityService, private readonly googleCalendar: GoogleCalendarService) { }
 
     @Get('me')
@@ -40,16 +42,27 @@ export class AvailabilityController {
     googleStatus(@CurrentUser() userId: string) { return this.googleCalendar.status(userId); }
 
     @Get('google/connect')
-    googleConnect(@CurrentUser() userId: string) { return this.googleCalendar.authorizationUrl(userId); }
+    googleConnect(@CurrentUser() userId: string, @Query('platform') platform?: string, @Headers('origin') origin?: string) {
+        return this.googleCalendar.authorizationUrl(userId, platform === 'web' ? origin : undefined);
+    }
 
     @Get('google/callback')
-    async googleCallback(@Query('code') code: string, @Query('state') state: string, @Res() response: Response) {
+    async googleCallback(@Query('code') code: string, @Query('state') state: string, @Query('error') oauthError: string, @Res() response: Response) {
+        const callbackUri = this.googleCalendar.callbackUriFromState(state);
         try {
+            if (oauthError || !code) throw new BadRequestException(oauthError ?? 'Google did not return an authorization code');
             await this.googleCalendar.completeAuthorization(code, state);
-            response.redirect(`${process.env.GOOGLE_APP_CALLBACK_URI ?? 'frontend://calendar/google-callback'}?connected=1`);
-        } catch {
-            response.redirect(`${process.env.GOOGLE_APP_CALLBACK_URI ?? 'frontend://calendar/google-callback'}?connected=0`);
+            response.redirect(this.googleCallbackUrl(callbackUri, '1'));
+        } catch (error) {
+            this.logger.warn(`Google Calendar authorization failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+            response.redirect(this.googleCallbackUrl(callbackUri, '0'));
         }
+    }
+
+    private googleCallbackUrl(callbackUri: string, connected: '0' | '1') {
+        const callback = new URL(callbackUri);
+        callback.searchParams.set('connected', connected);
+        return callback.toString();
     }
 
     @Post('google/sync')

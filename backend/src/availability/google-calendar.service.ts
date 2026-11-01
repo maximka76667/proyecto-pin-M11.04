@@ -7,7 +7,8 @@ import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
-type GoogleEvent = { id?: string; summary?: string; start?: { date?: string; dateTime?: string }; end?: { date?: string; dateTime?: string } };
+type GoogleEvent = { id?: string; calendarId?: string; summary?: string; start?: { date?: string; dateTime?: string }; end?: { date?: string; dateTime?: string } };
+type OAuthState = { userId: string; expires: number; callbackUri: string };
 
 @Injectable()
 export class GoogleCalendarService {
@@ -22,14 +23,14 @@ export class GoogleCalendarService {
       .then((connection) => ({ configured: this.isConfigured(), connected: Boolean(connection), connected_at: connection?.connected_at ?? null }));
   }
 
-  authorizationUrl(userId: string) {
+  authorizationUrl(userId: string, origin?: string) {
     this.requireConfig();
-    const state = this.signState(userId);
+    const state = this.signState(userId, this.resolveCallbackUri(origin));
     const params = new URLSearchParams({
       client_id: this.config.getOrThrow('GOOGLE_CLIENT_ID'),
       redirect_uri: this.config.getOrThrow('GOOGLE_REDIRECT_URI'),
       response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/calendar.events.readonly',
+      scope: 'https://www.googleapis.com/auth/calendar.readonly',
       access_type: 'offline',
       prompt: 'consent',
       state,
@@ -39,7 +40,7 @@ export class GoogleCalendarService {
 
   async completeAuthorization(code: string, state: string) {
     this.requireConfig();
-    const userId = this.verifyState(state);
+    const { userId, callbackUri } = this.verifyState(state);
     const body = new URLSearchParams({
       code,
       client_id: this.config.getOrThrow('GOOGLE_CLIENT_ID'),
@@ -47,7 +48,7 @@ export class GoogleCalendarService {
       redirect_uri: this.config.getOrThrow('GOOGLE_REDIRECT_URI'),
       grant_type: 'authorization_code',
     });
-    const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15_000) });
     const token = await response.json() as { refresh_token?: string; error?: string };
     if (!response.ok || !token.refresh_token) throw new BadRequestException(token.error ?? 'Google did not return offline access');
     await this.prisma.googleCalendarConnection.upsert({
@@ -55,7 +56,11 @@ export class GoogleCalendarService {
       create: { user_id: userId, refresh_token: this.encrypt(token.refresh_token) },
       update: { refresh_token: this.encrypt(token.refresh_token), connected_at: new Date() },
     });
-    return userId;
+    return { callbackUri };
+  }
+
+  callbackUriFromState(state: string) {
+    return this.verifyState(state).callbackUri;
   }
 
   async disconnect(userId: string) {
@@ -63,8 +68,11 @@ export class GoogleCalendarService {
     if (connection) {
       const token = this.decrypt(connection.refresh_token);
       await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '' });
-      await this.prisma.googleCalendarConnection.delete({ where: { user_id: userId } });
     }
+    await this.prisma.$transaction([
+      this.prisma.googleCalendarConnection.deleteMany({ where: { user_id: userId } }),
+      this.prisma.googleBusyBlock.deleteMany({ where: { user_id: userId } }),
+    ]);
     return { connected: false };
   }
 
@@ -73,23 +81,32 @@ export class GoogleCalendarService {
     const connection = await this.prisma.googleCalendarConnection.findUnique({ where: { user_id: userId } });
     if (!connection) return { blocks: [] };
     const accessToken = await this.accessToken(this.decrypt(connection.refresh_token));
-    const start = new Date(`${from}T00:00:00.000Z`).toISOString();
-    const end = new Date(`${to}T00:00:00.000Z`).toISOString();
+    const rangeStart = new Date(`${from}T00:00:00.000Z`);
+    const rangeEnd = new Date(`${to}T00:00:00.000Z`);
+    const apiStart = new Date(rangeStart);
+    apiStart.setUTCDate(apiStart.getUTCDate() - 1);
+    const apiEnd = new Date(rangeEnd);
+    apiEnd.setUTCDate(apiEnd.getUTCDate() + 1);
+    const start = apiStart.toISOString();
+    const end = apiEnd.toISOString();
+    const calendarIds = await this.listCalendarIds(accessToken);
     const events: GoogleEvent[] = [];
-    let pageToken: string | undefined;
-    do {
-      const params = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '2500' });
-      if (pageToken) params.set('pageToken', pageToken);
-      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(connection.calendar_id)}/events?${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await response.json() as { items?: GoogleEvent[]; nextPageToken?: string; error?: { message?: string } };
-      if (!response.ok) throw new BadRequestException(data.error?.message ?? 'Could not read Google Calendar');
-      events.push(...(data.items ?? []));
-      pageToken = data.nextPageToken;
-    } while (pageToken);
+    for (const calendarId of calendarIds) {
+      let pageToken: string | undefined;
+      do {
+        const params = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '2500' });
+        if (pageToken) params.set('pageToken', pageToken);
+        const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15_000) });
+        const data = await response.json() as { items?: GoogleEvent[]; nextPageToken?: string; error?: { message?: string } };
+        if (!response.ok) throw new BadRequestException(data.error?.message ?? 'Could not read Google Calendar');
+        events.push(...(data.items ?? []).map((event) => ({ ...event, calendarId })));
+        pageToken = data.nextPageToken;
+      } while (pageToken);
+    }
 
     const blocks = events.flatMap((event) => {
       if (!event.id || !event.start || !event.end) return [];
-      // All-day events have no occupied hour range, so they are ignored by the hourly calendar.
+      // Expand all-day events to one calendar block for each occupied date.
       if (!event.start.dateTime || !event.end.dateTime) {
         if (!event.start.date || !event.end.date) return [];
         const blocks = [];
@@ -99,7 +116,7 @@ export class GoogleCalendarService {
           const date = day.toISOString().slice(0, 10);
           const begin = new Date(`${date}T00:00:00.000Z`);
           const finish = new Date(begin.getTime() + 24 * 60 * 60_000);
-          blocks.push({ id: createHash('sha256').update(`${userId}:${event.id}:${date}`).digest('hex'), user_id: userId, event_date: begin, start_at: begin, end_at: finish, title: event.summary?.trim() || null });
+          blocks.push({ id: createHash('sha256').update(`${userId}:${event.calendarId}:${event.id}:${date}`).digest('hex'), user_id: userId, event_date: begin, start_at: begin, end_at: finish, title: event.summary?.trim() || null });
           day.setUTCDate(day.getUTCDate() + 1);
         }
         return blocks;
@@ -107,22 +124,31 @@ export class GoogleCalendarService {
       const begin = new Date(event.start.dateTime);
       const finish = new Date(event.end.dateTime);
       if (!Number.isFinite(begin.getTime()) || !Number.isFinite(finish.getTime()) || finish <= begin) return [];
-      return [{
-        id: createHash('sha256').update(`${userId}:${event.id}`).digest('hex'),
-        user_id: userId,
-        event_date: new Date(`${this.localDate(begin)}T00:00:00.000Z`),
-        start_at: begin,
-        end_at: finish,
-        title: event.summary?.trim() || null,
-      }];
-    });
+      const timedBlocks = [];
+      let segmentStart = begin;
+      while (segmentStart < finish) {
+        const date = this.localDate(segmentStart);
+        const nextDate = new Date(`${date}T00:00:00.000Z`);
+        nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+        const dayEnd = this.localDateStart(nextDate.toISOString().slice(0, 10));
+        const segmentEnd = new Date(Math.min(finish.getTime(), dayEnd.getTime()));
+        timedBlocks.push({
+          id: createHash('sha256').update(`${userId}:${event.calendarId}:${event.id}:${date}`).digest('hex'),
+          user_id: userId,
+          event_date: new Date(`${date}T00:00:00.000Z`),
+          start_at: segmentStart,
+          end_at: segmentEnd,
+          title: event.summary?.trim() || null,
+        });
+        segmentStart = segmentEnd;
+      }
+      return timedBlocks;
+    }).filter((block) => block.event_date >= rangeStart && block.event_date < rangeEnd);
     // Google can return duplicate event rows, and the client may request a sync
     // for the same range from both calendar views at nearly the same time.
     // Keep one row per stable event key and let PostgreSQL ignore a concurrent
     // insert that already won the race.
     const uniqueBlocks = [...new Map(blocks.map((block) => [block.id, block])).values()];
-    const rangeStart = new Date(`${from}T00:00:00.000Z`);
-    const rangeEnd = new Date(`${to}T00:00:00.000Z`);
     await this.prisma.$transaction([
       this.prisma.googleBusyBlock.deleteMany({ where: { user_id: userId, event_date: { gte: rangeStart, lt: rangeEnd } } }),
       ...(uniqueBlocks.length ? [this.prisma.googleBusyBlock.createMany({ data: uniqueBlocks, skipDuplicates: true })] : []),
@@ -150,7 +176,7 @@ export class GoogleCalendarService {
 
   private async accessToken(refreshToken: string) {
     const body = new URLSearchParams({ client_id: this.config.getOrThrow('GOOGLE_CLIENT_ID'), client_secret: this.config.getOrThrow('GOOGLE_CLIENT_SECRET'), refresh_token: refreshToken, grant_type: 'refresh_token' });
-    const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(15_000) });
     const result = await response.json() as { access_token?: string; error?: string };
     if (!response.ok || !result.access_token) throw new BadRequestException(result.error ?? 'Google authorization expired; reconnect your calendar');
     return result.access_token;
@@ -158,6 +184,30 @@ export class GoogleCalendarService {
 
   private localDate(value: Date) {
     return new Intl.DateTimeFormat('en-CA', { timeZone: this.config.get('CALENDAR_TIME_ZONE') ?? 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' }).format(value);
+  }
+
+  private localDateStart(date: string) {
+    const [year, month, day] = date.split('-').map(Number);
+    const target = Date.UTC(year, month - 1, day);
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: this.config.get('CALENDAR_TIME_ZONE') ?? 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    });
+    let instant = target;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map((part) => [part.type, part.value]));
+      const localAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+      const adjustment = target - localAsUtc;
+      instant += adjustment;
+      if (adjustment === 0) break;
+    }
+    return new Date(instant);
   }
 
   private localTime(value: Date) {
@@ -168,9 +218,51 @@ export class GoogleCalendarService {
     if (!this.isConfigured()) throw new ServiceUnavailableException('Google Calendar OAuth is not configured on the server');
   }
 
+  private async listCalendarIds(accessToken: string) {
+    const calendarIds: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ maxResults: '250' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${params}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data = await response.json() as { items?: { id?: string }[]; nextPageToken?: string; error?: { message?: string } };
+      if (!response.ok) throw new BadRequestException(data.error?.message ?? 'Could not list Google calendars');
+      calendarIds.push(...(data.items ?? []).flatMap((calendar) => calendar.id ? [calendar.id] : []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    if (calendarIds.length === 0) throw new BadRequestException('Google did not return any accessible calendars');
+    return [...new Set(calendarIds)];
+  }
+
+  private resolveCallbackUri(origin?: string) {
+    if (origin) {
+      const frontendOrigin = new URL(origin);
+      const isLocalhost = frontendOrigin.hostname === 'localhost' || frontendOrigin.hostname === '127.0.0.1';
+      if (process.env.NODE_ENV !== 'production' && isLocalhost && frontendOrigin.protocol === 'http:') {
+        return new URL('/availability', frontendOrigin).toString();
+      }
+
+      const configuredWebCallback = this.config.get<string>('GOOGLE_WEB_CALLBACK_URI');
+      if (configuredWebCallback) {
+        const callback = new URL(configuredWebCallback);
+        if (callback.protocol !== 'https:' && callback.protocol !== 'http:') {
+          throw new ServiceUnavailableException('GOOGLE_WEB_CALLBACK_URI must use HTTP or HTTPS');
+        }
+        return callback.toString();
+      }
+
+      throw new ServiceUnavailableException('Set GOOGLE_WEB_CALLBACK_URI for the web application');
+    }
+
+    return this.config.get<string>('GOOGLE_APP_CALLBACK_URI') ?? 'frontend://calendar/google-callback';
+  }
+
   private signingKey() { return this.config.getOrThrow('GOOGLE_TOKEN_ENCRYPTION_KEY'); }
-  private signState(userId: string) {
-    const payload = Buffer.from(JSON.stringify({ userId, expires: Date.now() + 10 * 60_000, nonce: randomBytes(16).toString('hex') })).toString('base64url');
+  private signState(userId: string, callbackUri: string) {
+    const payload = Buffer.from(JSON.stringify({ userId, expires: Date.now() + 10 * 60_000, nonce: randomBytes(16).toString('hex'), callbackUri })).toString('base64url');
     const signature = createHmac('sha256', this.signingKey()).update(payload).digest('base64url');
     return `${payload}.${signature}`;
   }
@@ -181,9 +273,14 @@ export class GoogleCalendarService {
     let received: Buffer;
     try { received = Buffer.from(signature, 'base64url'); } catch { throw new BadRequestException('Invalid OAuth state'); }
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new BadRequestException('Invalid OAuth state');
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { userId: string; expires: number };
-    if (data.expires < Date.now() || !data.userId) throw new BadRequestException('OAuth state expired');
-    return data.userId;
+    let data: OAuthState;
+    try {
+      data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as OAuthState;
+    } catch {
+      throw new BadRequestException('Invalid OAuth state');
+    }
+    if (data.expires < Date.now() || !data.userId || !data.callbackUri) throw new BadRequestException('OAuth state expired');
+    return data;
   }
   private encrypt(value: string) {
     const key = createHash('sha256').update(this.signingKey()).digest();

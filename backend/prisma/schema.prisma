@@ -100,7 +100,7 @@ model GoogleCalendarConnection {
   user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 }
 
-// Only event boundaries are retained. Google event titles and descriptions are discarded.
+// Titles are visible only to the owner; descriptions are never retained.
 model GoogleBusyBlock {
   id          String   @id
   user_id     String   @db.Uuid

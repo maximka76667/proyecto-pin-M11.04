@@ -1,12 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Snackbar } from 'react-native-paper';
 
 import { PrimaryButton } from '@/components/onboarding';
-import { APARTMENT_ID } from '@/constants/dev-session';
+import { APARTMENT_ID, USER_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 import {
@@ -44,14 +44,24 @@ function weekdayOf(date: string): Day {
     return DAYS[(dayIndex + 6) % 7].key;
 }
 
+function formatWeek(date: Date) {
+    const lastDay = addDays(date, 6);
+    return `${date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} – ${lastDay.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+
 export default function AvailabilityScreen() {
-    const [tab, setTab] = useState<'mine' | 'house'>('mine');
-    const [day, setDay] = useState<Day>('monday');
+    const { connected: googleCallback } = useLocalSearchParams<{ connected?: string }>();
+    const [tab, setTab] = useState<'mine' | 'house'>(googleCallback === '1' ? 'house' : 'mine');
+    const [day, setDay] = useState<Day>(() => DAYS[(new Date().getDay() + 6) % 7].key);
     const [blocks, setBlocks] = useState<MyBlock[]>([]);
     const [members, setMembers] = useState<HouseMember[]>([]);
     const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState('');
-    const [googleConnected, setGoogleConnected] = useState(false);
+    const [message, setMessage] = useState(googleCallback === '1'
+        ? 'Google Calendar conectado. Cargando eventos…'
+        : googleCallback === '0'
+            ? 'No se pudo conectar Google Calendar. Revisa el consentimiento e inténtalo de nuevo.'
+            : '');
+    const [googleConnected, setGoogleConnected] = useState(googleCallback === '1');
     const [googleConfigured, setGoogleConfigured] = useState(false);
     const [connectingGoogle, setConnectingGoogle] = useState(false);
     const [calendarWeek, setCalendarWeek] = useState(() => startOfWeek(new Date()));
@@ -94,13 +104,18 @@ export default function AvailabilityScreen() {
     useFocusEffect(
         useCallback(() => {
             load();
-            if (tab === 'house' || googleConnected) void loadCalendar();
-        }, [load, loadCalendar, tab, googleConnected]),
+            void loadCalendar();
+        }, [load, loadCalendar]),
     );
 
     const dayBlocks = blocks.map((b, index) => ({ b, index })).filter(({ b }) => b.day_of_week === day);
+    const selectedDayDate = addDays(calendarWeek, DAYS.findIndex((entry) => entry.key === day));
+    const selectedDayKey = dateKey(selectedDayDate);
+    const myTaskEvents = calendarEvents.filter(
+        (event) => event.user_id === USER_ID && event.date === selectedDayKey && event.kind === 'task',
+    );
     const googleDayBlocks = myGoogleEvents
-        .filter((event) => weekdayOf(event.date) === day)
+        .filter((event) => event.date === selectedDayKey && weekdayOf(event.date) === day)
         .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
     const configuredDays = DAYS.filter((d) => blocks.some((b) => b.day_of_week === d.key)).length;
 
@@ -171,14 +186,19 @@ export default function AvailabilityScreen() {
     async function connectGoogle() {
         setConnectingGoogle(true);
         try {
-            const { url } = await api('GET', '/availability/google/connect');
+            const connectPath = Platform.OS === 'web' ? '/availability/google/connect?platform=web' : '/availability/google/connect';
+            const { url } = await api('GET', connectPath);
+            if (Platform.OS === 'web') {
+                window.location.assign(url);
+                return;
+            }
             const result = await WebBrowser.openAuthSessionAsync(url, 'frontend://calendar/google-callback');
             if (result.type !== 'success') return;
             const status = await api('GET', '/availability/google/status');
             setGoogleConnected(status.connected);
             if (status.connected) {
-                setTab('mine');
-                setMessage('Google Calendar conectado. Actualizando tus franjas…');
+                setTab('house');
+                setMessage('Google Calendar conectado. Cargando eventos…');
             } else {
                 setMessage('No se pudo conectar Google Calendar');
             }
@@ -226,6 +246,15 @@ export default function AvailabilityScreen() {
                         <Text style={styles.hint}>
                             Añade las horas en las que estás ocupado. Tus compañeros solo verán «Ocupado»; el nombre de la franja es privado.
                         </Text>
+                        <View style={styles.calendarNav}>
+                            <Pressable accessibilityLabel="Semana anterior" onPress={() => setCalendarWeek((week) => addDays(week, -7))}>
+                                <MaterialCommunityIcons name="chevron-left" size={24} color={Palette.primary} />
+                            </Pressable>
+                            <Text style={styles.calendarTitle}>Semana {formatWeek(calendarWeek)}</Text>
+                            <Pressable accessibilityLabel="Semana siguiente" onPress={() => setCalendarWeek((week) => addDays(week, 7))}>
+                                <MaterialCommunityIcons name="chevron-right" size={24} color={Palette.primary} />
+                            </Pressable>
+                        </View>
                         {dayPills((d) => blocks.some((b) => b.day_of_week === d))}
 
                         {dayBlocks.length === 0 && <Text style={styles.empty}>Sin franjas este día: apareces como libre.</Text>}
@@ -288,6 +317,9 @@ export default function AvailabilityScreen() {
                         </View>
                         {!googleConfigured ? <Text style={styles.googleHint}>Falta configurar OAuth de Google en el servidor.</Text> : null}
 
+                        {googleConnected && <Text style={styles.selectedDateTitle}>
+                            {selectedDayDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                        </Text>}
                         {googleConnected && googleDayBlocks.map((event) => (
                             <View key={event.id} style={styles.card}>
                                 <View style={styles.timeRow}>
@@ -299,6 +331,17 @@ export default function AvailabilityScreen() {
                                 <Text style={styles.importedLabel}>
                                     {event.title} · {new Date(`${event.date}T00:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
                                 </Text>
+                            </View>
+                        ))}
+                        {myTaskEvents.map((event) => (
+                            <View key={event.id} style={styles.card}>
+                                <View style={styles.timeRow}>
+                                    <Text style={styles.importedTime}>{event.start}</Text>
+                                    <Text style={styles.dash}>–</Text>
+                                    <Text style={styles.importedTime}>{event.end}</Text>
+                                    <View style={styles.readOnlyTag}><Text style={styles.readOnlyTagText}>Tarea</Text></View>
+                                </View>
+                                <Text style={styles.importedLabel}>{event.title}</Text>
                             </View>
                         ))}
 
@@ -349,7 +392,7 @@ export default function AvailabilityScreen() {
                                     })}
                                 </View>
                                 {events.map((event) => <Text key={`${event.id}-label`} style={event.kind === 'task' ? styles.taskText : styles.busyText}>
-                                    {event.start}–{event.end} · {event.kind === 'task' ? event.title : 'Ocupado'}
+                                    {event.start}–{event.end} · {event.title}
                                 </Text>)}
                             </View>;
                         })}

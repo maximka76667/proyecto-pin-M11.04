@@ -271,7 +271,6 @@ export default function ChoresScreen() {
                     assignment !== null &&
                     dateKey(assignment.due_date) === selectedDay,
             );
-
     // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
     // el scroll-snap volvería a encajar en la página movida, saltando a otra semana
     const renderWeek = (week: Date, position: number) => (
@@ -408,19 +407,6 @@ export default function ChoresScreen() {
 
                 {loading ? <ActivityIndicator color={Palette.primary} /> : null}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
-                <View style={styles.choreList}>
-                    <Text style={styles.agendaHeading}>Agenda · {new Date(`${selectedDay}T00:00:00`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
-                    {calendarEvents.filter((event) => event.date === selectedDay).map((event) => (
-                        <View key={event.id} style={[styles.agendaEvent, event.kind === 'task' && styles.agendaTask]}>
-                            <Text style={styles.agendaTime}>{event.start.slice(0, 5)}–{event.end.slice(0, 5)}</Text>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.agendaTitle}>{event.kind === 'task' ? event.title : 'Ocupado'}</Text>
-                                <Text style={styles.agendaPerson}>{event.person}</Text>
-                            </View>
-                        </View>
-                    ))}
-                    {!calendarEvents.some((event) => event.date === selectedDay) ? <Text style={styles.muted}>Sin eventos este día.</Text> : null}
-                </View>
                 <View style={styles.choreList}>
                     {visibleTasks.map(({ task, assignment }) => {
                         const category = choreCategories.find(({ value }) => value === task.category);
