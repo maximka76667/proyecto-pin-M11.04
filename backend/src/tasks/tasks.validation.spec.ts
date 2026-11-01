@@ -24,6 +24,7 @@ describe('Validación de tareas', () => {
     },
     taskAssignment: {
       deleteMany: jest.fn(),
+      findFirst: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -89,6 +90,114 @@ describe('Validación de tareas', () => {
       .expect(400);
 
     expect(prisma.task.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza un user_id con formato inválido antes de consultar la tarea', async () => {
+    await request(app.getHttpServer())
+      .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+      .send({
+        user_id: 'not-an-id',
+        due_date: '2026-10-27',
+        due_time: '10:00',
+      })
+      .expect(400);
+
+    expect(prisma.task.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('acepta el UUID de desarrollo como string y llega a consultar la tarea', async () => {
+    await request(app.getHttpServer())
+      .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+      .send({
+        user_id: '22222222-2222-2222-2222-222222222222',
+        due_date: '2026-10-27',
+        due_time: '10:00',
+      })
+      .expect(404);
+
+    expect(prisma.task.findUnique).toHaveBeenCalledWith({
+      where: { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
+      select: { apartment_id: true, status: true },
+    });
+  });
+
+  it('rechaza user_ids si algún identificador tiene formato inválido', async () => {
+    await request(app.getHttpServer())
+      .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+      .send({
+        user_ids: [
+          '22222222-2222-2222-2222-222222222222',
+          'not-an-id',
+        ],
+        due_date: '2026-10-27',
+        due_time: '10:00',
+      })
+      .expect(400);
+
+    expect(prisma.task.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('acepta varios UUID de usuario como strings y llega a consultar la tarea', async () => {
+    await request(app.getHttpServer())
+      .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+      .send({
+        user_ids: [
+          '22222222-2222-2222-2222-222222222222',
+          '33333333-3333-3333-3333-333333333333',
+        ],
+        due_date: '2026-10-27',
+        due_time: '10:00',
+      })
+      .expect(404);
+
+    expect(prisma.task.findUnique).toHaveBeenCalledWith({
+      where: { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
+      select: { apartment_id: true, status: true },
+    });
+  });
+
+  it('rechaza una asignación sin responsables antes de consultar la tarea', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+      .send({
+        user_ids: [],
+        due_date: '2026-10-27',
+        due_time: '10:00',
+      })
+      .expect(400);
+
+    expect(response.body.message).toContain(
+      'user_ids should not be empty',
+    );
+    expect(prisma.task.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each(['25:00', '10:60', '9:00', 'invalid'])(
+    'rechaza una hora inválida (%s) antes de consultar Prisma',
+    async (dueTime) => {
+      await request(app.getHttpServer())
+        .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+        .send({
+          user_ids: ['22222222-2222-2222-2222-222222222222'],
+          due_date: '2026-10-27',
+          due_time: dueTime,
+        })
+        .expect(400);
+
+      expect(prisma.task.findUnique).not.toHaveBeenCalled();
+    },
+  );
+
+  it('requiere una hora para crear una asignación', async () => {
+    await request(app.getHttpServer())
+      .post('/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/assignments')
+      .send({
+        user_ids: ['22222222-2222-2222-2222-222222222222'],
+        due_date: '2026-10-27',
+      })
+      .expect(400);
+
+    expect(prisma.task.findUnique).not.toHaveBeenCalled();
   });
 
   it('rechaza campos desconocidos', async () => {

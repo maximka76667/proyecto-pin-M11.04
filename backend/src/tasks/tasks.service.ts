@@ -27,7 +27,7 @@ export class TasksService {
       include: {
         assignments: {
           include: { user: { select: { id: true, full_name: true } } },
-          orderBy: { due_date: 'asc' },
+          orderBy: [{ due_date: 'asc' }, { due_time: 'asc' }],
         },
       },
       orderBy: { title: 'asc' },
@@ -77,7 +77,7 @@ export class TasksService {
       include: {
         assignments: {
           include: { user: { select: { id: true, full_name: true } } },
-          orderBy: { due_date: 'asc' },
+          orderBy: [{ due_date: 'asc' }, { due_time: 'asc' }],
         },
       },
     });
@@ -87,6 +87,84 @@ export class TasksService {
     }
 
     return task;
+  }
+
+  async createAssignment(
+    taskId: string,
+    assignmentDto: CreateTaskAssignmentDto,
+    currentUserId: string,
+  ) {
+    const requestedUserIds =
+      assignmentDto.user_ids ??
+      (assignmentDto.user_id ? [assignmentDto.user_id] : []);
+    const userIds = [...new Set(requestedUserIds)];
+    if (userIds.length === 0) {
+      throw new BadRequestException(
+        'Debes asignar la tarea al menos a una persona',
+      );
+    }
+
+    const task = await this.buscarTarea(taskId);
+    await this.asegurarMiembro(task.apartment_id, currentUserId);
+    for (const userId of userIds) {
+      await this.asegurarMiembro(task.apartment_id, userId);
+    }
+
+    const dueDate = new Date(
+      `${assignmentDto.due_date.slice(0, 10)}T00:00:00.000Z`,
+    );
+    const conflictingAssignment = await this.prisma.taskAssignment.findFirst({
+      where: {
+        user_id: { in: userIds },
+        due_date: dueDate,
+        due_time: assignmentDto.due_time,
+      },
+      include: { user: { select: { full_name: true } } },
+    });
+    if (conflictingAssignment) {
+      throw new ConflictException(
+        `${conflictingAssignment.user.full_name} ya tiene una tarea asignada en ese horario`,
+      );
+    }
+
+    try {
+      const operations = userIds.map((userId) =>
+        this.prisma.taskAssignment.create({
+          data: {
+            task_id: taskId,
+            user_id: userId,
+            due_date: dueDate,
+            due_time: assignmentDto.due_time,
+            status: AssignmentStatus.pending,
+          },
+          include: { user: { select: { id: true, full_name: true } } },
+        }),
+      );
+      const results = await this.prisma.$transaction([
+        ...operations,
+        this.prisma.task.update({
+          where: { id: taskId },
+          data: {
+            status:
+              task.status === TaskStatus.pending
+                ? TaskStatus.assigned
+                : task.status,
+          },
+        }),
+      ]);
+      const assignments = results.slice(0, userIds.length);
+      return assignmentDto.user_ids ? assignments : assignments[0];
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'Una persona seleccionada ya tiene una tarea asignada en ese horario',
+        );
+      }
+      this.handlePrismaError(error);
+    }
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto, userId: string) {
@@ -112,6 +190,42 @@ export class TasksService {
     }
   }
 
+  async removeAssignment(id: string, userId: string) {
+    let assignment: { task: { apartment_id: string } } | null;
+    try {
+      assignment = await this.prisma.taskAssignment.findUnique({
+        where: { id },
+        select: { task: { select: { apartment_id: true } } },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2023'
+      ) {
+        throw new BadRequestException('El id de la asignación no es válido');
+      }
+      this.handlePrismaError(error);
+    }
+
+    if (!assignment) {
+      throw new NotFoundException('Asignación no encontrada');
+    }
+
+    await this.asegurarMiembro(assignment.task.apartment_id, userId);
+
+    try {
+      return await this.prisma.taskAssignment.delete({ where: { id } });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Asignación no encontrada');
+      }
+      this.handlePrismaError(error);
+    }
+  }
+
   // La FK de TaskAssignment es ON DELETE RESTRICT: las asignaciones se borran antes
   // y en la misma transacción, para que no pueda quedar la tarea a medio borrar
   async remove(id: string, userId: string) {
@@ -133,7 +247,7 @@ export class TasksService {
     try {
       const task = await this.prisma.task.findUnique({
         where: { id },
-        select: { apartment_id: true },
+        select: { apartment_id: true, status: true },
       });
       if (task) return task;
     } catch (error) {

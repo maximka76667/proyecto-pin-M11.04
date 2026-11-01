@@ -3,8 +3,7 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { TasksService } from './tasks.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UpdateTaskDto } from './dto/update-task.dto';
-
-
+import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 @Controller('tasks')
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
@@ -12,6 +11,27 @@ export class TasksController {
   @Post()
   create(@Body() createTaskDto: CreateTaskDto) {
     return this.tasksService.create(createTaskDto);
+  }
+
+  @Post(':id/assignments')
+  createAssignment(
+    @Param('id') taskId: string,
+    @Body() assignmentDto: CreateTaskAssignmentDto,
+    @CurrentUser() currentUserId: string
+  ) {
+    return this.tasksService.createAssignment(
+      taskId,
+      assignmentDto,
+      currentUserId
+    );
+  }
+
+  @Delete('assignments/:id')
+  removeAssignment(
+    @Param('id') assignmentId: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.removeAssignment(assignmentId, userId);
   }
 
   @Get()

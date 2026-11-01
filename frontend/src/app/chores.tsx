@@ -9,6 +9,7 @@ import {
     Pressable,
     SafeAreaView,
     ScrollView,
+    type ScrollViewInstance,
     StyleSheet,
     Text,
     View,
@@ -38,9 +39,11 @@ type Task = {
     frequency: ChoreFrequency;
     status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
     assignments: {
+        id: string;
         user_id: string;
         status: string;
         due_date: string;
+        due_time: string | null;
         user: { full_name: string };
     }[];
 };
@@ -105,12 +108,18 @@ export default function ChoresScreen() {
     const today = new Date();
     const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
     const [selectedDay, setSelectedDay] = useState(() => dateKey(today));
+    const [showAllTasks, setShowAllTasks] = useState(false);
+    const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [pageWidth, setPageWidth] = useState(0);
     // la tarea se conserva al cerrar el diálogo para que su texto no cambie mientras se desvanece
     const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+    const [assignmentToDelete, setAssignmentToDelete] = useState<{
+        task: Task;
+        assignment: Task['assignments'][number];
+    } | null>(null);
     const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState('');
@@ -119,7 +128,7 @@ export default function ChoresScreen() {
     // guarda el texto para que no desaparezca mientras se desvanece
     const noticeText = notice ? notices[notice] : undefined;
     const [lastNoticeText, setLastNoticeText] = useState('');
-    const calendarRef = useRef<ScrollView>(null);
+    const calendarRef = useRef<ScrollViewInstance>(null);
 
     const dismissNotice = () => {
         setLastNoticeText(noticeText ?? '');
@@ -150,12 +159,23 @@ export default function ChoresScreen() {
 
     const openDeleteDialog = (task: Task) => {
         setTaskToDelete(task);
+        setAssignmentToDelete(null);
         setDeleteError('');
         setDeleteDialogVisible(true);
     };
 
     const closeDeleteDialog = () => {
         setDeleteDialogVisible(false);
+    };
+
+    const openAssignmentDeleteDialog = (
+        task: Task,
+        assignment: Task['assignments'][number],
+    ) => {
+        setTaskToDelete(null);
+        setAssignmentToDelete({ task, assignment });
+        setDeleteError('');
+        setDeleteDialogVisible(true);
     };
 
     const deleteTask = async () => {
@@ -169,6 +189,37 @@ export default function ChoresScreen() {
             setTasks((current) => current.filter(({ id }) => id !== deletedId));
             setDeleteDialogVisible(false);
             router.setParams({ notice: 'deleted' });
+        } catch (e) {
+            setDeleteError(errorMessage(e));
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const deleteAssignment = async () => {
+        if (!assignmentToDelete) return;
+
+        const { assignment } = assignmentToDelete;
+        setDeleting(true);
+        setDeleteError('');
+        try {
+            await api(
+                'DELETE',
+                `/tasks/assignments/${encodeURIComponent(assignment.id)}`,
+            );
+            setTasks((current) =>
+                current.map((task) =>
+                    task.id === assignmentToDelete.task.id
+                        ? {
+                            ...task,
+                            assignments: task.assignments.filter(
+                                ({ id }) => id !== assignment.id,
+                            ),
+                        }
+                        : task,
+                ),
+            );
+            setDeleteDialogVisible(false);
         } catch (e) {
             setDeleteError(errorMessage(e));
         } finally {
@@ -194,13 +245,18 @@ export default function ChoresScreen() {
 
     const weeks = [-1, 0, 1].map((offset) => addDays(weekStart, offset * 7));
     const apartmentTasks = tasks.reduce<ApartmentTaskRow[]>((rows, task) => {
-        if (task.assignments.length > 0) {
-            rows.push(...task.assignments.map((assignment) => ({ task, assignment })));
-        } else {
-            rows.push({ task, assignment: null });
-        }
+        rows.push(...task.assignments.map((assignment) => ({ task, assignment })));
         return rows;
     }, []);
+    const visibleTasks = showHouseTasks
+        ? tasks.map((task) => ({ task, assignment: null }))
+        : showAllTasks
+            ? apartmentTasks
+            : apartmentTasks.filter(
+                ({ assignment }) =>
+                    assignment !== null &&
+                    dateKey(assignment.due_date) === selectedDay,
+            );
 
     // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
     // el scroll-snap volvería a encajar en la página movida, saltando a otra semana
@@ -257,52 +313,91 @@ export default function ChoresScreen() {
                 </View>
 
                 <View style={styles.segmented}>
-                    <View style={styles.segmentSelected}>
-                        <Text style={styles.segmentSelectedText}>Semana</Text>
-                    </View>
-                    <Pressable style={styles.segment}>
-                        <Text style={styles.segmentText}>Balance</Text>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: !showHouseTasks }}
+                        onPress={() => {
+                            setShowHouseTasks(false);
+                            setShowAllTasks(false);
+                        }}
+                        style={[styles.segment, !showHouseTasks && styles.segmentSelected]}>
+                        <Text style={!showHouseTasks ? styles.segmentSelectedText : styles.segmentText}>Semana</Text>
+                    </Pressable>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: showHouseTasks }}
+                        onPress={() => {
+                            setShowHouseTasks(true);
+                            setShowAllTasks(false);
+                        }}
+                        style={[styles.segment, showHouseTasks && styles.segmentSelected]}>
+                        <Text style={showHouseTasks ? styles.segmentSelectedText : styles.segmentText}>
+                            Tareas de la casa
+                        </Text>
                     </Pressable>
                 </View>
 
-                <View style={styles.weekCard}>
-                    {/* En web se ignoran contentOffset y onMomentumScrollEnd: la semana actual se centra al
-                        tener ancho las páginas, y onScroll llega al empezar y al terminar de deslizar */}
-                    <ScrollView
-                        ref={calendarRef}
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}
-                        contentOffset={{ x: pageWidth, y: 0 }}
-                        onContentSizeChange={() => calendarRef.current?.scrollTo({ x: pageWidth, animated: false })}
-                        onMomentumScrollEnd={handleCalendarScrollEnd}
-                        onScroll={Platform.OS === 'web' ? handleCalendarScrollEnd : undefined}>
-                        {weeks.map(renderWeek)}
-                    </ScrollView>
-                </View>
+                {!showHouseTasks ? (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: showAllTasks }}
+                        onPress={() => setShowAllTasks((current) => !current)}
+                        style={({ pressed }) => [styles.allTasksToggle, pressed && styles.pressed]}>
+                        <MaterialCommunityIcons
+                            name={showAllTasks ? 'calendar-week' : 'format-list-bulleted'}
+                            size={18}
+                            color={Palette.primary}
+                        />
+                        <Text style={styles.allTasksToggleText}>
+                            {showAllTasks ? 'Volver al día seleccionado' : 'Ver todas las tareas'}
+                        </Text>
+                    </Pressable>
+                ) : null}
 
-                <View style={styles.legend}>
-                    <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: Palette.border }]} />
-                        <Text style={styles.legendText}>Tiempo libre</Text>
-                    </View>
-                    <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: Palette.peach }]} />
-                        <Text style={styles.legendText}>Ocupado</Text>
-                    </View>
-                    <Text style={styles.privateText}>Bloques privados</Text>
-                </View>
+                {!showHouseTasks ? (
+                    <>
+                        <View style={styles.weekCard}>
+                            {/* En web se ignoran contentOffset y onMomentumScrollEnd: la semana actual se centra al
+                                tener ancho las páginas, y onScroll llega al empezar y al terminar de deslizar */}
+                            <ScrollView
+                                ref={calendarRef}
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                onLayout={(event) => setPageWidth(event.nativeEvent.layout.width)}
+                                contentOffset={{ x: pageWidth, y: 0 }}
+                                onContentSizeChange={() => calendarRef.current?.scrollTo({ x: pageWidth, animated: false })}
+                                onMomentumScrollEnd={handleCalendarScrollEnd}
+                                onScroll={Platform.OS === 'web' ? handleCalendarScrollEnd : undefined}>
+                                {weeks.map(renderWeek)}
+                            </ScrollView>
+                        </View>
+
+                        <View style={styles.legend}>
+                            <View style={styles.legendItem}>
+                                <View style={[styles.legendDot, { backgroundColor: Palette.border }]} />
+                                <Text style={styles.legendText}>Tiempo libre</Text>
+                            </View>
+                            <View style={styles.legendItem}>
+                                <View style={[styles.legendDot, { backgroundColor: Palette.peach }]} />
+                                <Text style={styles.legendText}>Ocupado</Text>
+                            </View>
+                            <Text style={styles.privateText}>Bloques privados</Text>
+                        </View>
+                    </>
+                ) : null}
 
                 {loading ? <ActivityIndicator color={Palette.primary} /> : null}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 <View style={styles.choreList}>
-                    {apartmentTasks.map(({ task, assignment }) => {
+                    {visibleTasks.map(({ task, assignment }) => {
                         const category = choreCategories.find(({ value }) => value === task.category);
 
                         return (
                             <View
-                                key={`${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}`}
+                                key={showHouseTasks
+                                    ? task.id
+                                    : `${task.id}-${assignment?.user_id ?? 'unassigned'}-${assignment?.due_date ?? ''}-${assignment?.due_time ?? ''}`}
                                 style={styles.choreCard}>
                                 <Pressable
                                     accessibilityRole="button"
@@ -323,12 +418,18 @@ export default function ChoresScreen() {
                                         />
                                     </View>
                                     <View style={styles.choreCopy}>
-                                        <Text style={styles.choreDay}>
-                                            {assignment ? formatDueDay(assignment.due_date) : 'ANYTIME'}
-                                        </Text>
+                                        {!showHouseTasks ? (
+                                            <Text style={styles.choreDay}>
+                                                {assignment
+                                                    ? `${formatDueDay(assignment.due_date)}${assignment.due_time ? ` · ${assignment.due_time}` : ''}`
+                                                    : 'ANYTIME'}
+                                            </Text>
+                                        ) : null}
                                         <Text style={styles.choreTitle}>{task.title}</Text>
                                         <Text style={styles.choreMeta}>
-                                            {assignment?.user.full_name ?? 'Unassigned'} · {frequencyLabels[task.frequency]}
+                                            {showHouseTasks
+                                                ? frequencyLabels[task.frequency]
+                                                : `${assignment?.user.full_name ?? 'Unassigned'} · ${frequencyLabels[task.frequency]}`}
                                         </Text>
                                         {task.description ? (
                                             <Text style={styles.choreDescription} numberOfLines={1}>
@@ -340,9 +441,17 @@ export default function ChoresScreen() {
                                 <View style={styles.choreActions}>
                                     <Pressable
                                         accessibilityRole="button"
-                                        accessibilityLabel={`Eliminar ${task.title}`}
+                                        accessibilityLabel={
+                                            assignment
+                                                ? `Eliminar asignación de ${task.title} para ${assignment.user.full_name}`
+                                                : `Eliminar tarea ${task.title}`
+                                        }
                                         hitSlop={8}
-                                        onPress={() => openDeleteDialog(task)}
+                                        onPress={() =>
+                                            assignment
+                                                ? openAssignmentDeleteDialog(task, assignment)
+                                                : openDeleteDialog(task)
+                                        }
                                         style={({ pressed }) => [styles.choreAction, pressed && styles.pressed]}>
                                         <MaterialCommunityIcons name="trash-can-outline" size={22} color={Palette.text} />
                                     </Pressable>
@@ -366,17 +475,30 @@ export default function ChoresScreen() {
                         );
                     })}
                 </View>
-                {!loading && !error && apartmentTasks.length === 0 ? (
-                    <Text style={styles.muted}>Todavía no se ha creado ninguna tarea.</Text>
+                {!loading && !error && visibleTasks.length === 0 ? (
+                    <Text style={styles.muted}>
+                        {showHouseTasks || tasks.length === 0
+                            ? 'Todavía no se ha creado ninguna tarea.'
+                            : showAllTasks
+                                ? 'Todavía no hay tareas asignadas.'
+                                : 'No hay tareas asignadas para este día.'}
+                    </Text>
                 ) : null}
             </ScrollView>
             <DeleteChoreDialog
                 visible={deleteDialogVisible}
-                chore={taskToDelete}
+                chore={taskToDelete ?? assignmentToDelete?.task ?? null}
+                assignmentDescription={
+                    assignmentToDelete
+                        ? `${assignmentToDelete.assignment.user.full_name} · ${formatDueDay(assignmentToDelete.assignment.due_date)}${assignmentToDelete.assignment.due_time ? ` · ${assignmentToDelete.assignment.due_time}` : ''}`
+                        : undefined
+                }
                 deleting={deleting}
                 error={deleteError}
                 onCancel={closeDeleteDialog}
-                onConfirm={() => void deleteTask()}
+                onConfirm={() =>
+                    void (assignmentToDelete ? deleteAssignment() : deleteTask())
+                }
             />
             <Snackbar
                 visible={Boolean(noticeText)}
@@ -416,6 +538,8 @@ const styles = StyleSheet.create({
     segmentSelected: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9, backgroundColor: Palette.surface },
     segmentText: { fontSize: 13, fontWeight: '600', color: Palette.textSecondary },
     segmentSelectedText: { fontSize: 13, fontWeight: '700', color: Palette.text },
+    allTasksToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
+    allTasksToggleText: { fontSize: 13, fontWeight: '700', color: Palette.primary },
     weekCard: { padding: 12, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
     weekPage: { flexGrow: 1 },
     weekHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 12 },
