@@ -190,6 +190,42 @@ export class TasksService {
     }
   }
 
+  async removeAssignment(id: string, userId: string) {
+    let assignment: { task: { apartment_id: string } } | null;
+    try {
+      assignment = await this.prisma.taskAssignment.findUnique({
+        where: { id },
+        select: { task: { select: { apartment_id: true } } },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2023'
+      ) {
+        throw new BadRequestException('El id de la asignación no es válido');
+      }
+      this.handlePrismaError(error);
+    }
+
+    if (!assignment) {
+      throw new NotFoundException('Asignación no encontrada');
+    }
+
+    await this.asegurarMiembro(assignment.task.apartment_id, userId);
+
+    try {
+      return await this.prisma.taskAssignment.delete({ where: { id } });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Asignación no encontrada');
+      }
+      this.handlePrismaError(error);
+    }
+  }
+
   // La FK de TaskAssignment es ON DELETE RESTRICT: las asignaciones se borran antes
   // y en la misma transacción, para que no pueda quedar la tarea a medio borrar
   async remove(id: string, userId: string) {

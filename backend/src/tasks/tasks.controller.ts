@@ -26,6 +26,14 @@ export class TasksController {
     );
   }
 
+  @Delete('assignments/:id')
+  removeAssignment(
+    @Param('id') assignmentId: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.removeAssignment(assignmentId, userId);
+  }
+
   @Get()
   findAll(@Query('apartment_id') apartmentId?: string) {
     return this.tasksService.findAll(apartmentId);

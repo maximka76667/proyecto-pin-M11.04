@@ -93,6 +93,13 @@ export default function ChoreDetailsScreen() {
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [assignmentToDelete, setAssignmentToDelete] = useState<
+    TaskDetails['assignments'][number] | null
+  >(null);
+  const [assignmentDeleteDialogVisible, setAssignmentDeleteDialogVisible] =
+    useState(false);
+  const [assignmentDeleting, setAssignmentDeleting] = useState(false);
+  const [assignmentDeleteError, setAssignmentDeleteError] = useState('');
 
   const openDeleteDialog = () => {
     setDeleteError('');
@@ -112,6 +119,43 @@ export default function ChoreDetailsScreen() {
       setDeleteError(errorMessage(e));
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openAssignmentDeleteDialog = (
+    assignment: TaskDetails['assignments'][number],
+  ) => {
+    setAssignmentToDelete(assignment);
+    setAssignmentDeleteError('');
+    setAssignmentDeleteDialogVisible(true);
+  };
+
+  const deleteAssignment = async () => {
+    if (!assignmentToDelete || !taskId) return;
+
+    setAssignmentDeleting(true);
+    setAssignmentDeleteError('');
+    try {
+      await api(
+        'DELETE',
+        `/tasks/assignments/${encodeURIComponent(assignmentToDelete.id)}`,
+      );
+      setTask((current) =>
+        current
+          ? {
+            ...current,
+            assignments: current.assignments.filter(
+              ({ id }) => id !== assignmentToDelete.id,
+            ),
+          }
+          : current,
+      );
+      setAssignmentDeleteDialogVisible(false);
+      setAssignmentNotice('Asignación eliminada. La tarea se conserva.');
+    } catch (e) {
+      setAssignmentDeleteError(errorMessage(e));
+    } finally {
+      setAssignmentDeleting(false);
     }
   };
 
@@ -250,12 +294,26 @@ export default function ChoreDetailsScreen() {
             <Text style={styles.assignmentLabel}>ASIGNACIONES</Text>
             {task.assignments.length > 0 ? (
               task.assignments.map((item) => (
-                <Text key={`${item.user.full_name}-${item.due_date}`} style={styles.assignment}>
-                  {item.user.full_name} · {formatAssignmentDay(item.due_date, {
-                    month: 'short',
-                    day: 'numeric',
-                  })} · {item.due_time ?? 'hora sin definir'} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
-                </Text>
+                <View key={item.id} style={styles.assignmentRow}>
+                  <Text style={styles.assignment}>
+                    {item.user.full_name} · {formatAssignmentDay(item.due_date, {
+                      month: 'short',
+                      day: 'numeric',
+                    })} · {item.due_time ?? 'hora sin definir'} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Eliminar asignación de ${item.user.full_name}`}
+                    hitSlop={8}
+                    onPress={() => openAssignmentDeleteDialog(item)}
+                    style={styles.assignmentDeleteButton}>
+                    <MaterialCommunityIcons
+                      name="trash-can-outline"
+                      size={20}
+                      color={Palette.error}
+                    />
+                  </Pressable>
+                </View>
               ))
             ) : (
               <Text style={styles.assignment}>Esta tarea todavía no tiene asignaciones.</Text>
@@ -302,6 +360,22 @@ export default function ChoreDetailsScreen() {
         error={deleteError}
         onCancel={() => setDeleteDialogVisible(false)}
         onConfirm={() => void deleteTask()}
+      />
+      <DeleteChoreDialog
+        visible={assignmentDeleteDialogVisible}
+        chore={task}
+        assignmentDescription={
+          assignmentToDelete
+            ? `${assignmentToDelete.user.full_name} · ${formatAssignmentDay(assignmentToDelete.due_date, {
+              month: 'short',
+              day: 'numeric',
+            })} · ${assignmentToDelete.due_time ?? 'hora sin definir'}`
+            : undefined
+        }
+        deleting={assignmentDeleting}
+        error={assignmentDeleteError}
+        onCancel={() => setAssignmentDeleteDialogVisible(false)}
+        onConfirm={() => void deleteAssignment()}
       />
       <Modal
         visible={assignDialogVisible}
@@ -440,7 +514,9 @@ const styles = StyleSheet.create({
     borderRadius: Radius.input,
     backgroundColor: Palette.surface,
   },
+  assignmentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   assignment: { flex: 1, fontSize: 13, lineHeight: 18, color: Palette.text },
+  assignmentDeleteButton: { padding: 4 },
   assignmentList: { flex: 1, gap: 4 },
   assignmentLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: Palette.primary },
   sectionLabel: {

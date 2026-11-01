@@ -139,16 +139,38 @@ describe('PA de asignación de tareas', () => {
     });
     prisma.taskAssignment.delete.mockResolvedValue({ id: 'assignment-1' });
 
-    await (
-      service as unknown as {
-        removeAssignment: (id: string, userId: string) => Promise<unknown>;
-      }
-    ).removeAssignment('assignment-1', 'member-1');
+    await service.removeAssignment('assignment-1', 'member-1');
 
+    expect(prisma.taskAssignment.findUnique).toHaveBeenCalledWith({
+      where: { id: 'assignment-1' },
+      select: { task: { select: { apartment_id: true } } },
+    });
     expect(prisma.taskAssignment.delete).toHaveBeenCalledWith({
       where: { id: 'assignment-1' },
     });
     expect(prisma.task.delete).not.toHaveBeenCalled();
     expect(prisma.taskAssignment.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('PA 7: solo un miembro del hogar puede eliminar una asignación existente', async () => {
+    prisma.taskAssignment.findUnique.mockResolvedValue({
+      id: 'assignment-1',
+      task: { apartment_id: 'home-1' },
+    });
+    prisma.userApartment.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.removeAssignment('assignment-1', 'outsider'),
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.taskAssignment.delete).not.toHaveBeenCalled();
+  });
+
+  it('PA 8: devuelve no encontrado si la asignación ya no existe', async () => {
+    prisma.taskAssignment.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.removeAssignment('missing-assignment', 'member-1'),
+    ).rejects.toThrow(NotFoundException);
+    expect(prisma.taskAssignment.delete).not.toHaveBeenCalled();
   });
 });

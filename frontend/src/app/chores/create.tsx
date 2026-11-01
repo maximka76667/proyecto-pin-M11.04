@@ -38,7 +38,7 @@ export default function CreateChoreScreen() {
       <View style={styles.infoCard}>
         <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
         <Text style={styles.infoText}>
-          Las asignaciones se añadirán más adelante, cuando el calendario del hogar esté preparado.
+          Crear la tarea no genera asignaciones automáticamente. Podrás asignarla a una persona desde sus detalles.
         </Text>
       </View>
     </ChoreForm>

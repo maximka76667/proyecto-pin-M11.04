@@ -7,6 +7,7 @@ type DeleteChoreDialogProps = {
   visible: boolean;
   // se conserva al cerrar el diálogo para que su texto no cambie mientras se desvanece
   chore: { title: string; assignments: unknown[] } | null;
+  assignmentDescription?: string;
   deleting: boolean;
   error: string;
   onCancel: () => void;
@@ -17,6 +18,7 @@ type DeleteChoreDialogProps = {
 export function DeleteChoreDialog({
   visible,
   chore,
+  assignmentDescription,
   deleting,
   error,
   onCancel,
@@ -33,10 +35,13 @@ export function DeleteChoreDialog({
           <View style={styles.confirmationIcon}>
             <MaterialCommunityIcons name="trash-can-outline" size={24} color={Palette.error} />
           </View>
-          <Text style={styles.confirmationTitle}>Eliminar tarea</Text>
+          <Text style={styles.confirmationTitle}>
+            {assignmentDescription ? 'Eliminar asignación' : 'Eliminar tarea'}
+          </Text>
           <Text style={styles.confirmationMessage}>
-            {`“${chore?.title ?? ''}” se eliminará para todas las personas del hogar.`}
-            {chore && chore.assignments.length > 0 ? ' También se eliminarán sus asignaciones.' : ''}
+            {assignmentDescription
+              ? `${assignmentDescription} de “${chore?.title ?? ''}” se eliminará. La tarea y las demás asignaciones se conservarán.`
+              : `“${chore?.title ?? ''}” se eliminará para todas las personas del hogar.${chore && chore.assignments.length > 0 ? ' También se eliminarán sus asignaciones.' : ''}`}
           </Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.confirmationActions}>

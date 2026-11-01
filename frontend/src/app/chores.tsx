@@ -39,6 +39,7 @@ type Task = {
     frequency: ChoreFrequency;
     status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
     assignments: {
+        id: string;
         user_id: string;
         status: string;
         due_date: string;
@@ -105,7 +106,6 @@ function formatDueDay(dueDate: string) {
 export default function ChoresScreen() {
     const { notice } = useLocalSearchParams<{ notice?: string }>();
     const today = new Date();
-    const todayKey = dateKey(today);
     const [weekStart, setWeekStart] = useState(() => startOfWeek(today));
     const [selectedDay, setSelectedDay] = useState(() => dateKey(today));
     const [showAllTasks, setShowAllTasks] = useState(false);
@@ -116,6 +116,10 @@ export default function ChoresScreen() {
     const [pageWidth, setPageWidth] = useState(0);
     // la tarea se conserva al cerrar el diálogo para que su texto no cambie mientras se desvanece
     const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+    const [assignmentToDelete, setAssignmentToDelete] = useState<{
+        task: Task;
+        assignment: Task['assignments'][number];
+    } | null>(null);
     const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState('');
@@ -155,12 +159,23 @@ export default function ChoresScreen() {
 
     const openDeleteDialog = (task: Task) => {
         setTaskToDelete(task);
+        setAssignmentToDelete(null);
         setDeleteError('');
         setDeleteDialogVisible(true);
     };
 
     const closeDeleteDialog = () => {
         setDeleteDialogVisible(false);
+    };
+
+    const openAssignmentDeleteDialog = (
+        task: Task,
+        assignment: Task['assignments'][number],
+    ) => {
+        setTaskToDelete(null);
+        setAssignmentToDelete({ task, assignment });
+        setDeleteError('');
+        setDeleteDialogVisible(true);
     };
 
     const deleteTask = async () => {
@@ -174,6 +189,37 @@ export default function ChoresScreen() {
             setTasks((current) => current.filter(({ id }) => id !== deletedId));
             setDeleteDialogVisible(false);
             router.setParams({ notice: 'deleted' });
+        } catch (e) {
+            setDeleteError(errorMessage(e));
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const deleteAssignment = async () => {
+        if (!assignmentToDelete) return;
+
+        const { assignment } = assignmentToDelete;
+        setDeleting(true);
+        setDeleteError('');
+        try {
+            await api(
+                'DELETE',
+                `/tasks/assignments/${encodeURIComponent(assignment.id)}`,
+            );
+            setTasks((current) =>
+                current.map((task) =>
+                    task.id === assignmentToDelete.task.id
+                        ? {
+                            ...task,
+                            assignments: task.assignments.filter(
+                                ({ id }) => id !== assignment.id,
+                            ),
+                        }
+                        : task,
+                ),
+            );
+            setDeleteDialogVisible(false);
         } catch (e) {
             setDeleteError(errorMessage(e));
         } finally {
@@ -199,21 +245,17 @@ export default function ChoresScreen() {
 
     const weeks = [-1, 0, 1].map((offset) => addDays(weekStart, offset * 7));
     const apartmentTasks = tasks.reduce<ApartmentTaskRow[]>((rows, task) => {
-        if (task.assignments.length > 0) {
-            rows.push(...task.assignments.map((assignment) => ({ task, assignment })));
-        } else {
-            rows.push({ task, assignment: null });
-        }
+        rows.push(...task.assignments.map((assignment) => ({ task, assignment })));
         return rows;
     }, []);
     const visibleTasks = showHouseTasks
         ? tasks.map((task) => ({ task, assignment: null }))
         : showAllTasks
             ? apartmentTasks
-            : apartmentTasks.filter(({ assignment }) =>
-                assignment
-                    ? dateKey(assignment.due_date) === selectedDay
-                    : selectedDay === todayKey,
+            : apartmentTasks.filter(
+                ({ assignment }) =>
+                    assignment !== null &&
+                    dateKey(assignment.due_date) === selectedDay,
             );
 
     // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
@@ -399,9 +441,17 @@ export default function ChoresScreen() {
                                 <View style={styles.choreActions}>
                                     <Pressable
                                         accessibilityRole="button"
-                                        accessibilityLabel={`Eliminar ${task.title}`}
+                                        accessibilityLabel={
+                                            assignment
+                                                ? `Eliminar asignación de ${task.title} para ${assignment.user.full_name}`
+                                                : `Eliminar tarea ${task.title}`
+                                        }
                                         hitSlop={8}
-                                        onPress={() => openDeleteDialog(task)}
+                                        onPress={() =>
+                                            assignment
+                                                ? openAssignmentDeleteDialog(task, assignment)
+                                                : openDeleteDialog(task)
+                                        }
                                         style={({ pressed }) => [styles.choreAction, pressed && styles.pressed]}>
                                         <MaterialCommunityIcons name="trash-can-outline" size={22} color={Palette.text} />
                                     </Pressable>
@@ -430,18 +480,25 @@ export default function ChoresScreen() {
                         {showHouseTasks || tasks.length === 0
                             ? 'Todavía no se ha creado ninguna tarea.'
                             : showAllTasks
-                                ? 'Todavía no se ha creado ninguna tarea.'
-                                : 'No hay tareas para este día.'}
+                                ? 'Todavía no hay tareas asignadas.'
+                                : 'No hay tareas asignadas para este día.'}
                     </Text>
                 ) : null}
             </ScrollView>
             <DeleteChoreDialog
                 visible={deleteDialogVisible}
-                chore={taskToDelete}
+                chore={taskToDelete ?? assignmentToDelete?.task ?? null}
+                assignmentDescription={
+                    assignmentToDelete
+                        ? `${assignmentToDelete.assignment.user.full_name} · ${formatDueDay(assignmentToDelete.assignment.due_date)}${assignmentToDelete.assignment.due_time ? ` · ${assignmentToDelete.assignment.due_time}` : ''}`
+                        : undefined
+                }
                 deleting={deleting}
                 error={deleteError}
                 onCancel={closeDeleteDialog}
-                onConfirm={() => void deleteTask()}
+                onConfirm={() =>
+                    void (assignmentToDelete ? deleteAssignment() : deleteTask())
+                }
             />
             <Snackbar
                 visible={Boolean(noticeText)}
