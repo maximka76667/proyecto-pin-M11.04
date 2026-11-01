@@ -36,12 +36,9 @@ export default function CreateChoreScreen() {
         router.replace({ pathname: '/chores', params: { notice: 'created' } });
       }}>
       <View style={styles.infoCard}>
-        <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
-        <Text style={styles.infoText}>
-          Crear la tarea no genera asignaciones automáticamente. Podrás asignarla a una persona desde sus detalles.
-        </Text>
-      </View>
-    </ChoreForm>
+        <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />      
+        </View>    
+        </ChoreForm>
   );
 }
 
