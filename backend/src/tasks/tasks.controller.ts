@@ -15,6 +15,27 @@ export class TasksController {
     return this.tasksService.create(createTaskDto);
   }
 
+  @Post(':id/assignments')
+  createAssignment(
+    @Param('id') taskId: string,
+    @Body() assignmentDto: CreateTaskAssignmentDto,
+    @CurrentUser() currentUserId: string
+  ) {
+    return this.tasksService.createAssignment(
+      taskId,
+      assignmentDto,
+      currentUserId
+    );
+  }
+
+  @Delete('assignments/:id')
+  removeAssignment(
+    @Param('id') assignmentId: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.removeAssignment(assignmentId, userId);
+  }
+
   @Get()
   findAll(@Query('apartment_id') apartmentId?: string) {
     return this.tasksService.findAll(apartmentId);
