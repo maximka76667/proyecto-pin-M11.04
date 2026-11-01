@@ -54,14 +54,6 @@ export class TasksController {
     return this.tasksService.findOne(id);
   }
 
-  @Post(':id/assignments')
-  assign(@Param('id') id: string, @Body() dto: CreateTaskAssignmentDto, @CurrentUser() userId: string) {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-      throw new BadRequestException('Validation failed (uuid is expected)');
-    }
-    return this.tasksService.assign(id, dto, userId);
-  }
-
   @Patch(':id')
   update(
     @Param('id') id: string,

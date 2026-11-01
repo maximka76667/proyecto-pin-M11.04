@@ -134,9 +134,12 @@ export class AvailabilityService {
             }
         }
         for (const assignment of assignments) {
+            const startMinute = assignment.due_time
+                ? toMinutes(assignment.due_time)
+                : assignment.start_minute;
             events.push({
                 id: `task-${assignment.id}`, user_id: assignment.user_id, person: assignment.user.full_name, title: assignment.task.title,
-                date: assignment.due_date.toISOString().slice(0, 10), start: toHHmm(assignment.start_minute), end: toHHmm(assignment.start_minute + 30), kind: 'task',
+                date: assignment.due_date.toISOString().slice(0, 10), start: toHHmm(startMinute), end: toHHmm(startMinute + 30), kind: 'task',
             });
         }
         return { events: events.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)) };

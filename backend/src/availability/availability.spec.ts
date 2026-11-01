@@ -6,6 +6,7 @@ import { configureApp } from '../app.setup';
 import { PrismaService } from '../prisma/prisma.service';
 import { AvailabilityController } from './availability.controller';
 import { AvailabilityService } from './availability.service';
+import { GoogleCalendarService } from './google-calendar.service';
 
 describe('Availability', () => {
     let app: INestApplication<App>;
@@ -13,12 +14,22 @@ describe('Availability', () => {
     const prisma = {
         apartment: { findUnique: jest.fn() },
         user: { findMany: jest.fn() },
+        userApartment: { findUnique: jest.fn() },
+        taskAssignment: { findMany: jest.fn() },
         availabilityBlock: {
             findMany: jest.fn(),
             deleteMany: jest.fn(),
             createMany: jest.fn(),
         },
         $transaction: jest.fn(),
+    };
+    const googleCalendar = {
+        status: jest.fn(),
+        authorizationUrl: jest.fn(),
+        completeAuthorization: jest.fn(),
+        sync: jest.fn(),
+        getMyEvents: jest.fn(),
+        disconnect: jest.fn(),
     };
     const piso = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
@@ -28,7 +39,11 @@ describe('Availability', () => {
         prisma.availabilityBlock.findMany.mockResolvedValue([]);
         const moduleRef = await Test.createTestingModule({
             controllers: [AvailabilityController],
-            providers: [AvailabilityService, { provide: PrismaService, useValue: prisma }],
+            providers: [
+                AvailabilityService,
+                { provide: PrismaService, useValue: prisma },
+                { provide: GoogleCalendarService, useValue: googleCalendar },
+            ],
         }).compile();
         app = moduleRef.createNestApplication();
         configureApp(app);
@@ -109,5 +124,39 @@ describe('Availability', () => {
     it('GET /availability/apartment/:id devuelve 404 si no existe el piso', async () => {
         prisma.apartment.findUnique.mockResolvedValue(null);
         await request(app.getHttpServer()).get(`/availability/apartment/${piso}`).expect(404);
+    });
+
+    it('incluye la hora de la asignación manual en el calendario compartido', async () => {
+        prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'u1' });
+        prisma.user.findMany.mockResolvedValue([
+            { id: 'u1', full_name: 'Ana', availability_blocks: [], google_busy_blocks: [] },
+        ]);
+        prisma.taskAssignment.findMany.mockResolvedValue([
+            {
+                id: 'assignment-1',
+                user_id: 'u1',
+                due_date: new Date('2026-11-02T00:00:00.000Z'),
+                due_time: '12:30',
+                start_minute: 540,
+                user: { id: 'u1', full_name: 'Ana' },
+                task: { id: 'task-1', title: 'Limpiar' },
+            },
+        ]);
+
+        const result = await app.get(AvailabilityService).getCalendar(
+            piso,
+            'u1',
+            '2026-11-02',
+            '2026-11-03',
+        );
+
+        expect(result.events).toContainEqual(
+            expect.objectContaining({
+                id: 'task-assignment-1',
+                start: '12:30',
+                end: '13:00',
+                kind: 'task',
+            }),
+        );
     });
 });

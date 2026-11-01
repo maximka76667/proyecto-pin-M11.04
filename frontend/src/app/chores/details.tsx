@@ -18,7 +18,6 @@ import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 import { APARTMENT_ID } from '@/constants/dev-session';
-import { api, errorMessage, Member } from '@/lib/api';
 
 type TaskDetails = {
   apartment_id: string;
