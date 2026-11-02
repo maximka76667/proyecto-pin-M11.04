@@ -12,12 +12,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Snackbar } from 'react-native-paper';
-
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-import { APARTMENT_ID } from '@/constants/dev-session';
 
 type TaskDetails = {
   apartment_id: string;
@@ -35,7 +32,7 @@ type TaskDetails = {
   }[];
 };
 
-type HouseMember = { id: string; full_name: string };
+type HouseMember = { id: string; full_name: string; isCurrentUser?: boolean };
 
 const frequencyLabels: Record<string, string> = {
   none: 'Una vez',
@@ -80,7 +77,7 @@ function formatAssignmentDay(value: string, options: Intl.DateTimeFormatOptions)
 export default function ChoreDetailsScreen() {
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<HouseMember[]>([]);
   const [completed, setCompleted] = useState(false);
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
@@ -187,7 +184,7 @@ export default function ChoreDetailsScreen() {
         const householdMembers = await api(
           'GET',
           `/apartments/${encodeURIComponent(loadedTask.apartment_id)}/members`,
-        ) as Member[];
+        ) as HouseMember[];
         if (cancelled) return;
         setMembers(householdMembers);
       } catch (e) {
@@ -325,22 +322,6 @@ export default function ChoreDetailsScreen() {
           </View>
         </View> : null}
         {assignmentNotice ? <Text style={styles.success}>{assignmentNotice}</Text> : null}
-
-        {task ? <View style={styles.scheduleCard}>
-          <Text style={styles.assignmentLabel}>PROGRAMAR 30 MINUTOS</Text>
-          <View style={styles.memberChoices}>
-            {members.map((member) => <Pressable key={member.id} onPress={() => setSelectedUser(member.id)} style={[styles.memberChoice, selectedUser === member.id && styles.memberChoiceSelected]}>
-              <Text style={[styles.memberChoiceText, selectedUser === member.id && styles.memberChoiceTextSelected]}>{member.full_name}</Text>
-            </Pressable>)}
-          </View>
-          <View style={styles.scheduleFields}>
-            <TextInput accessibilityLabel="Fecha de la tarea" value={dueDate} onChangeText={setDueDate} placeholder="AAAA-MM-DD" style={styles.scheduleInput} />
-            <TextInput accessibilityLabel="Hora de inicio" value={startTime} onChangeText={setStartTime} placeholder="09:00" maxLength={5} style={styles.scheduleInput} />
-          </View>
-          <Pressable disabled={!selectedUser || assigning} onPress={() => void addAssignment()} style={styles.scheduleButton}>
-            <Text style={styles.scheduleButtonText}>{assigning ? 'Guardando…' : 'Añadir al calendario'}</Text>
-          </Pressable>
-        </View> : null}
 
         {task ? <>
           <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
