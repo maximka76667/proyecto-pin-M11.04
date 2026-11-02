@@ -69,6 +69,14 @@ export default function AvailabilityScreen() {
     const [calendarEvents, setCalendarEvents] = useState<SharedCalendarEntry[]>([]);
     const [myGoogleEvents, setMyGoogleEvents] = useState<MyGoogleEvent[]>([]);
 
+    function goBack() {
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            router.replace('/');
+        }
+    }
+
     const load = useCallback(async () => {
         try {
             const [mine, house, google] = await Promise.all([
@@ -161,6 +169,7 @@ export default function AvailabilityScreen() {
             setBlocks(saved.blocks);
             const house = await api('GET', `/availability/apartment/${APARTMENT_ID}`);
             setMembers(house.members);
+            await loadCalendar();
             setMessage('Disponibilidad guardada');
         } catch (e) {
             setMessage(errorMessage(e));
@@ -219,7 +228,7 @@ export default function AvailabilityScreen() {
         <SafeAreaView style={styles.safeArea}>
             <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
                 <View style={styles.topBar}>
-                    <Pressable onPress={() => router.back()} accessibilityLabel="Volver" style={styles.back}>
+                    <Pressable onPress={goBack} accessibilityLabel="Volver al inicio" style={styles.back}>
                         <MaterialCommunityIcons name="arrow-left" size={22} color={Palette.text} />
                     </Pressable>
                     <View>
@@ -304,6 +313,8 @@ export default function AvailabilityScreen() {
                                 <Text style={styles.link}>Copiar este día a lunes–viernes</Text>
                             </Pressable>
                         )}
+                        <Text style={styles.saveHint}>Pulsa guardar para publicar tus franjas en el calendario de la casa.</Text>
+                        <PrimaryButton title="Guardar disponibilidad" onPress={save} loading={saving} />
 
                         <View style={styles.google}>
                             <MaterialCommunityIcons name="google" size={18} color={Palette.textSecondary} />
@@ -344,9 +355,8 @@ export default function AvailabilityScreen() {
                                 <Text style={styles.importedLabel}>{event.title}</Text>
                             </View>
                         ))}
-
                         <Text style={styles.hint}>Días configurados: {configuredDays}/7</Text>
-                        <PrimaryButton title="Guardar disponibilidad" onPress={save} loading={saving} />
+                        <Text style={styles.hint}>Días configurados: {configuredDays}/7</Text>
                     </>
                 ) : (
                     <>
@@ -420,6 +430,7 @@ const styles = StyleSheet.create({
     segmentText: { fontSize: 13, fontWeight: '600', color: Palette.textSecondary },
     segmentSelectedText: { fontSize: 13, fontWeight: '700', color: Palette.text },
     hint: { fontSize: 13, color: Palette.textSecondary },
+    saveHint: { fontSize: 12, color: Palette.textSecondary, marginTop: 2 },
     empty: { fontSize: 13, color: Palette.textSecondary, textAlign: 'center', paddingVertical: 8 },
     daysRow: { flexDirection: 'row', justifyContent: 'space-between' },
     day: { width: 42, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 12, gap: 4 },

@@ -46,6 +46,9 @@ export class AvailabilityService {
             if (b.end_minute <= b.start_minute) {
                 throw new BadRequestException('End time must be after start time');
             }
+            if (b.day_of_week === this.currentDay() && b.start_minute < this.currentMinute()) {
+                throw new BadRequestException('Availability cannot start in the past');
+            }
         }
         for (const day of DAYS) {
             const delDia = data
@@ -130,7 +133,7 @@ export class AvailabilityService {
             }
             for (const block of user.google_busy_blocks) {
                 const allDay = block.end_at.getTime() - block.start_at.getTime() >= 24 * 60 * 60_000;
-                events.push({ id: `google-${block.id}`, user_id: user.id, person: user.full_name, title: user.id === currentUserId ? block.title || 'Ocupado' : 'Ocupado', date: block.event_date.toISOString().slice(0, 10), start: allDay ? '00:00' : this.localTime(block.start_at), end: allDay ? '24:00' : this.localTime(block.end_at), kind: 'busy' });
+                events.push({ id: `google-${block.id}`, user_id: user.id, person: user.full_name,                 title: 'Ocupado', date: block.event_date.toISOString().slice(0, 10), start: allDay ? '00:00' : this.localTime(block.start_at), end: allDay ? '24:00' : this.localTime(block.end_at), kind: 'busy' });
             }
         }
         for (const assignment of assignments) {
@@ -160,6 +163,31 @@ export class AvailabilityService {
 
     private localTime(value: Date) {
         return new Intl.DateTimeFormat('en-GB', { timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(value);
+    }
+
+    private currentDay() {
+        const day = new Intl.DateTimeFormat('en-US', {
+            timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid',
+            weekday: 'long',
+        }).format(new Date()).toLowerCase();
+        return day === 'monday' ? 'monday'
+            : day === 'tuesday' ? 'tuesday'
+                : day === 'wednesday' ? 'wednesday'
+                    : day === 'thursday' ? 'thursday'
+                        : day === 'friday' ? 'friday'
+                            : day === 'saturday' ? 'saturday'
+                                : 'sunday';
+    }
+
+    private currentMinute() {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).formatToParts(new Date());
+        return Number(parts.find((part) => part.type === 'hour')?.value) * 60
+            + Number(parts.find((part) => part.type === 'minute')?.value);
     }
 
     private sort<T extends { day_of_week: string; start_minute: number }>(rows: T[]) {

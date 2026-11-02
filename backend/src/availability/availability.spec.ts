@@ -26,8 +26,8 @@ describe('Availability', () => {
     const googleCalendar = {
         status: jest.fn(),
         authorizationUrl: jest.fn(),
+        callbackUriFromState: jest.fn().mockReturnValue('frontend://calendar/google-callback'),
         completeAuthorization: jest.fn(),
-        callbackUriFromState: jest.fn(),
         sync: jest.fn(),
         getMyEvents: jest.fn(),
         disconnect: jest.fn(),
@@ -55,17 +55,18 @@ describe('Availability', () => {
         await app.close();
     });
 
-    it('PUT /availability/me guarda las franjas en minutos', async () => {
-        await request(app.getHttpServer())
+    it('PA: guarda una franja horaria manual válida y devuelve confirmación', async () => {
+        const response = await request(app.getHttpServer())
             .put('/availability/me')
             .send({
-                blocks: [{ day_of_week: 'monday', start: '09:00', end: '13:30', label: ' Clases ' }],
+                blocks: [{ day_of_week: 'tuesday', start: '09:00', end: '13:30', label: ' Clases ' }],
             })
             .expect(200);
+        expect(response.body).toEqual({ blocks: [] });
         expect(prisma.availabilityBlock.createMany).toHaveBeenCalledWith({
             data: [
                 expect.objectContaining({
-                    day_of_week: 'monday',
+                    day_of_week: 'tuesday',
                     start_minute: 540,
                     end_minute: 810,
                     label: 'Clases',
@@ -74,11 +75,84 @@ describe('Availability', () => {
         });
     });
 
-    it('rechaza fin <= inicio', async () => {
+    it('PA: rechaza una franja cuya hora de fin es anterior al inicio con HTTP 400', async () => {
         await request(app.getHttpServer())
             .put('/availability/me')
-            .send({ blocks: [{ day_of_week: 'monday', start: '10:00', end: '10:00' }] })
+            .send({ blocks: [{ day_of_week: 'monday', start: '14:00', end: '11:00' }] })
             .expect(400);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una franja que empieza antes de la hora actual del mismo día', async () => {
+        const now = new Date();
+        const day = new Intl.DateTimeFormat('en-US', {
+            timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid',
+            weekday: 'long',
+        }).format(now).toLowerCase();
+        const currentMinute = Number(new Intl.DateTimeFormat('en-GB', {
+            timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).formatToParts(now).find((part) => part.type === 'hour')?.value) * 60
+            + Number(new Intl.DateTimeFormat('en-GB', {
+                timeZone: process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            }).formatToParts(now).find((part) => part.type === 'minute')?.value);
+        const start = Math.max(0, currentMinute - 2);
+        const end = Math.min(1440, start + 1);
+
+        await request(app.getHttpServer())
+            .put('/availability/me')
+            .send({
+                blocks: [{
+                    day_of_week: day,
+                    start: `${String(Math.floor(start / 60)).padStart(2, '0')}:${String(start % 60).padStart(2, '0')}`,
+                    end: `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`,
+                }],
+            })
+            .expect(400);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('PA: importa los eventos de Google Calendar y actualiza la disponibilidad del hogar', async () => {
+        googleCalendar.sync.mockResolvedValue({
+            blocks: [{ date: '2026-11-02', start: '2026-11-02T09:00:00.000Z', end: '2026-11-02T10:00:00.000Z', source: 'google' }],
+        });
+
+        const response = await request(app.getHttpServer())
+            .post('/availability/google/sync')
+            .send({ from: '2026-11-02', to: '2026-11-03' })
+            .expect(201);
+
+        expect(googleCalendar.sync).toHaveBeenCalledWith(
+            expect.any(String),
+            '2026-11-02',
+            '2026-11-03',
+        );
+        expect(response.body).toEqual({
+            blocks: [{
+                date: '2026-11-02',
+                start: '2026-11-02T09:00:00.000Z',
+                end: '2026-11-02T10:00:00.000Z',
+                source: 'google',
+            }],
+        });
+    });
+
+    it('PA: cancela la sincronización cuando Google deniega la autorización', async () => {
+        googleCalendar.callbackUriFromState.mockReturnValue('frontend://calendar/google-callback');
+        googleCalendar.completeAuthorization.mockRejectedValue(new Error('Permisos denegados'));
+
+        const response = await request(app.getHttpServer())
+            .get('/availability/google/callback')
+            .query({ code: 'codigo-google', state: 'estado-oauth' })
+            .expect(302);
+
+        expect(googleCalendar.completeAuthorization).toHaveBeenCalledWith('codigo-google', 'estado-oauth');
+        expect(response.headers.location).toBe('frontend://calendar/google-callback?connected=0');
         expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
@@ -127,21 +201,21 @@ describe('Availability', () => {
         await request(app.getHttpServer()).get(`/availability/apartment/${piso}`).expect(404);
     });
 
-    it('devuelve al navegador web a la aplicación tras autorizar Google', async () => {
-        googleCalendar.callbackUriFromState.mockReturnValue('http://localhost:8081/availability');
-        googleCalendar.completeAuthorization.mockResolvedValue({ callbackUri: 'http://localhost:8081/availability' });
-
-        await request(app.getHttpServer())
-            .get('/availability/google/callback')
-            .query({ code: 'oauth-code', state: 'signed-state' })
-            .expect(302)
-            .expect('Location', 'http://localhost:8081/availability?connected=1');
-    });
-
     it('incluye la hora de la asignación manual en el calendario compartido', async () => {
         prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'u1' });
         prisma.user.findMany.mockResolvedValue([
-            { id: 'u1', full_name: 'Ana', availability_blocks: [], google_busy_blocks: [] },
+            {
+                id: 'u1',
+                full_name: 'Ana',
+                availability_blocks: [{ day_of_week: 'monday', start_minute: 540, end_minute: 600 }],
+                google_busy_blocks: [{
+                    id: 'google-1',
+                    event_date: new Date('2026-11-02T00:00:00.000Z'),
+                    start_at: new Date('2026-11-02T14:00:00.000Z'),
+                    end_at: new Date('2026-11-02T15:00:00.000Z'),
+                    title: 'Fisio Campanar',
+                }],
+            },
         ]);
         prisma.taskAssignment.findMany.mockResolvedValue([
             {
@@ -170,9 +244,29 @@ describe('Availability', () => {
                 kind: 'task',
             }),
         );
+        expect(result.events).toContainEqual({
+            id: 'weekly-u1-2026-11-02-540',
+            user_id: 'u1',
+            person: 'Ana',
+            title: 'Ocupado',
+            date: '2026-11-02',
+            start: '09:00',
+            end: '10:00',
+            kind: 'busy',
+        });
+        expect(result.events).toContainEqual({
+            id: 'google-google-1',
+            user_id: 'u1',
+            person: 'Ana',
+            title: 'Ocupado',
+            date: '2026-11-02',
+            start: '15:00',
+            end: '16:00',
+            kind: 'busy',
+        });
     });
 
-    it('solo muestra al dueño los títulos de sus eventos de Google', async () => {
+    it('oculta la descripción de Google en el calendario de la casa aunque sea del usuario actual', async () => {
         prisma.userApartment.findUnique.mockResolvedValue({ user_id: 'u1' });
         prisma.user.findMany.mockResolvedValue([
             {
@@ -180,23 +274,11 @@ describe('Availability', () => {
                 full_name: 'Ana',
                 availability_blocks: [],
                 google_busy_blocks: [{
-                    id: 'google-1',
-                    event_date: new Date('2026-11-02T00:00:00.000Z'),
-                    start_at: new Date('2026-11-02T09:00:00.000Z'),
-                    end_at: new Date('2026-11-02T10:00:00.000Z'),
-                    title: 'Consulta privada',
-                }],
-            },
-            {
-                id: 'u2',
-                full_name: 'Luis',
-                availability_blocks: [],
-                google_busy_blocks: [{
-                    id: 'google-2',
-                    event_date: new Date('2026-11-02T00:00:00.000Z'),
-                    start_at: new Date('2026-11-02T09:00:00.000Z'),
-                    end_at: new Date('2026-11-02T10:00:00.000Z'),
-                    title: 'Evento privado',
+                    id: 'google-privado',
+                    event_date: new Date('2026-11-03T00:00:00.000Z'),
+                    start_at: new Date('2026-11-03T09:00:00.000Z'),
+                    end_at: new Date('2026-11-03T10:00:00.000Z'),
+                    title: 'Fisio Campanar',
                 }],
             },
         ]);
@@ -205,12 +287,14 @@ describe('Availability', () => {
         const result = await app.get(AvailabilityService).getCalendar(
             piso,
             'u1',
-            '2026-11-02',
             '2026-11-03',
+            '2026-11-04',
         );
 
-        expect(result.events.find((event) => event.user_id === 'u1')?.title).toBe('Consulta privada');
-        expect(result.events.find((event) => event.user_id === 'u2')?.title).toBe('Ocupado');
-        expect(JSON.stringify(result.events)).not.toContain('Evento privado');
+        expect(result.events).toEqual([expect.objectContaining({
+            id: 'google-google-privado',
+            title: 'Ocupado',
+        })]);
+        expect(JSON.stringify(result.events)).not.toContain('Fisio Campanar');
     });
 });

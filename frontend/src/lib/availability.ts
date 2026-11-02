@@ -30,9 +30,13 @@ export function normalizeTime(text: string): string | null {
 
 // Devuelve el mensaje de error de la semana o null si todo es correcto
 export function validateBlocks(blocks: MyBlock[]): string | null {
+    const now = new Date();
+    const today = DAYS[(now.getDay() + 6) % 7].key;
+    const currentMinute = now.getHours() * 60 + now.getMinutes();
     for (const b of blocks) {
         if (!normalizeTime(b.start) || !normalizeTime(b.end)) return 'Usa el formato HH:mm (por ejemplo 09:30)';
         if (toMinutes(b.end) <= toMinutes(b.start)) return 'La hora de fin debe ser posterior a la de inicio';
+        if (b.day_of_week === today && toMinutes(b.start) < currentMinute) return 'No puedes guardar una franja que empieza en el pasado';
     }
     for (const day of DAYS) {
         const sorted = blocks
