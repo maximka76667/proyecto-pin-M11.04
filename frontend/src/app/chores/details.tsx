@@ -12,10 +12,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
-import { api, errorMessage, Member } from '@/lib/api';
+import { api, errorMessage } from '@/lib/api';
 
 type TaskDetails = {
   apartment_id: string;
@@ -32,6 +31,8 @@ type TaskDetails = {
     status: string;
   }[];
 };
+
+type HouseMember = { id: string; full_name: string; isCurrentUser?: boolean };
 
 const frequencyLabels: Record<string, string> = {
   none: 'Una vez',
@@ -76,7 +77,7 @@ function formatAssignmentDay(value: string, options: Intl.DateTimeFormatOptions)
 export default function ChoreDetailsScreen() {
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<HouseMember[]>([]);
   const [completed, setCompleted] = useState(false);
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
@@ -183,7 +184,7 @@ export default function ChoreDetailsScreen() {
         const householdMembers = await api(
           'GET',
           `/apartments/${encodeURIComponent(loadedTask.apartment_id)}/members`,
-        ) as Member[];
+        ) as HouseMember[];
         if (cancelled) return;
         setMembers(householdMembers);
       } catch (e) {
@@ -519,6 +520,16 @@ const styles = StyleSheet.create({
   assignmentDeleteButton: { padding: 4 },
   assignmentList: { flex: 1, gap: 4 },
   assignmentLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: Palette.primary },
+  scheduleCard: { gap: 12, padding: 16, borderRadius: Radius.input, backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border },
+  memberChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  memberChoice: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: Palette.border },
+  memberChoiceSelected: { backgroundColor: Palette.primary, borderColor: Palette.primary },
+  memberChoiceText: { fontSize: 12, color: Palette.text },
+  memberChoiceTextSelected: { color: Palette.onPrimary, fontWeight: '700' },
+  scheduleFields: { flexDirection: 'row', gap: 10 },
+  scheduleInput: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: Palette.border, color: Palette.text },
+  scheduleButton: { alignItems: 'center', padding: 12, borderRadius: 12, backgroundColor: Palette.primary },
+  scheduleButtonText: { color: Palette.onPrimary, fontWeight: '700' },
   sectionLabel: {
     marginTop: 6,
     fontSize: 11,

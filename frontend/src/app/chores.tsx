@@ -53,6 +53,8 @@ type ApartmentTaskRow = {
     assignment: Task['assignments'][number] | null;
 };
 
+type CalendarEvent = { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' };
+
 const dayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
 const frequencyLabels: Record<ChoreFrequency, string> = {
@@ -111,6 +113,7 @@ export default function ChoresScreen() {
     const [showAllTasks, setShowAllTasks] = useState(false);
     const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [pageWidth, setPageWidth] = useState(0);
@@ -151,10 +154,21 @@ export default function ChoresScreen() {
         }
     }, []);
 
+    const loadCalendar = useCallback(async () => {
+        const from = dateKey(weekStart);
+        const to = dateKey(addDays(weekStart, 7));
+        try {
+            await api('POST', '/availability/google/sync', { from, to });
+            const result = await api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`);
+            setCalendarEvents(result.events);
+        } catch (e) { setError(errorMessage(e)); }
+    }, [weekStart]);
+
     useFocusEffect(
         useCallback(() => {
             void loadTasks();
-        }, [loadTasks]),
+            void loadCalendar();
+        }, [loadTasks, loadCalendar]),
     );
 
     const openDeleteDialog = (task: Task) => {
@@ -257,7 +271,6 @@ export default function ChoresScreen() {
                     assignment !== null &&
                     dateKey(assignment.due_date) === selectedDay,
             );
-
     // key por posición: si fuera la fecha, al cambiar de semana se moverían los nodos y en web
     // el scroll-snap volvería a encajar en la página movida, saltando a otra semana
     const renderWeek = (week: Date, position: number) => (
@@ -277,7 +290,7 @@ export default function ChoresScreen() {
                     const day = addDays(week, index);
                     const dayKey = dateKey(day);
                     const selected = dayKey === selectedDay;
-                    const hasTasks = tasks.some((task) =>
+                    const hasTasks = calendarEvents.some((event) => event.date === dayKey) || tasks.some((task) =>
                         task.assignments.some((assignment) => dateKey(assignment.due_date) === dayKey),
                     );
 
@@ -311,6 +324,11 @@ export default function ChoresScreen() {
                         <MaterialCommunityIcons name="plus" size={25} color={Palette.onPrimary} />
                     </Pressable>
                 </View>
+
+                <Pressable style={styles.availabilityButton} onPress={() => router.push('/availability')}>
+                    <MaterialCommunityIcons name="calendar-clock" size={18} color={Palette.primary} />
+                    <Text style={styles.availabilityButtonText}>Mi disponibilidad y la de la casa</Text>
+                </Pressable>
 
                 <View style={styles.segmented}>
                     <Pressable
@@ -533,6 +551,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         backgroundColor: Palette.primary,
     },
+    availabilityButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 11, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+    availabilityButtonText: { fontSize: 13, fontWeight: '700', color: Palette.primary },
     segmented: { flexDirection: 'row', padding: 3, borderRadius: Radius.input, backgroundColor: Palette.segment },
     segment: { flex: 1, alignItems: 'center', paddingVertical: 9 },
     segmentSelected: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9, backgroundColor: Palette.surface },
@@ -559,6 +579,12 @@ const styles = StyleSheet.create({
     legendText: { fontSize: 10, color: Palette.textSecondary },
     privateText: { marginLeft: 'auto', fontSize: 10, color: Palette.textSecondary },
     choreList: { gap: 10 },
+    agendaHeading: { fontSize: 15, fontWeight: '800', color: Palette.text, textTransform: 'capitalize' },
+    agendaEvent: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: Radius.input, borderLeftWidth: 4, borderLeftColor: Palette.peach, backgroundColor: Palette.surface },
+    agendaTask: { borderLeftColor: Palette.primary },
+    agendaTime: { minWidth: 76, fontSize: 12, fontWeight: '800', color: Palette.primary },
+    agendaTitle: { fontSize: 14, fontWeight: '700', color: Palette.text },
+    agendaPerson: { fontSize: 12, color: Palette.textSecondary },
     error: { fontSize: 14, color: Palette.error },
     snackbar: { backgroundColor: Palette.primary },
     muted: { fontSize: 14, color: Palette.textSecondary, textAlign: 'center' },
