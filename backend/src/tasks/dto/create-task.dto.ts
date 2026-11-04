@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min, MaxLength } from 'class-validator';
 import { TaskCategory, TaskFrequency } from '@prisma/client';
 
 const UUID_REGEX =
@@ -19,6 +19,12 @@ export class CreateTaskDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  duration_minutes?: number;
 
   @IsEnum(TaskFrequency)
   frequency: TaskFrequency;

@@ -29,6 +29,7 @@ export default function CreateChoreScreen() {
           apartment_id: APARTMENT_ID,
           title: values.title,
           description: values.description || undefined,
+          duration_minutes: values.duration_minutes,
           frequency: values.frequency,
           category: values.category,
         });

@@ -68,6 +68,7 @@ model Task {
   apartment_id String           @db.Uuid
   title        String
   description  String?
+  duration_minutes Int          @default(30)
   status       TaskStatus
   category     TaskCategory
   priority     TaskPriority

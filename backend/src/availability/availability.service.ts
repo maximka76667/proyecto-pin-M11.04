@@ -120,7 +120,7 @@ export class AvailabilityService {
             }),
             this.prisma.taskAssignment.findMany({
                 where: { due_date: { gte: startDate, lt: endDate }, task: { apartment_id: apartmentId } },
-                include: { user: { select: { id: true, full_name: true } }, task: { select: { id: true, title: true } } },
+                include: { user: { select: { id: true, full_name: true } }, task: { select: { id: true, title: true, duration_minutes: true } } },
             }),
         ]);
         const events: { id: string; user_id: string; person: string; title: string; date: string; start: string; end: string; kind: 'busy' | 'task' }[] = [];
@@ -142,7 +142,7 @@ export class AvailabilityService {
                 : assignment.start_minute;
             events.push({
                 id: `task-${assignment.id}`, user_id: assignment.user_id, person: assignment.user.full_name, title: assignment.task.title,
-                date: assignment.due_date.toISOString().slice(0, 10), start: toHHmm(startMinute), end: toHHmm(startMinute + 30), kind: 'task',
+                date: assignment.due_date.toISOString().slice(0, 10), start: toHHmm(startMinute), end: toHHmm(startMinute + assignment.task.duration_minutes), kind: 'task',
             });
         }
         return { events: events.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)) };

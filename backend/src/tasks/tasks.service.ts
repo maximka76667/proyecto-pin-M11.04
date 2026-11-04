@@ -59,6 +59,7 @@ export class TasksService {
           apartment_id: createTaskDto.apartment_id,
           title,
           description: createTaskDto.description?.trim() || null,
+          duration_minutes: createTaskDto.duration_minutes ?? 30,
           frequency: createTaskDto.frequency,
           status: TaskStatus.pending,
           category: createTaskDto.category ?? TaskCategory.other,
@@ -113,7 +114,15 @@ export class TasksService {
     const dueDate = new Date(
       `${assignmentDto.due_date.slice(0, 10)}T00:00:00.000Z`,
     );
-    const conflictingAssignment = await this.prisma.taskAssignment.findFirst({
+    const startMinute = this.toMinutes(assignmentDto.due_time);
+    const endMinute = startMinute + (task.duration_minutes ?? 30);
+    if (endMinute > 24 * 60) {
+      throw new BadRequestException(
+        'La tarea no puede terminar después de medianoche',
+      );
+    }
+
+    const exactConflict = await this.prisma.taskAssignment.findFirst({
       where: {
         user_id: { in: userIds },
         due_date: dueDate,
@@ -121,10 +130,81 @@ export class TasksService {
       },
       include: { user: { select: { full_name: true } } },
     });
+    if (exactConflict) {
+      throw new ConflictException(
+        `${exactConflict.user.full_name} ya tiene una tarea asignada en ese horario`,
+      );
+    }
+
+    const existingAssignments = typeof this.prisma.taskAssignment.findMany === 'function'
+      ? await this.prisma.taskAssignment.findMany({
+        where: { user_id: { in: userIds }, due_date: dueDate },
+        include: {
+          user: { select: { full_name: true } },
+          task: { select: { title: true, duration_minutes: true } },
+        },
+      })
+      : [];
+    const users = typeof this.prisma.user?.findMany === 'function'
+      ? await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          full_name: true,
+          availability_blocks: {
+            select: { day_of_week: true, start_minute: true, end_minute: true },
+          },
+          google_busy_blocks: {
+            where: { event_date: dueDate },
+            select: { start_at: true, end_at: true },
+          },
+        },
+      })
+      : [];
+    const conflictingAssignment = existingAssignments.find((assignment) => {
+      const otherStart = this.assignmentStartMinute(
+        assignment.due_time,
+        assignment.start_minute,
+      );
+      return this.overlaps(
+        startMinute,
+        endMinute,
+        otherStart,
+        otherStart + (assignment.task.duration_minutes ?? 30),
+      );
+    });
     if (conflictingAssignment) {
       throw new ConflictException(
-        `${conflictingAssignment.user.full_name} ya tiene una tarea asignada en ese horario`,
+        `${conflictingAssignment.user.full_name} ya tiene otra tarea asignada que se solapa con ese horario`,
       );
+    }
+
+    const dayOfWeek = this.dayOfWeek(dueDate);
+    for (const user of users) {
+      const weeklyConflict = user.availability_blocks.find(
+        (block) =>
+          block.day_of_week === dayOfWeek &&
+          this.overlaps(startMinute, endMinute, block.start_minute, block.end_minute),
+      );
+      if (weeklyConflict) {
+        throw new ConflictException(
+          `${user.full_name} está ocupado en su disponibilidad habitual a esa hora`,
+        );
+      }
+
+      const googleConflict = user.google_busy_blocks.find((block) =>
+        this.overlaps(
+          startMinute,
+          endMinute,
+          this.localDateTimeMinutes(block.start_at, dueDate),
+          this.localDateTimeMinutes(block.end_at, dueDate),
+        ),
+      );
+      if (googleConflict) {
+        throw new ConflictException(
+          `${user.full_name} tiene un evento de Google Calendar que se solapa con ese horario`,
+        );
+      }
     }
 
     try {
@@ -247,7 +327,7 @@ export class TasksService {
     try {
       const task = await this.prisma.task.findUnique({
         where: { id },
-        select: { apartment_id: true, status: true },
+        select: { apartment_id: true, status: true, duration_minutes: true },
       });
       if (task) return task;
     } catch (error) {
@@ -273,7 +353,7 @@ export class TasksService {
   // Un campo que no se envía no se toca. @IsOptional deja pasar null, pero el nombre,
   // la frecuencia y la categoría son obligatorios: null no puede vaciarlos
   private datosEditados(updateTaskDto: UpdateTaskDto) {
-    const { title, description, frequency, category } = updateTaskDto;
+    const { title, description, frequency, category, duration_minutes } = updateTaskDto;
     if (title === null) {
       throw new BadRequestException('El nombre de la tarea es obligatorio');
     }
@@ -292,7 +372,49 @@ export class TasksService {
     }
     if (frequency !== undefined) data.frequency = frequency;
     if (category !== undefined) data.category = category;
+    if (duration_minutes !== undefined) data.duration_minutes = duration_minutes;
     return data;
+  }
+
+  private toMinutes(value: string) {
+    const [hours, minutes] = value.split(':').map(Number);
+    return hours * 60 + minutes;
+  }
+
+  private assignmentStartMinute(dueTime: string | null, startMinute: number) {
+    return dueTime ? this.toMinutes(dueTime) : startMinute;
+  }
+
+  private overlaps(start: number, end: number, otherStart: number, otherEnd: number) {
+    return start < otherEnd && otherStart < end;
+  }
+
+  private dayOfWeek(date: Date) {
+    return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][
+      date.getUTCDay()
+    ];
+  }
+
+  private localDateTimeMinutes(value: Date, date: Date) {
+    const timeZone = process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid';
+    const localDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(value);
+    const expectedDate = date.toISOString().slice(0, 10);
+    if (localDate !== expectedDate) {
+      return localDate < expectedDate ? 0 : 24 * 60;
+    }
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(value);
+    return Number(parts.find((part) => part.type === 'hour')?.value) * 60
+      + Number(parts.find((part) => part.type === 'minute')?.value);
   }
 
   // Mismas reglas que al crear una tarea: sin espacios sobrantes y no vacío

@@ -20,6 +20,7 @@ type TaskDetails = {
   apartment_id: string;
   title: string;
   description: string | null;
+  duration_minutes: number;
   frequency: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
   status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
   assignments: {

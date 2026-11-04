@@ -117,7 +117,7 @@ describe('Validación de tareas', () => {
 
     expect(prisma.task.findUnique).toHaveBeenCalledWith({
       where: { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
-      select: { apartment_id: true, status: true },
+      select: { apartment_id: true, status: true, duration_minutes: true },
     });
   });
 
@@ -152,7 +152,7 @@ describe('Validación de tareas', () => {
 
     expect(prisma.task.findUnique).toHaveBeenCalledWith({
       where: { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
-      select: { apartment_id: true, status: true },
+      select: { apartment_id: true, status: true, duration_minutes: true },
     });
   });
 
