@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { File as ExpoFile } from 'expo-file-system';
+import { setCurrentSessionIds } from '@/constants/dev-session';
 
 export const API_URL = 'http://localhost:3000';
 //export const API_URL = 'http://10.236.61.168:3000';
@@ -53,6 +54,37 @@ export type Member = {
   isCurrentUser?: boolean;
 };
 
+export type CurrentUser = {
+  id: string;
+  email: string | null;
+  full_name: string;
+  is_landlord: boolean;
+  user_apartments: { apartment_id: string }[];
+};
+
+let authToken: string | null = null;
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  authToken = window.localStorage.getItem('room8_auth_token');
+}
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (token) window.localStorage.setItem('room8_auth_token', token);
+    else window.localStorage.removeItem('room8_auth_token');
+  }
+}
+
+export function hasAuthToken() {
+  return Boolean(authToken);
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const user = (await api('GET', '/auth/me')) as CurrentUser;
+  setCurrentSessionIds(user.id, user.user_apartments[0]?.apartment_id);
+  return user;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -65,9 +97,11 @@ export class ApiError extends Error {
 
 // Sends the request and throws an Error with the backend message if it fails
 export async function api(method: string, path: string, body?: object) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
   const response = await fetch(`${API_URL}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   return readResponse(response);

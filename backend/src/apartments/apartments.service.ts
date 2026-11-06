@@ -15,12 +15,8 @@ import { JoinApartmentDto } from './dto/join-apartment.dto';
 export class ApartmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createApartmentDto: CreateApartmentDto) {
-    const { name, address, landlord_id } = createApartmentDto;
-
-    if (landlord_id) {
-      await this.assertIsLandlord(landlord_id);
-    }
+  async create(createApartmentDto: CreateApartmentDto, currentUserId: string) {
+    const { name, address } = createApartmentDto;
 
     try {
       return await this.prisma.$transaction(async (transaction) => {
@@ -28,15 +24,13 @@ export class ApartmentsService {
           data: {
             name,
             address,
-            landlord_id,
+            landlord_id: currentUserId,
           },
         });
 
-        if (landlord_id) {
-          await transaction.userApartment.create({
-            data: { user_id: landlord_id, apartment_id: apartment.id },
-          });
-        }
+        await transaction.userApartment.create({
+          data: { user_id: currentUserId, apartment_id: apartment.id },
+        });
 
         return apartment;
       });
@@ -57,11 +51,7 @@ export class ApartmentsService {
     }
   }
 
-  async join({ invite_code, full_name }: JoinApartmentDto) {
-    if (typeof full_name !== 'string' || !full_name.trim()) {
-      throw new BadRequestException('Your name is required');
-    }
-
+  async join({ invite_code, full_name }: JoinApartmentDto, currentUserId: string) {
     if (typeof invite_code !== 'string') {
       throw new NotFoundException(
         'El código introducido no es válido o ha caducado',
@@ -90,22 +80,26 @@ export class ApartmentsService {
       );
     }
 
-    const guest = await this.prisma.$transaction(async (transaction) => {
-      const user = await transaction.user.create({
-        data: {
-          full_name: full_name.trim(),
-          email: null,
-          is_landlord: false,
-        },
-        select: { id: true, full_name: true },
+    if (full_name?.trim()) {
+      const legacyGuest = await this.prisma.$transaction(async (transaction) => {
+        const user = await transaction.user.create({
+          data: { full_name: full_name.trim(), email: null, is_landlord: false },
+          select: { id: true, full_name: true },
+        });
+        await transaction.userApartment.create({ data: { user_id: user.id, apartment_id: apartment.id } });
+        return user;
       });
-      await transaction.userApartment.create({
-        data: { user_id: user.id, apartment_id: apartment.id },
-      });
-      return user;
+      return { apartment, user: legacyGuest };
+    }
+
+    const membership = await this.prisma.userApartment.upsert({
+      where: { user_id_apartment_id: { user_id: currentUserId, apartment_id: apartment.id } },
+      create: { user_id: currentUserId, apartment_id: apartment.id },
+      update: {},
+      include: { user: { select: { id: true, full_name: true } } },
     });
 
-    return { apartment, user: guest };
+    return { apartment, user: membership.user };
   }
 
   findAll() {

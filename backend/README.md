@@ -49,6 +49,15 @@ CALENDAR_TIME_ZONE=Europe/Madrid
 
 Registra `GOOGLE_REDIRECT_URI` como URI de redirección autorizada en Google Cloud. En desarrollo web local, el backend detecta el origen de Expo y vuelve a `/availability`; para despliegues web, configura `GOOGLE_WEB_CALLBACK_URI` con la URL de esa pantalla. `GOOGLE_APP_CALLBACK_URI` se reserva para la app nativa. Usa una clave aleatoria estable para `GOOGLE_TOKEN_ENCRYPTION_KEY`; cambiarla invalida las conexiones guardadas.
 
+El login con Google usa el mismo cliente OAuth con estos valores adicionales:
+
+```env
+GOOGLE_AUTH_REDIRECT_URI=http://localhost:3000/auth/google/callback
+FRONTEND_URL=http://localhost:8081
+```
+
+Registra `GOOGLE_AUTH_REDIRECT_URI` como URI autorizada en Google Cloud. Las cuentas creadas con email y contraseña requieren al menos 8 caracteres; tras registrarse, la aplicación conduce al usuario a crear un hogar o unirse mediante código.
+
 El consentimiento solicita acceso de solo lectura para poder listar todos los calendarios de Google y traer sus eventos. La app muestra los títulos solo a su dueño; los demás miembros de «La casa» únicamente ven «Ocupado». Las descripciones no se guardan. Al desconectar, se eliminan también los eventos importados.
 
 ## Compile and run the project

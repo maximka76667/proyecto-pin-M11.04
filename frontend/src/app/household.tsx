@@ -1,12 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Eyebrow, Field, PhotoField, PrimaryButton, SegmentedControl } from '@/components/onboarding';
 import { Palette } from '@/constants/onboarding';
-import { Apartment, api, errorMessage } from '@/lib/api';
+import { Apartment, api, errorMessage, getCurrentUser } from '@/lib/api';
 
 type Mode = 'create' | 'join';
 
@@ -21,6 +21,12 @@ export default function Household() {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    void getCurrentUser()
+      .then((user) => setYourName(user.full_name))
+      .catch(() => setError('No se ha podido cargar tu cuenta.'));
+  }, []);
 
   const changeMode = (newMode: Mode) => {
     setMode(newMode);
@@ -45,7 +51,7 @@ export default function Household() {
     setError('');
     try {
       const apartment: Apartment = await api('POST', '/apartments', {
-        name: householdName.trim(),
+        name: householdName.trim().replace(/\s+/g, ''),
         address: address.trim(),
       });
       router.replace({
@@ -65,18 +71,15 @@ export default function Household() {
   };
 
   const joinHousehold = async () => {
-    if (!yourName.trim() || !inviteCode.trim()) {
-      setError('Introduce tu nombre y un código de invitación.');
+    if (!inviteCode.trim()) {
+      setError('Introduce un código de invitación.');
       return;
     }
 
     setLoading(true);
     setError('');
     try {
-      await api('POST', '/apartments/join', {
-        full_name: yourName.trim(),
-        invite_code: inviteCode.trim(),
-      });
+      await api('POST', '/apartments/join', { invite_code: inviteCode.trim() });
       router.replace('/');
     } catch (e) {
       setError(errorMessage(e));
@@ -113,10 +116,10 @@ export default function Household() {
 
         <View style={styles.form}>
           <Field
-            label={mode === 'join' ? 'Tu nombre' : 'Tu nombre (todavía no se guarda en la base de datos)'}
-            placeholder="p. ej. Alex"
+            label="Tu nombre"
+            placeholder="Nombre de tu cuenta"
             value={yourName}
-            onChangeText={setYourName}
+            editable={false}
           />
 
           {mode === 'create' ? (

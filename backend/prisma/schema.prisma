@@ -13,6 +13,8 @@ model User {
   email                String?          @unique
   full_name            String
   is_landlord          Boolean
+  password_hash        String?
+  google_subject       String?          @unique
   user_apartments      UserApartment[]
   landlord_apartments  Apartment[]      @relation("LandlordApartments")
   createdTransactions  Transaction[]    @relation("CreatedTransactions")
@@ -21,6 +23,19 @@ model User {
   availability_blocks  AvailabilityBlock[]
   google_calendar_connection GoogleCalendarConnection?
   google_busy_blocks    GoogleBusyBlock[]
+  sessions             AuthSession[]
+}
+
+model AuthSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  token_hash String   @unique
+  user_id    String   @db.Uuid
+  expires_at DateTime
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([expires_at])
 }
 
 model Apartment {
