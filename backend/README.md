@@ -33,6 +33,17 @@ $ npm install
 
 ## Calendario compartido y Google Calendar
 
+La autenticación almacena las contraseñas usando bcrypt y devuelve sesiones JWT
+con una duración de 30 días. Define también una clave secreta aleatoria y estable
+en `backend/.env`:
+
+```env
+JWT_SECRET=<secreto-largo-aleatorio>
+```
+
+El cliente debe enviar el JWT en cada petición autenticada mediante
+`Authorization: Bearer <token>`. Cerrar sesión revoca la sesión almacenada.
+
 La migración `20261028120000_shared_calendar` añade la hora de inicio de las asignaciones (duración fija de 30 minutos), guarda solo los intervalos ocupados importados y almacena cifrado el refresh token de Google. Aplica las migraciones con `npx prisma migrate deploy`.
 
 Para activar Google Calendar, habilita Google Calendar API en Google Cloud, configura la pantalla de consentimiento y crea credenciales OAuth para una aplicación web. Define en `backend/.env`:
