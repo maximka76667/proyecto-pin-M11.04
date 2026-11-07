@@ -7,22 +7,22 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   createHash,
-  randomBytes,
   randomUUID,
   createHmac,
-  scrypt as scryptCallback,
-  timingSafeEqual,
 } from 'node:crypto';
-import { promisify } from 'node:util';
+import * as bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import type { RegisterDto } from './dto/register.dto';
 import type { LoginDto } from './dto/login.dto';
 
-const scrypt = promisify(scryptCallback);
 const SESSION_DAYS = 30;
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
@@ -57,11 +57,24 @@ export class AuthService {
   }
 
   async userIdForToken(token: string) {
+    let payload: jwt.JwtPayload;
+    try {
+      const verified = jwt.verify(token, this.config.getOrThrow<string>('JWT_SECRET'));
+      if (typeof verified === 'string') return null;
+      payload = verified;
+    } catch (error) {
+      if (error instanceof Error && ['JsonWebTokenError', 'TokenExpiredError'].includes(error.name)) {
+        return null;
+      }
+      throw error;
+    }
+    if (!payload.sub) return null;
+
     const session = await this.prisma.authSession.findUnique({
       where: { token_hash: this.tokenHash(token) },
       select: { user_id: true, expires_at: true },
     });
-    if (!session || session.expires_at <= new Date()) return null;
+    if (!session || session.user_id !== payload.sub || session.expires_at <= new Date()) return null;
     return session.user_id;
   }
 
@@ -115,7 +128,11 @@ export class AuthService {
   }
 
   private async withToken(user: { id: string; email: string | null; full_name: string }) {
-    const token = randomBytes(32).toString('base64url');
+    const token = jwt.sign(
+      { sub: user.id, jti: randomUUID() },
+      this.config.getOrThrow<string>('JWT_SECRET'),
+      { expiresIn: SESSION_DAYS * 24 * 60 * 60 },
+    );
     await this.prisma.authSession.create({
       data: {
         id: randomUUID(),
@@ -128,17 +145,11 @@ export class AuthService {
   }
 
   private async hashPassword(password: string) {
-    const salt = randomBytes(16).toString('hex');
-    const derived = (await scrypt(password, salt, 64)) as Buffer;
-    return `${salt}:${derived.toString('hex')}`;
+    return bcrypt.hash(password, 12);
   }
 
   private async verifyPassword(password: string, stored: string) {
-    const [salt, expectedHex] = stored.split(':');
-    if (!salt || !expectedHex) return false;
-    const expected = Buffer.from(expectedHex, 'hex');
-    const actual = (await scrypt(password, salt, expected.length)) as Buffer;
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
+    return bcrypt.compare(password, stored);
   }
 
   private tokenHash(token: string) {
