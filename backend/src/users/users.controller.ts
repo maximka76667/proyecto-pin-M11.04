@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/commo
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { CurrentUser } from '../common/current-user.decorator';
 
 @Controller('users')
 export class UsersController {
@@ -10,6 +11,12 @@ export class UsersController {
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
+  }
+
+  // Debe ir antes de @Get(':id'): si no, ':id' capturaría "me"
+  @Get('me')
+  getProfile(@CurrentUser() userId: string) {
+    return this.usersService.getProfile(userId);
   }
 
   @Get()
