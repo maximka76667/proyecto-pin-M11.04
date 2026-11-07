@@ -12,6 +12,7 @@ model User {
   id                   String           @id @default(uuid()) @db.Uuid
   email                String?          @unique
   full_name            String
+  avatar_url           String?
   is_landlord          Boolean
   password_hash        String?
   google_subject       String?          @unique

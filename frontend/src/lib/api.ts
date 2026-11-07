@@ -58,6 +58,7 @@ export type CurrentUser = {
   id: string;
   email: string | null;
   full_name: string;
+  avatar_url?: string | null;
   is_landlord: boolean;
   user_apartments: { apartment_id: string }[];
 };
@@ -113,7 +114,9 @@ export async function apiUpload(path: string, field: string, upload: UploadFile)
   const form = new FormData();
   const part = await getUploadBlob(upload);
   form.append(field, part, upload.name);
-  const response = await fetch(`${API_URL}${path}`, { method: 'POST', body: form });
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const response = await fetch(`${API_URL}${path}`, { method: 'POST', headers, body: form });
   return readResponse(response);
 }
 
