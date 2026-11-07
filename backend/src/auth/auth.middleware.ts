@@ -3,7 +3,12 @@ import type { NextFunction, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 
 declare module 'express-serve-static-core' {
-  interface Request { userId?: string; }
+  interface Request {
+    userId?: string;
+    // Llegó un token pero no es válido (caducado, revocado o manipulado).
+    // CurrentUser responde entonces 401 aunque haya sesión de desarrollo
+    authError?: boolean;
+  }
 }
 
 @Injectable()
@@ -12,7 +17,10 @@ export class AuthMiddleware implements NestMiddleware {
 
   async use(request: Request, _response: Response, next: NextFunction) {
     const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (token) request.userId = (await this.auth.userIdForToken(token)) ?? undefined;
+    if (token) {
+      request.userId = (await this.auth.userIdForToken(token)) ?? undefined;
+      request.authError = !request.userId;
+    }
     next();
   }
 }

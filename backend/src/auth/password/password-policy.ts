@@ -29,3 +29,11 @@ export const PASSWORD_MESSAGES = {
 } as const;
 
 export const PASSWORD_UPDATED = 'Contraseña actualizada correctamente';
+export const RESET_REQUESTED = 'Si el email está registrado, te hemos enviado un código';
+export const RESET_DONE = 'Contraseña restablecida. Ya puedes iniciar sesión';
+export const TOO_MANY_ATTEMPTS = 'Demasiados intentos. Inténtalo más tarde.';
+
+export const RESET_CODE_TTL_MINUTES = 15;
+export const RESET_CODE_MAX_ATTEMPTS = 5;
+// Entre dos códigos para el mismo email, para que nadie pueda llenarle la bandeja
+export const RESET_CODE_COOLDOWN_SECONDS = 60;

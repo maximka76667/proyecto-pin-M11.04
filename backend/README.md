@@ -44,6 +44,27 @@ JWT_SECRET=<secreto-largo-aleatorio>
 El cliente debe enviar el JWT en cada petición autenticada mediante
 `Authorization: Bearer <token>`. Cerrar sesión revoca la sesión almacenada.
 
+### Cambio y recuperación de contraseña (UT1015)
+
+- `POST /auth/change-password`: pide la contraseña actual, cierra la sesión en los demás
+  dispositivos y devuelve un token nuevo para el que hace el cambio.
+- `POST /auth/forgot-password` y `POST /auth/reset-password`: recuperación con un código de
+  6 dígitos enviado por email (caduca a los 15 minutos, 5 intentos, un solo uso).
+
+Variables opcionales en `backend/.env`:
+
+```env
+# Envío del código con Resend. Sin clave, en desarrollo el código se escribe en la consola
+RESEND_API_KEY=<clave-de-resend>
+# Sin dominio verificado, Resend solo entrega al email del dueño de la cuenta
+RESEND_FROM=Room8 <onboarding@resend.dev>
+# Clave para el HMAC de los códigos; si falta se deriva de JWT_SECRET
+PASSWORD_RESET_SECRET=<secreto-largo-aleatorio>
+```
+
+La migración `20261108120000_password_reset_code` crea la tabla de códigos. Aplícala con
+`npx prisma migrate deploy`; no uses `prisma migrate dev` contra la base de datos compartida.
+
 La migración `20261028120000_shared_calendar` añade la hora de inicio de las asignaciones (duración fija de 30 minutos), guarda solo los intervalos ocupados importados y almacena cifrado el refresh token de Google. Aplica las migraciones con `npx prisma migrate deploy`.
 
 Para activar Google Calendar, habilita Google Calendar API en Google Cloud, configura la pantalla de consentimiento y crea credenciales OAuth para una aplicación web. Define en `backend/.env`:

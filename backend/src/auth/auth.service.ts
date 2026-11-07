@@ -59,7 +59,9 @@ export class AuthService {
   async userIdForToken(token: string) {
     let payload: jwt.JwtPayload;
     try {
-      const verified = jwt.verify(token, this.config.getOrThrow<string>('JWT_SECRET'));
+      const verified = jwt.verify(token, this.config.getOrThrow<string>('JWT_SECRET'), {
+        algorithms: ['HS256'],
+      });
       if (typeof verified === 'string') return null;
       payload = verified;
     } catch (error) {
@@ -127,11 +129,13 @@ export class AuthService {
     return Buffer.from(encoded, 'base64url').toString();
   }
 
-  private async withToken(user: { id: string; email: string | null; full_name: string }) {
+  // Públicos para la UT1015: el cambio y la recuperación de contraseña reutilizan
+  // el mismo hash y la misma creación de sesiones que el login
+  async withToken(user: { id: string; email: string | null; full_name: string }) {
     const token = jwt.sign(
       { sub: user.id, jti: randomUUID() },
       this.config.getOrThrow<string>('JWT_SECRET'),
-      { expiresIn: SESSION_DAYS * 24 * 60 * 60 },
+      { algorithm: 'HS256', expiresIn: SESSION_DAYS * 24 * 60 * 60 },
     );
     await this.prisma.authSession.create({
       data: {
@@ -144,11 +148,11 @@ export class AuthService {
     return { token, user };
   }
 
-  private async hashPassword(password: string) {
+  async hashPassword(password: string) {
     return bcrypt.hash(password, 12);
   }
 
-  private async verifyPassword(password: string, stored: string) {
+  async verifyPassword(password: string, stored: string) {
     return bcrypt.compare(password, stored);
   }
 

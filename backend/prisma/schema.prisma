@@ -24,6 +24,7 @@ model User {
   google_calendar_connection GoogleCalendarConnection?
   google_busy_blocks    GoogleBusyBlock[]
   sessions             AuthSession[]
+  password_reset_codes PasswordResetCode[]
 }
 
 model AuthSession {
@@ -36,6 +37,18 @@ model AuthSession {
 
   @@index([user_id])
   @@index([expires_at])
+}
+
+model PasswordResetCode {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  code_hash  String
+  expires_at DateTime
+  attempts   Int      @default(0)
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
 }
 
 model Apartment {

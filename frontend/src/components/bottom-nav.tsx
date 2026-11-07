@@ -20,7 +20,7 @@ const tabs: Tab[] = [
   { label: 'Tareas', icon: 'checkbox-marked-outline', href: '/chores' },
   { label: 'Calendario', icon: 'calendar-month-outline', href: '/availability' },
   { label: 'Dinero', icon: 'credit-card-outline', href: '/transactions' },
-  { label: 'Tú', icon: 'account-outline', href: '/household' },
+  { label: 'Tú', icon: 'account-outline', href: '/profile' },
 ];
 
 export function BottomNav() {
