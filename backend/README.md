@@ -54,10 +54,14 @@ El cliente debe enviar el JWT en cada petición autenticada mediante
 Variables opcionales en `backend/.env`:
 
 ```env
-# Envío del código con Resend. Sin clave, en desarrollo el código se escribe en la consola
-RESEND_API_KEY=<clave-de-resend>
-# Sin dominio verificado, Resend solo entrega al email del dueño de la cuenta
-RESEND_FROM=Room8 <onboarding@resend.dev>
+# Envío del código con Gmail por SMTP (llega a cualquier dirección, sin dominio propio).
+# Sin estas dos, en desarrollo el código se escribe en la consola del backend
+GMAIL_USER=room8.app@gmail.com
+# Contraseña de aplicación, no la normal: https://myaccount.google.com/apppasswords
+# (hay que activar antes la verificación en dos pasos de esa cuenta)
+GMAIL_APP_PASSWORD=<16-letras-de-la-contraseña-de-aplicación>
+# Opcional; por defecto "Room8 <GMAIL_USER>"
+MAIL_FROM=Room8 <room8.app@gmail.com>
 # Clave para el HMAC de los códigos; si falta se deriva de JWT_SECRET
 PASSWORD_RESET_SECRET=<secreto-largo-aleatorio>
 ```
