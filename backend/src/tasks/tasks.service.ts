@@ -3,7 +3,9 @@ import {
   ConflictException,
   Injectable,
   ForbiddenException,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   Prisma,
@@ -16,10 +18,22 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
+import { TaskAvailabilityQueryDto } from './dto/task-availability-query.dto';
+import { toHHmm } from '../availability/availability.service';
+import { GoogleCalendarService } from '../availability/google-calendar.service';
+
+// Integrante con la franja ocupada; solo la hora, nunca el título del evento
+type BusyMember = { id: string; full_name: string; busy: { start: string; end: string } };
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) { }
+  private readonly logger = new Logger(TasksService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    // Opcional: sin él (p. ej. en los tests que solo dan Prisma) se usan los eventos ya guardados
+    @Optional() private readonly googleCalendar?: GoogleCalendarService,
+  ) { }
 
   findAll(apartmentId?: string) {
     return this.prisma.task.findMany({
@@ -145,22 +159,6 @@ export class TasksService {
         },
       })
       : [];
-    const users = typeof this.prisma.user?.findMany === 'function'
-      ? await this.prisma.user.findMany({
-        where: { id: { in: userIds } },
-        select: {
-          id: true,
-          full_name: true,
-          availability_blocks: {
-            select: { day_of_week: true, start_minute: true, end_minute: true },
-          },
-          google_busy_blocks: {
-            where: { event_date: dueDate },
-            select: { start_at: true, end_at: true },
-          },
-        },
-      })
-      : [];
     const conflictingAssignment = existingAssignments.find((assignment) => {
       const otherStart = this.assignmentStartMinute(
         assignment.due_time,
@@ -179,32 +177,10 @@ export class TasksService {
       );
     }
 
-    const dayOfWeek = this.dayOfWeek(dueDate);
-    for (const user of users) {
-      const weeklyConflict = user.availability_blocks.find(
-        (block) =>
-          block.day_of_week === dayOfWeek &&
-          this.overlaps(startMinute, endMinute, block.start_minute, block.end_minute),
-      );
-      if (weeklyConflict) {
-        throw new ConflictException(
-          `${user.full_name} está ocupado en su disponibilidad habitual a esa hora`,
-        );
-      }
-
-      const googleConflict = user.google_busy_blocks.find((block) =>
-        this.overlaps(
-          startMinute,
-          endMinute,
-          this.localDateTimeMinutes(block.start_at, dueDate),
-          this.localDateTimeMinutes(block.end_at, dueDate),
-        ),
-      );
-      if (googleConflict) {
-        throw new ConflictException(
-          `${user.full_name} tiene un evento de Google Calendar que se solapa con ese horario`,
-        );
-      }
+    // Nadie con esa franja ocupada en su calendario (PA-1524.02 y .03)
+    const busyMembers = await this.findBusyMembers(userIds, dueDate, startMinute, endMinute);
+    if (busyMembers.length > 0) {
+      throw new ConflictException(this.busyMessage(busyMembers));
     }
 
     try {
@@ -245,6 +221,54 @@ export class TasksService {
       }
       this.handlePrismaError(error);
     }
+  }
+
+  // Para el diálogo "Asignar tarea": quién del hogar puede hacerla en esa franja.
+  // La app desactiva a los ocupados; createAssignment vuelve a comprobarlo al confirmar
+  async membersAvailability(
+    taskId: string,
+    query: TaskAvailabilityQueryDto,
+    currentUserId: string,
+  ) {
+    const task = await this.buscarTarea(taskId);
+    await this.asegurarMiembro(task.apartment_id, currentUserId);
+
+    const dueDate = new Date(`${query.due_date}T00:00:00.000Z`);
+    if (Number.isNaN(dueDate.getTime())) {
+      throw new BadRequestException('La fecha no es válida');
+    }
+    const startMinute = this.toMinutes(query.due_time);
+    const endMinute = startMinute + (task.duration_minutes ?? 30);
+    if (endMinute > 24 * 60) {
+      throw new BadRequestException(
+        'La tarea no puede terminar después de medianoche',
+      );
+    }
+
+    const members = await this.prisma.user.findMany({
+      where: { user_apartments: { some: { apartment_id: task.apartment_id } } },
+      select: { id: true, full_name: true },
+      orderBy: { full_name: 'asc' },
+    });
+    const busy = await this.findBusyMembers(
+      members.map((member) => member.id),
+      dueDate,
+      startMinute,
+      endMinute,
+    );
+    const busyById = new Map(busy.map((member) => [member.id, member.busy]));
+
+    return {
+      start: toHHmm(startMinute),
+      end: toHHmm(endMinute),
+      members: members.map((member) => ({
+        id: member.id,
+        full_name: member.full_name,
+        isCurrentUser: member.id === currentUserId,
+        available: !busyById.has(member.id),
+        busy: busyById.get(member.id) ?? null,
+      })),
+    };
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto, userId: string) {
@@ -374,6 +398,99 @@ export class TasksService {
     if (category !== undefined) data.category = category;
     if (duration_minutes !== undefined) data.duration_minutes = duration_minutes;
     return data;
+  }
+
+  // Integrantes con la franja ocupada en su calendario: bloques semanales de "Tu disponibilidad"
+  // y eventos de Google de ese día. Devuelve la primera franja ocupada de cada uno
+  private async findBusyMembers(
+    userIds: string[],
+    dueDate: Date,
+    startMinute: number,
+    endMinute: number,
+  ): Promise<BusyMember[]> {
+    if (userIds.length === 0 || typeof this.prisma.user?.findMany !== 'function') {
+      return [];
+    }
+    await this.syncGoogleCalendars(userIds, dueDate);
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true,
+        full_name: true,
+        availability_blocks: {
+          select: { day_of_week: true, start_minute: true, end_minute: true },
+        },
+        google_busy_blocks: {
+          where: { event_date: dueDate },
+          select: { start_at: true, end_at: true },
+        },
+      },
+    });
+
+    const dayOfWeek = this.dayOfWeek(dueDate);
+    const busy: BusyMember[] = [];
+    for (const user of users) {
+      const slots = [
+        ...user.availability_blocks
+          .filter((block) => block.day_of_week === dayOfWeek)
+          .map((block) => ({ start: block.start_minute, end: block.end_minute })),
+        ...user.google_busy_blocks.map((block) => ({
+          start: this.localDateTimeMinutes(block.start_at, dueDate),
+          end: this.localDateTimeMinutes(block.end_at, dueDate),
+        })),
+      ].sort((a, b) => a.start - b.start);
+
+      const slot = slots.find((s) => this.touches(startMinute, endMinute, s.start, s.end));
+      if (slot) {
+        busy.push({
+          id: user.id,
+          full_name: user.full_name,
+          busy: { start: toHHmm(slot.start), end: toHHmm(slot.end) },
+        });
+      }
+    }
+    // En el mismo orden en que se eligieron
+    return busy.sort((a, b) => userIds.indexOf(a.id) - userIds.indexOf(b.id));
+  }
+
+  // Los eventos de Google de un integrante solo se guardan cuando él abre la app. Antes de
+  // comprobar se trae su calendario de ese día, para no asignarle algo encima de una clase
+  // nueva. Si Google falla, se sigue con lo que ya hay guardado
+  private async syncGoogleCalendars(userIds: string[], dueDate: Date) {
+    const googleCalendar = this.googleCalendar;
+    if (!googleCalendar) return;
+
+    const from = dueDate.toISOString().slice(0, 10);
+    const nextDay = new Date(dueDate);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const to = nextDay.toISOString().slice(0, 10);
+
+    await Promise.all(
+      userIds.map(async (userId) => {
+        try {
+          await googleCalendar.sync(userId, from, to);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'error desconocido';
+          this.logger.warn(`No se ha podido sincronizar Google Calendar del usuario ${userId}: ${reason}`);
+        }
+      }),
+    );
+  }
+
+  private busyMessage(busy: BusyMember[]) {
+    if (busy.length === 1) {
+      const [member] = busy;
+      return `${member.full_name} no está disponible en esa franja: tiene ocupado de ${member.busy.start} a ${member.busy.end}`;
+    }
+    const names = busy.map((member) => member.full_name);
+    return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]} no están disponibles en esa franja`;
+  }
+
+  // Con el calendario, la franja ocupada incluye su inicio y su fin (PA-1524.03):
+  // una tarea que empieza justo cuando acaba la clase también choca
+  private touches(start: number, end: number, busyStart: number, busyEnd: number) {
+    return start <= busyEnd && busyStart <= end;
   }
 
   private toMinutes(value: string) {
