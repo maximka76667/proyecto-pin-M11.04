@@ -35,6 +35,7 @@ type TaskDetails = {
 };
 
 type HouseMember = { id: string; full_name: string; isCurrentUser?: boolean };
+const DEFAULT_ASSIGNMENT_TIME = '09:30';
 
 // GET /tasks/:id/availability: quién tiene ocupada la franja de la tarea en ese día y hora
 type SlotAvailability = {
@@ -127,7 +128,7 @@ export default function ChoreDetailsScreen() {
   const [assignDialogVisible, setAssignDialogVisible] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [assignedDay, setAssignedDay] = useState(todayAsInputDate);
-  const [assignedTime, setAssignedTime] = useState('');
+  const [assignedTime, setAssignedTime] = useState(DEFAULT_ASSIGNMENT_TIME);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [assignmentError, setAssignmentError] = useState('');
   const [assignmentNotice, setAssignmentNotice] = useState('');
@@ -289,7 +290,9 @@ export default function ChoreDetailsScreen() {
   const openAssignmentDialog = () => {
     setSelectedUserIds([]);
     setAssignedDay(todayAsInputDate());
-    setAssignedTime('');
+    // 09:30 no debe ser solo un placeholder: la hora mostrada tiene que formar parte
+    // del estado para que se consulte disponibilidad y se envíe al asignar.
+    setAssignedTime(DEFAULT_ASSIGNMENT_TIME);
     setAssignmentError('');
     setAvailabilityWarning('');
     setAssignDialogVisible(true);
