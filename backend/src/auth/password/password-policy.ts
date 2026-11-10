@@ -11,7 +11,10 @@ export const CURRENT_PASSWORD_MAX_BYTES = 256;
 // Al menos 8 caracteres, una letra (cualquier alfabeto, incluidas ñ y tildes) y un número
 export const PASSWORD_PATTERN = /^(?=.*\p{L})(?=.*\d).{8,}$/u;
 
-export const RESET_CODE_PATTERN = /^\d{6}$/;
+// 8 dígitos = 100 millones de combinaciones. Con 6 eran un millón, y forzando códigos
+// nuevos se llegaba a ~7.200 pruebas al día; con 8 esa misma presión es 100 veces menor
+export const RESET_CODE_DIGITS = 8;
+export const RESET_CODE_PATTERN = /^\d{8}$/;
 
 export const PASSWORD_MESSAGES = {
   required: 'Este campo es obligatorio',
@@ -20,7 +23,7 @@ export const PASSWORD_MESSAGES = {
   mismatch: 'Las contraseñas nuevas no coinciden',
   sameAsCurrent: 'La nueva contraseña debe ser distinta de la actual',
   invalidEmail: 'Introduce un email válido',
-  invalidCode: 'El código debe tener 6 dígitos',
+  invalidCode: 'El código debe tener 8 dígitos',
   // Respuestas del servicio (fase 2). La app usa estos textos para saber bajo qué campo
   // mostrar cada error, así que si se cambian hay que cambiarlos también allí
   currentIncorrect: 'La contraseña actual es incorrecta',

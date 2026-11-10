@@ -3,6 +3,7 @@ import { ReactNode, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 
 import { Palette, Radius } from '@/constants/onboarding';
+import { RESET_CODE_DIGITS } from '@/lib/password-policy';
 
 type BaseProps = {
   label: string;
@@ -67,14 +68,14 @@ export function CodeField(props: BaseProps) {
     <FieldShell {...props}>
       <TextInput
         value={props.value}
-        onChangeText={(text) => props.onChangeText(text.replace(/\D/g, '').slice(0, 6))}
+        onChangeText={(text) => props.onChangeText(text.replace(/\D/g, '').slice(0, RESET_CODE_DIGITS))}
         placeholder={props.placeholder}
         placeholderTextColor={Palette.textSecondary}
         editable={props.editable}
         returnKeyType={props.returnKeyType}
         onSubmitEditing={props.onSubmitEditing}
         keyboardType="number-pad"
-        maxLength={6}
+        maxLength={RESET_CODE_DIGITS}
         autoComplete="one-time-code"
         textContentType="oneTimeCode"
         accessibilityLabel={props.label}

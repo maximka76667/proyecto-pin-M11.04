@@ -16,6 +16,7 @@ import {
   PASSWORD_MESSAGES,
   PASSWORD_UPDATED,
   RESET_CODE_COOLDOWN_SECONDS,
+  RESET_CODE_DIGITS,
   RESET_CODE_MAX_ATTEMPTS,
   RESET_CODE_TTL_MINUTES,
   RESET_DONE,
@@ -56,6 +57,10 @@ export class PasswordService {
       this.prisma.passwordResetCode.deleteMany({ where: { user_id: user.id } }),
     ]);
 
+    // Si el cambio no lo ha hecho la persona (sesión robada), este correo es como se entera.
+    // Sin esperarlo: que Gmail falle no puede impedir cambiar la contraseña
+    if (user.email) void this.mail.sendPasswordChangedNotice(user.email, 'cambio');
+
     const { token } = await this.auth.withToken({
       id: user.id,
       email: user.email,
@@ -89,9 +94,13 @@ export class PasswordService {
     });
     if (recent) return;
 
-    const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const code = randomInt(0, 10 ** RESET_CODE_DIGITS)
+      .toString()
+      .padStart(RESET_CODE_DIGITS, '0');
     await this.prisma.$transaction([
       this.prisma.passwordResetCode.deleteMany({ where: { user_id: user.id } }),
+      // Los códigos caducados de cualquiera ya no sirven: no tiene sentido guardarlos
+      this.prisma.passwordResetCode.deleteMany({ where: { expires_at: { lt: new Date() } } }),
       this.prisma.passwordResetCode.create({
         data: {
           id: randomUUID(),
@@ -110,7 +119,7 @@ export class PasswordService {
 
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
-      select: { id: true, password_hash: true },
+      select: { id: true, email: true, password_hash: true },
     });
     if (!user?.password_hash) throw invalid;
 
@@ -145,6 +154,9 @@ export class PasswordService {
       this.prisma.authSession.deleteMany({ where: { user_id: user.id } }),
       this.prisma.passwordResetCode.deleteMany({ where: { user_id: user.id } }),
     ]);
+
+    // Aviso a la dirección de la cuenta: si quien ha restablecido no es su dueño, lo ve aquí
+    if (user.email) void this.mail.sendPasswordChangedNotice(user.email, 'recuperación');
     return { message: RESET_DONE };
   }
 

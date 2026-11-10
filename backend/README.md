@@ -49,21 +49,40 @@ El cliente debe enviar el JWT en cada petición autenticada mediante
 - `POST /auth/change-password`: pide la contraseña actual, cierra la sesión en los demás
   dispositivos y devuelve un token nuevo para el que hace el cambio.
 - `POST /auth/forgot-password` y `POST /auth/reset-password`: recuperación con un código de
-  6 dígitos enviado por email (caduca a los 15 minutos, 5 intentos, un solo uso).
+  8 dígitos enviado por email (caduca a los 15 minutos, 5 intentos, un solo uso).
+- Al cambiar o restablecer la contraseña se envía un aviso a la dirección de la cuenta.
+- Los intentos se cuentan por cuenta (usuario con sesión, o email), no por IP, para que el
+  abuso de una cuenta no deje a las demás sin poder recuperarse. Hay además un límite por IP
+  más holgado contra quien pruebe muchas cuentas desde una misma máquina.
 
 Variables opcionales en `backend/.env`:
 
 ```env
 # Envío del código con Gmail por SMTP (llega a cualquier dirección, sin dominio propio).
-# Sin estas dos, en desarrollo el código se escribe en la consola del backend
+# Sin estas dos, el código solo se escribe en la consola si NODE_ENV es development o test;
+# en cualquier otro caso no se escribe nunca, porque sería una credencial en los registros
 GMAIL_USER=room8.app@gmail.com
 # Contraseña de aplicación, no la normal: https://myaccount.google.com/apppasswords
 # (hay que activar antes la verificación en dos pasos de esa cuenta)
 GMAIL_APP_PASSWORD=<16-letras-de-la-contraseña-de-aplicación>
 # Opcional; por defecto "Room8 <GMAIL_USER>"
 MAIL_FROM=Room8 <room8.app@gmail.com>
-# Clave para el HMAC de los códigos; si falta se deriva de JWT_SECRET
+# Clave para el HMAC de los códigos; si falta se deriva de JWT_SECRET.
+# Genérala con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Al ponerla o cambiarla, los códigos pendientes en ese momento dejan de valer
 PASSWORD_RESET_SECRET=<secreto-largo-aleatorio>
+```
+
+### Al desplegar
+
+```env
+# Cuántos proxies hay delante de la aplicación (Render, Railway, Nginx…): normalmente 1.
+# Sin esta variable no se confía en X-Forwarded-For, así que el servidor ve la IP del proxy
+# para todos los usuarios y el límite por IP se comparte entre ellos. Nunca uses `true`:
+# aceptaría la cabecera de cualquiera y permitiría saltarse los límites falseándola
+TRUST_PROXY_HOPS=1
+# Necesaria para que el código de recuperación no se escriba nunca en los registros
+NODE_ENV=production
 ```
 
 La migración `20261108120000_password_reset_code` crea la tabla de códigos. Aplícala con

@@ -10,7 +10,7 @@ export const PASSWORD_MESSAGES = {
   mismatch: 'Las contraseñas nuevas no coinciden',
   sameAsCurrent: 'La nueva contraseña debe ser distinta de la actual',
   invalidEmail: 'Introduce un email válido',
-  invalidCode: 'El código debe tener 6 dígitos',
+  invalidCode: 'El código debe tener 8 dígitos',
   currentIncorrect: 'La contraseña actual es incorrecta',
   invalidOrExpiredCode: 'El código no es válido o ha caducado',
   googleAccount: 'Tu cuenta inicia sesión con Google y no tiene contraseña',
@@ -23,7 +23,9 @@ export const PASSWORD_HINT = 'Usa al menos 8 caracteres, una letra y un número.
 const PASSWORD_MAX_BYTES = 72;
 const CURRENT_PASSWORD_MAX_BYTES = 256;
 const PASSWORD_PATTERN = /^(?=.*\p{L})(?=.*\d).{8,}$/u;
-const RESET_CODE_PATTERN = /^\d{6}$/;
+// Mismo número de dígitos que RESET_CODE_DIGITS en el backend
+export const RESET_CODE_DIGITS = 8;
+const RESET_CODE_PATTERN = /^\d{8}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type PasswordField = 'current' | 'code' | 'next' | 'confirm';
