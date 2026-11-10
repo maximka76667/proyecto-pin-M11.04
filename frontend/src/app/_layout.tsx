@@ -8,7 +8,7 @@ import { MD3DarkTheme, MD3LightTheme, PaperProvider } from 'react-native-paper';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { BottomNav } from '@/components/bottom-nav';
-import { getCurrentUser, hasAuthToken } from '@/lib/api';
+import { ApiError, getCurrentUser, hasAuthToken, loadAuthToken } from '@/lib/api';
 import { Palette } from '@/constants/onboarding';
 
 SplashScreen.preventAutoHideAsync();
@@ -17,16 +17,29 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const pathname = usePathname();
   const [routeChecked, setRouteChecked] = useState(false);
+  const [tokenLoaded, setTokenLoaded] = useState(false);
+
+  // En el móvil el token se lee de SecureStore, que es asíncrono: hasta entonces no se sabe si hay sesión
+  useEffect(() => {
+    void loadAuthToken().then(() => setTokenLoaded(true));
+  }, []);
 
   useEffect(() => {
+    if (!tokenLoaded) return;
     let active = true;
-    const publicPaths = ['/auth', '/', '/household', '/household-created'];
+    // Sin sesión solo se puede estar en el login o recuperando la contraseña
+    const signedOutPaths = ['/auth', '/forgot-password'];
+    // Con sesión pero sin hogar. Mi cuenta y cambiar la contraseña también, para poder cerrar sesión
+    const publicPaths = ['/auth', '/', '/household', '/household-created', '/profile', '/change-password'];
 
     if (!hasAuthToken()) {
-      if (pathname !== '/auth') {
+      if (!signedOutPaths.includes(pathname)) {
         router.replace('/auth' as Href);
-      } else if (active) {
-        setRouteChecked(true);
+      } else {
+        // Diferido para no actualizar el estado dentro del propio efecto
+        void Promise.resolve().then(() => {
+          if (active) setRouteChecked(true);
+        });
       }
       return () => { active = false; };
     }
@@ -41,17 +54,16 @@ export default function RootLayout() {
         }
         setRouteChecked(true);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) return;
-        if (pathname !== '/auth') {
-          router.replace('/auth' as Href);
-        } else {
-          setRouteChecked(true);
-        }
+        // Un 401 ya lo gestiona api(): borra la sesión y lleva al login con el aviso de caducada.
+        // Otro error (sin conexión, servidor caído) no cierra la sesión: la pantalla mostrará el suyo
+        if (error instanceof ApiError && error.status === 401) return;
+        setRouteChecked(true);
       });
 
     return () => { active = false; };
-  }, [pathname]);
+  }, [pathname, tokenLoaded]);
 
   return (
     <PaperProvider theme={colorScheme === 'dark' ? MD3DarkTheme : MD3LightTheme}>

@@ -1,6 +1,13 @@
 import { Platform } from 'react-native';
 import { File as ExpoFile } from 'expo-file-system';
-import { setCurrentSessionIds } from '@/constants/dev-session';
+import { router, type Href } from 'expo-router';
+import { clearCurrentSessionIds, setCurrentSessionIds } from '@/constants/dev-session';
+import {
+  clearStoredToken,
+  loadStoredToken,
+  readStoredTokenSync,
+  saveStoredToken,
+} from '@/lib/auth-storage';
 
 export const API_URL = 'http://localhost:3000';
 //export const API_URL = 'http://10.236.61.168:3000';
@@ -63,17 +70,23 @@ export type CurrentUser = {
   user_apartments: { apartment_id: string }[];
 };
 
-let authToken: string | null = null;
-if (Platform.OS === 'web' && typeof window !== 'undefined') {
-  authToken = window.localStorage.getItem('room8_auth_token');
+// En la web el token se lee al arrancar; en el móvil llega de SecureStore con loadAuthToken()
+let authToken: string | null = readStoredTokenSync();
+let tokenLoad: Promise<void> | null = null;
+let sessionExpiring = false;
+
+// El layout espera a esto antes de decidir si hay sesión
+export function loadAuthToken() {
+  tokenLoad ??= loadStoredToken().then((stored) => {
+    if (authToken === null) authToken = stored;
+  });
+  return tokenLoad;
 }
 
 export function setAuthToken(token: string | null) {
   authToken = token;
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    if (token) window.localStorage.setItem('room8_auth_token', token);
-    else window.localStorage.removeItem('room8_auth_token');
-  }
+  if (token) sessionExpiring = false;
+  void (token ? saveStoredToken(token) : clearStoredToken());
 }
 
 export function hasAuthToken() {
@@ -96,15 +109,41 @@ export class ApiError extends Error {
   }
 }
 
+// En estas rutas un 401 significa "credenciales incorrectas", no "sesión caducada"
+const CREDENTIAL_PATHS = ['/auth/login', '/auth/register'];
+
+// Sesión caducada o revocada (p. ej. se cambió la contraseña en otro dispositivo, PA-1015.02):
+// se borra la sesión local y se vuelve al login con el aviso. Solo una vez aunque fallen
+// varias peticiones a la vez
+function handleSessionExpired() {
+  if (sessionExpiring) return;
+  sessionExpiring = true;
+  setAuthToken(null);
+  clearCurrentSessionIds();
+  if (router.canDismiss()) router.dismissAll();
+  router.replace({ pathname: '/auth', params: { expired: '1' } } as Href);
+}
+
 // Sends the request and throws an Error with the backend message if it fails
 export async function api(method: string, path: string, body?: object) {
+  const sentToken = authToken;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  if (sentToken) headers.Authorization = `Bearer ${sentToken}`;
   const response = await fetch(`${API_URL}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+  // Solo si el token rechazado sigue siendo el actual: tras cambiar la contraseña llega uno
+  // nuevo, y una petición antigua que vuelva con 401 no debe cerrar la sesión buena
+  if (
+    response.status === 401 &&
+    sentToken &&
+    sentToken === authToken &&
+    !CREDENTIAL_PATHS.includes(path)
+  ) {
+    handleSessionExpired();
+  }
   return readResponse(response);
 }
 
