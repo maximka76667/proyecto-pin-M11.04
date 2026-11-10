@@ -96,8 +96,18 @@ export default function AvailabilityScreen() {
     const loadCalendar = useCallback(async () => {
         const from = dateKey(calendarWeek);
         const to = dateKey(addDays(calendarWeek, 90));
+        // A failed Google sync must not hide the shared calendar: show the error and
+        // carry on with whatever is already stored.
         try {
-            await api('POST', '/availability/google/sync', { from, to });
+            const sync = await api('POST', '/availability/google/sync', { from, to });
+            if (sync?.connected === false) {
+                setGoogleConnected(false);
+                setMessage('La conexión con Google Calendar ha caducado. Vuelve a conectarla.');
+            }
+        } catch (e) {
+            setMessage(errorMessage(e));
+        }
+        try {
             const [result, mine] = await Promise.all([
                 api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`),
                 api('GET', `/availability/google/events?from=${from}&to=${to}`),
