@@ -8,6 +8,7 @@ import { ScannerModule } from './scanner/scanner.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
+import { AvailabilityModule } from './availability/availability.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TasksModule } from './tasks/tasks.module';
     ApartmentsModule,
     TasksModule,
     ScannerModule,
+    AvailabilityModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -18,6 +18,9 @@ model User {
   createdTransactions  Transaction[]    @relation("CreatedTransactions")
   receivedTransactions Transaction[]    @relation("ReceivedTransactions")
   taskAssignments      TaskAssignment[]
+  availability_blocks  AvailabilityBlock[]
+  google_calendar_connection GoogleCalendarConnection?
+  google_busy_blocks    GoogleBusyBlock[]
 }
 
 model Apartment {
@@ -65,6 +68,7 @@ model Task {
   apartment_id String           @db.Uuid
   title        String
   description  String?
+  duration_minutes Int          @default(30)
   status       TaskStatus
   category     TaskCategory
   priority     TaskPriority
@@ -81,8 +85,33 @@ model TaskAssignment {
   user_id  String           @db.Uuid
   status   AssignmentStatus
   due_date DateTime         @db.Date
+  start_minute Int          @default(540)
+  due_time String?          @db.VarChar(5)
   task     Task             @relation(fields: [task_id], references: [id])
   user     User             @relation(fields: [user_id], references: [id])
+
+  @@unique([user_id, due_date, due_time])
+}
+
+model GoogleCalendarConnection {
+  user_id       String   @id @db.Uuid
+  refresh_token String
+  calendar_id   String   @default("primary")
+  connected_at  DateTime @default(now())
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// Titles are visible only to the owner; descriptions are never retained.
+model GoogleBusyBlock {
+  id          String   @id
+  user_id     String   @db.Uuid
+  event_date  DateTime @db.Date
+  start_at    DateTime
+  end_at      DateTime
+  title       String?
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, event_date])
 }
 
 enum TransactionCategory {
@@ -130,4 +159,27 @@ enum AssignmentStatus {
   rejected
   completed
   overdue
+}
+
+enum DayOfWeek {
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+  sunday
+}
+
+// Franja semanal en la que un usuario está ocupado. Los minutos cuentan desde las 00:00 (0-1440)
+model AvailabilityBlock {
+  id           String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  day_of_week  DayOfWeek
+  start_minute Int
+  end_minute   Int
+  label        String?
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, day_of_week])
 }

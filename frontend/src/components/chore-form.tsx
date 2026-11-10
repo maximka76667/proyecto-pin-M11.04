@@ -20,6 +20,7 @@ export type ChoreFrequency = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly
 export type ChoreFormValues = {
   title: string;
   description: string;
+  duration_minutes: number;
   category: ChoreCategory;
   frequency: ChoreFrequency;
 };
@@ -41,6 +42,7 @@ export const choreCategories = [
 const emptyValues: ChoreFormValues = {
   title: '',
   description: '',
+  duration_minutes: 30,
   category: 'other',
   frequency: 'weekly',
 };
@@ -74,6 +76,7 @@ export function ChoreForm({
 }: ChoreFormProps) {
   const [title, setTitle] = useState(initialValues.title);
   const [description, setDescription] = useState(initialValues.description);
+  const [durationMinutes, setDurationMinutes] = useState(String(initialValues.duration_minutes));
   const [category, setCategory] = useState(initialValues.category);
   const [frequency, setFrequency] = useState(initialValues.frequency);
   const [error, setError] = useState('');
@@ -84,6 +87,11 @@ export function ChoreForm({
       setError('Añade un nombre para la tarea.');
       return;
     }
+    const parsedDuration = Number(durationMinutes);
+    if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 1440) {
+      setError('La duración debe estar entre 1 y 1440 minutos.');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -91,6 +99,7 @@ export function ChoreForm({
       await onSubmit({
         title: title.trim(),
         description: description.trim(),
+        duration_minutes: parsedDuration,
         category,
         frequency,
       });
@@ -130,6 +139,17 @@ export function ChoreForm({
           style={styles.input}
           accessibilityLabel="Nombre de la tarea"
           returnKeyType="done"
+        />
+
+        <Text style={styles.label}>Duración (minutos)</Text>
+        <TextInput
+          value={durationMinutes}
+          onChangeText={setDurationMinutes}
+          placeholder="30"
+          placeholderTextColor={Palette.textSecondary}
+          style={styles.input}
+          accessibilityLabel="Duración de la tarea en minutos"
+          keyboardType="number-pad"
         />
 
         <Text style={styles.label}>Detalles (opcional)</Text>

@@ -31,6 +31,26 @@
 $ npm install
 ```
 
+## Calendario compartido y Google Calendar
+
+La migración `20261028120000_shared_calendar` añade la hora de inicio de las asignaciones (duración fija de 30 minutos), guarda solo los intervalos ocupados importados y almacena cifrado el refresh token de Google. Aplica las migraciones con `npx prisma migrate deploy`.
+
+Para activar Google Calendar, habilita Google Calendar API en Google Cloud, configura la pantalla de consentimiento y crea credenciales OAuth para una aplicación web. Define en `backend/.env`:
+
+```env
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://<backend-publico>/availability/google/callback
+GOOGLE_APP_CALLBACK_URI=frontend://calendar/google-callback
+# GOOGLE_WEB_CALLBACK_URI=https://<frontend-domain>/availability
+GOOGLE_TOKEN_ENCRYPTION_KEY=<secreto-largo-aleatorio>
+CALENDAR_TIME_ZONE=Europe/Madrid
+```
+
+Registra `GOOGLE_REDIRECT_URI` como URI de redirección autorizada en Google Cloud. En desarrollo web local, el backend detecta el origen de Expo y vuelve a `/availability`; para despliegues web, configura `GOOGLE_WEB_CALLBACK_URI` con la URL de esa pantalla. `GOOGLE_APP_CALLBACK_URI` se reserva para la app nativa. Usa una clave aleatoria estable para `GOOGLE_TOKEN_ENCRYPTION_KEY`; cambiarla invalida las conexiones guardadas.
+
+El consentimiento solicita acceso de solo lectura para poder listar todos los calendarios de Google y traer sus eventos. La app muestra los títulos solo a su dueño; los demás miembros de «La casa» únicamente ven «Ocupado». Las descripciones no se guardan. Al desconectar, se eliminan también los eventos importados.
+
 ## Compile and run the project
 
 ```bash

@@ -29,6 +29,7 @@ export default function CreateChoreScreen() {
           apartment_id: APARTMENT_ID,
           title: values.title,
           description: values.description || undefined,
+          duration_minutes: values.duration_minutes,
           frequency: values.frequency,
           category: values.category,
         });
@@ -36,12 +37,9 @@ export default function CreateChoreScreen() {
         router.replace({ pathname: '/chores', params: { notice: 'created' } });
       }}>
       <View style={styles.infoCard}>
-        <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
-        <Text style={styles.infoText}>
-          Las asignaciones se añadirán más adelante, cuando el calendario del hogar esté preparado.
-        </Text>
-      </View>
-    </ChoreForm>
+        <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />      
+        </View>    
+        </ChoreForm>
   );
 }
 

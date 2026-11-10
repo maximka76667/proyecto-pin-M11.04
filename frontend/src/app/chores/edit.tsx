@@ -17,6 +17,7 @@ import { api, errorMessage } from '@/lib/api';
 type TaskToEdit = {
   title: string;
   description: string | null;
+  duration_minutes: number;
   category: ChoreFormValues['category'];
   frequency: ChoreFormValues['frequency'];
 };
@@ -40,6 +41,7 @@ export default function EditChoreScreen() {
         setInitialValues({
           title: task.title,
           description: task.description ?? '',
+          duration_minutes: task.duration_minutes,
           category: task.category,
           frequency: task.frequency,
         });
@@ -77,6 +79,7 @@ export default function EditChoreScreen() {
         await api('PATCH', `/tasks/${encodeURIComponent(taskId)}`, {
           title: values.title,
           description: values.description,
+          duration_minutes: values.duration_minutes,
           category: values.category,
           frequency: values.frequency,
         });
