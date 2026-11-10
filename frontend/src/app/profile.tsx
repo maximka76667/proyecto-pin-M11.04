@@ -22,7 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
-import { api, apiUpload, errorMessage, hasAuthToken } from '@/lib/api';
+import { ApiError, api, apiUpload, hasAuthToken } from '@/lib/api';
 import { PASSWORD_UPDATED } from '@/lib/password-policy';
 import { logout } from '@/lib/session';
 
@@ -194,12 +194,18 @@ export default function ProfileScreen() {
         await api('DELETE', '/users/me/avatar');
       } else if (selectedPhoto) {
         // 2. Si se eligió una foto nueva, subirla
-        await apiUpload('/users/me/avatar', 'image', {
-          uri: selectedPhoto.uri,
-          name: selectedPhoto.fileName ?? 'avatar.jpg',
-          type: selectedPhoto.mimeType ?? 'image/jpeg',
-          file: selectedPhoto.file,
-        });
+        await apiUpload(
+          '/users/me/avatar',
+          'image',
+          {
+            uri: selectedPhoto.uri,
+            name: selectedPhoto.fileName ?? 'avatar.jpg',
+            type: selectedPhoto.mimeType ?? 'image/jpeg',
+            file: selectedPhoto.file,
+          },
+          // Máximo 5 MB: si en 20 s no ha terminado, se avisa y se puede volver a intentar
+          20_000,
+        );
       }
 
       // 3. Guardar el nombre actualizado
@@ -213,9 +219,11 @@ export default function ProfileScreen() {
       setEditModalVisible(false);
       setSuccessNotice('Perfil actualizado correctamente');
     } catch (e) {
-      const msg = errorMessage(e);
-      if (msg.includes('5 MB') || msg.includes('superar los 5 MB')) {
-        setEditError('La imagen no puede superar los 5 MB');
+      // Un 400 es el backend rechazando lo enviado (nombre o imagen no válidos): se muestra
+      // su mensaje. Cualquier otro fallo (sin conexión, servidor caído) es «no se han podido
+      // guardar», y el nombre escrito se mantiene para volver a intentarlo (PA-1016.04)
+      if (e instanceof ApiError && e.status === 400) {
+        setEditError(e.message);
       } else {
         setEditError('No se han podido guardar los cambios');
       }

@@ -61,6 +61,7 @@ describe('GET /users/me', () => {
       id: usuarioActual,
       email: 'alex@ejemplo.com',
       full_name: 'Alex Morgan',
+      avatar_url: null,
       has_password: true,
       apartments: [{ id: piso, name: 'MapleHouse', invite_code: undefined, members_count: 4 }],
     });

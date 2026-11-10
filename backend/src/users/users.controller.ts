@@ -7,11 +7,13 @@ import {
   Patch,
   Post,
   UploadedFile,
+  UseFilters,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UsersService } from './users.service';
+import { ImagenDemasiadoGrandeFilter, PESO_MAXIMO_AVATAR } from './avatar-image';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -40,7 +42,12 @@ export class UsersController {
   }
 
   @Post('me/avatar')
-  @UseInterceptors(FileInterceptor('image'))
+  // Con el límite, multer corta la subida en 5 MB en vez de cargar el archivo entero en
+  // memoria; el filtro convierte su 413 en el 400 que pide la PA-1016.06
+  @UseFilters(ImagenDemasiadoGrandeFilter)
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: PESO_MAXIMO_AVATAR, files: 1 } }),
+  )
   uploadAvatar(
     @CurrentUser() userId: string,
     @UploadedFile() file: Express.Multer.File | undefined,

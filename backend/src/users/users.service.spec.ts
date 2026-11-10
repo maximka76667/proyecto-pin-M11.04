@@ -1,7 +1,12 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
+
+// Una PNG de verdad: el servicio comprueba el tipo por el contenido, no por el mimetype
+const PNG = readFileSync(join(__dirname, '../../test/avatars/avatar.png'));
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -143,7 +148,7 @@ describe('UsersService', () => {
       } as Express.Multer.File;
 
       await expect(service.updateAvatar('u1', mockPdf)).rejects.toThrow(
-        'El archivo debe ser una imagen',
+        'La imagen debe ser JPG, PNG o WebP',
       );
     });
 
@@ -163,15 +168,16 @@ describe('UsersService', () => {
       const mockImage = {
         mimetype: 'image/png',
         size: 2 * 1024 * 1024,
-        buffer: Buffer.from('fake-image-bytes'),
+        buffer: PNG,
       } as Express.Multer.File;
+      const dataUri = `data:image/png;base64,${PNG.toString('base64')}`;
 
       prisma.user.update.mockResolvedValue({});
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
         email: 'alex@example.com',
         full_name: 'Alex Morgan',
-        avatar_url: 'data:image/png;base64,ZmFrZS1pbWFnZS1ieXRlcw==',
+        avatar_url: dataUri,
         password_hash: null,
         user_apartments: [],
       });
@@ -180,9 +186,7 @@ describe('UsersService', () => {
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
-        data: {
-          avatar_url: 'data:image/png;base64,ZmFrZS1pbWFnZS1ieXRlcw==',
-        },
+        data: { avatar_url: dataUri },
       });
       expect(res.avatar_url).toContain('data:image/png');
     });

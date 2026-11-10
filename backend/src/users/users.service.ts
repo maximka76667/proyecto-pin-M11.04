@@ -6,6 +6,12 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  IMAGEN_MUY_GRANDE,
+  IMAGEN_NO_VALIDA,
+  PESO_MAXIMO_AVATAR,
+  tipoDeImagen,
+} from './avatar-image';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -139,15 +145,16 @@ export class UsersService {
     if (!file) {
       throw new BadRequestException('No se ha proporcionado ninguna imagen');
     }
-    if (!file.mimetype || !file.mimetype.startsWith('image/')) {
-      throw new BadRequestException('El archivo debe ser una imagen');
+    if (file.size > PESO_MAXIMO_AVATAR) {
+      throw new BadRequestException(IMAGEN_MUY_GRANDE);
     }
-    if (file.size > 5 * 1024 * 1024) {
-      throw new BadRequestException('La imagen no puede superar los 5 MB');
+    // El tipo sale del contenido, no del mimetype que declara el cliente
+    const tipo = tipoDeImagen(file.buffer);
+    if (!tipo) {
+      throw new BadRequestException(IMAGEN_NO_VALIDA);
     }
 
-    const base64Data = file.buffer ? file.buffer.toString('base64') : '';
-    const avatarUrl = `data:${file.mimetype};base64,${base64Data}`;
+    const avatarUrl = `data:${tipo};base64,${file.buffer.toString('base64')}`;
 
     try {
       await this.prisma.user.update({
