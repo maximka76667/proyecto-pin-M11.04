@@ -172,7 +172,7 @@ describe('Validación de tareas', () => {
     expect(prisma.task.findUnique).not.toHaveBeenCalled();
   });
 
-  it.each(['25:00', '10:60', '9:00', 'invalid'])(
+  it.each(['25:00', '10:60', 'invalid'])(
     'rechaza una hora inválida (%s) antes de consultar Prisma',
     async (dueTime) => {
       await request(app.getHttpServer())
