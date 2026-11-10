@@ -10,8 +10,24 @@ import * as Linking from 'expo-linking';
 import { Eyebrow, Field, PrimaryButton, SegmentedControl } from '@/components/onboarding';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage, setAuthToken } from '@/lib/api';
+import { PASSWORD_HINT, PASSWORD_MESSAGES, validateEmail, validateNewPassword } from '@/lib/password-policy';
 
 type Mode = 'login' | 'register';
+type AuthField = 'name' | 'email' | 'password';
+type AuthErrors = Partial<Record<AuthField, string>>;
+
+// PA-1014.05: se valida antes de enviar para no llamar a la API con datos que va a rechazar.
+// En el login la contraseña solo es obligatoria, para no dejar fuera contraseñas antiguas
+function validateAuthForm(mode: Mode, values: { name: string; email: string; password: string }) {
+  const errors: AuthErrors = {};
+  if (mode === 'register' && !values.name.trim()) errors.name = PASSWORD_MESSAGES.required;
+  const emailError = validateEmail(values.email);
+  if (emailError) errors.email = emailError;
+  const passwordError =
+    mode === 'register' ? validateNewPassword(values.password) : !values.password ? PASSWORD_MESSAGES.required : undefined;
+  if (passwordError) errors.password = passwordError;
+  return errors;
+}
 
 export default function Auth() {
   const params = useLocalSearchParams<{
@@ -25,7 +41,14 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<AuthErrors>({});
   const [loading, setLoading] = useState(false);
+
+  // Al escribir en un campo desaparece su error
+  const edit = (field: AuthField, setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    if (fieldErrors[field]) setFieldErrors((previous) => ({ ...previous, [field]: undefined }));
+  };
 
   useEffect(() => {
     if (params.token) {
@@ -37,10 +60,11 @@ export default function Auth() {
   }, [params.google_error, params.token]);
 
   const submit = async () => {
-    if (mode === 'register' && !name.trim()) return setError('Introduce tu nombre.');
-    if (!email.trim() || !password) return setError('Completa tu email y contraseña.');
-    setLoading(true);
+    const errors = validateAuthForm(mode, { name, email, password });
+    setFieldErrors(errors);
     setError('');
+    if (Object.values(errors).some(Boolean)) return;
+    setLoading(true);
     try {
       const result = await api('POST', `/auth/${mode}`, {
         email: email.trim(),
@@ -113,11 +137,22 @@ export default function Auth() {
             <Text style={[styles.noticeText, { color: Palette.primary }]}>Contraseña restablecida. Inicia sesión con tu nueva contraseña.</Text>
           </View>
         ) : null}
-        <SegmentedControl options={[{ value: 'login', label: 'Iniciar sesión' }, { value: 'register', label: 'Registrarme' }]} value={mode} onChange={(value) => { setMode(value); setError(''); }} />
+        <SegmentedControl options={[{ value: 'login', label: 'Iniciar sesión' }, { value: 'register', label: 'Registrarme' }]} value={mode} onChange={(value) => { setMode(value); setError(''); setFieldErrors({}); }} />
         <View style={styles.form}>
-          {mode === 'register' ? <Field label="Tu nombre" placeholder="p. ej. Alex" value={name} onChangeText={setName} /> : null}
-          <Field label="Email" placeholder="tu@email.com" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-          <Field label="Contraseña" placeholder="Mínimo 8 caracteres" value={password} onChangeText={setPassword} secureTextEntry />
+          {mode === 'register' ? (
+            <View style={styles.field}>
+              <Field label="Tu nombre" placeholder="p. ej. Alex" value={name} onChangeText={edit('name', setName)} />
+              <FieldMessage error={fieldErrors.name} />
+            </View>
+          ) : null}
+          <View style={styles.field}>
+            <Field label="Email" placeholder="tu@email.com" value={email} onChangeText={edit('email', setEmail)} keyboardType="email-address" autoCapitalize="none" />
+            <FieldMessage error={fieldErrors.email} />
+          </View>
+          <View style={styles.field}>
+            <Field label="Contraseña" placeholder="Mínimo 8 caracteres" value={password} onChangeText={edit('password', setPassword)} secureTextEntry />
+            <FieldMessage error={fieldErrors.password} hint={mode === 'register' ? PASSWORD_HINT : undefined} />
+          </View>
           {mode === 'login' ? (
             <Pressable onPress={() => router.push('/forgot-password' as Href)} disabled={loading} hitSlop={8} accessibilityRole="link" style={styles.forgot}>
               <Text style={styles.forgotText}>¿Has olvidado tu contraseña?</Text>
@@ -137,6 +172,18 @@ export default function Auth() {
   );
 }
 
+// Error (o ayuda) justo debajo de su campo, con el mismo estilo que FieldShell de password-field.tsx
+function FieldMessage({ error, hint }: { error?: string; hint?: string }) {
+  if (error) {
+    return (
+      <Text style={styles.fieldError} accessibilityLiveRegion="polite">
+        {error}
+      </Text>
+    );
+  }
+  return hint ? <Text style={styles.fieldHint}>{hint}</Text> : null;
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Palette.background },
   container: { flexGrow: 1, justifyContent: 'center', width: '100%', maxWidth: 480, alignSelf: 'center', padding: 24, gap: 20 },
@@ -148,6 +195,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, lineHeight: 38, fontWeight: '800', color: Palette.text },
   subtitle: { fontSize: 15, lineHeight: 22, color: Palette.textSecondary },
   form: { gap: 16 },
+  field: { gap: 6 },
+  fieldError: { fontSize: 13, lineHeight: 18, color: Palette.error },
+  fieldHint: { fontSize: 13, lineHeight: 18, color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   line: { flex: 1, height: 1, backgroundColor: Palette.border },

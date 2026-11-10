@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   createHash,
@@ -16,6 +17,8 @@ import type { RegisterDto } from './dto/register.dto';
 import type { LoginDto } from './dto/login.dto';
 
 const SESSION_DAYS = 30;
+const EMAIL_IN_USE = 'Este correo electrónico ya está en uso';
+const INVALID_CREDENTIALS = 'Correo o contraseña incorrectos';
 
 @Injectable()
 export class AuthService {
@@ -27,24 +30,37 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException('Ya existe una cuenta con ese email');
+    if (existing) throw new ConflictException(EMAIL_IN_USE);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        full_name: dto.full_name.trim(),
-        is_landlord: false,
-        password_hash: await this.hashPassword(dto.password),
-      },
-      select: { id: true, email: true, full_name: true },
-    });
+    const passwordHash = await this.hashPassword(dto.password);
+    let user: { id: string; email: string | null; full_name: string };
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          full_name: dto.full_name.trim(),
+          is_landlord: false,
+          password_hash: passwordHash,
+        },
+        select: { id: true, email: true, full_name: true },
+      });
+    } catch (error) {
+      // Dos registros a la vez con el mismo email pasan los dos la comprobación de arriba;
+      // el @unique de la base de datos para al segundo (PA-1014.02)
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(EMAIL_IN_USE);
+      }
+      throw error;
+    }
     return this.withToken(user);
   }
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email.trim().toLowerCase() } });
+    // El mismo mensaje si el email no existe, la contraseña es mala o la cuenta es de Google,
+    // para no revelar qué emails están registrados (PA-1014.04)
     if (!user?.password_hash || !(await this.verifyPassword(dto.password, user.password_hash))) {
-      throw new UnauthorizedException('Email o contraseña incorrectos');
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     return this.withToken({ id: user.id, email: user.email, full_name: user.full_name });
   }

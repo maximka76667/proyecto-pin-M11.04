@@ -35,7 +35,8 @@ function utf8Bytes(value: string) {
   return new TextEncoder().encode(value).length;
 }
 
-function validateNewPassword(next: string) {
+// También la usa el registro (PA-1014.05): la contraseña nueva sigue la misma regla
+export function validateNewPassword(next: string) {
   if (!next) return PASSWORD_MESSAGES.required;
   if (!PASSWORD_PATTERN.test(next)) return PASSWORD_MESSAGES.policy;
   if (utf8Bytes(next) > PASSWORD_MAX_BYTES) return PASSWORD_MESSAGES.tooLong;
