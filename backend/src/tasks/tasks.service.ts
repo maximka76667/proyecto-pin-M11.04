@@ -323,6 +323,95 @@ export class TasksService {
     }
   }
 
+  // Comprueba que `userId` tiene el hueco libre en `dueDate` desde `startMinute` durante
+  // `durationMinutes`, contra sus otras asignaciones, su disponibilidad semanal y sus eventos
+  // de Google Calendar. Reutiliza las mismas reglas que al asignar una tarea. `excludeAssignmentId`
+  // ignora una asignación propia (la que el usuario libera en un intercambio).
+  async assertUserFreeAt(
+    userId: string,
+    dueDate: Date,
+    startMinute: number,
+    durationMinutes: number,
+    excludeAssignmentId?: string,
+  ): Promise<void> {
+    const endMinute = startMinute + durationMinutes;
+
+    const existingAssignments = await this.prisma.taskAssignment.findMany({
+      where: {
+        user_id: userId,
+        due_date: dueDate,
+        ...(excludeAssignmentId ? { id: { not: excludeAssignmentId } } : {}),
+      },
+      include: {
+        user: { select: { full_name: true } },
+        task: { select: { duration_minutes: true } },
+      },
+    });
+    const assignmentConflict = existingAssignments.find((assignment) => {
+      const otherStart = this.assignmentStartMinute(
+        assignment.due_time,
+        assignment.start_minute,
+      );
+      return this.overlaps(
+        startMinute,
+        endMinute,
+        otherStart,
+        otherStart + (assignment.task.duration_minutes ?? 30),
+      );
+    });
+    if (assignmentConflict) {
+      throw new ConflictException(
+        `${assignmentConflict.user.full_name} ya tiene otra tarea asignada que se solapa con ese horario`,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        full_name: true,
+        availability_blocks: {
+          select: { day_of_week: true, start_minute: true, end_minute: true },
+        },
+        google_busy_blocks: {
+          where: { event_date: dueDate },
+          select: { start_at: true, end_at: true },
+        },
+      },
+    });
+    if (!user) return;
+
+    const dayOfWeek = this.dayOfWeek(dueDate);
+    const weeklyConflict = user.availability_blocks.find(
+      (block) =>
+        block.day_of_week === dayOfWeek &&
+        this.overlaps(startMinute, endMinute, block.start_minute, block.end_minute),
+    );
+    if (weeklyConflict) {
+      throw new ConflictException(
+        `${user.full_name} está ocupado en su disponibilidad habitual a esa hora`,
+      );
+    }
+
+    const googleConflict = user.google_busy_blocks.find((block) =>
+      this.overlaps(
+        startMinute,
+        endMinute,
+        this.localDateTimeMinutes(block.start_at, dueDate),
+        this.localDateTimeMinutes(block.end_at, dueDate),
+      ),
+    );
+    if (googleConflict) {
+      throw new ConflictException(
+        `${user.full_name} tiene un evento de Google Calendar que se solapa con ese horario`,
+      );
+    }
+  }
+
+  // Lanza ForbiddenException si el usuario no pertenece al piso (versión pública de asegurarMiembro).
+  async assertMember(apartmentId: string, userId: string) {
+    return this.asegurarMiembro(apartmentId, userId);
+  }
+
   private async buscarTarea(id: string) {
     try {
       const task = await this.prisma.task.findUnique({

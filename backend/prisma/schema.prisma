@@ -9,22 +9,24 @@ datasource db {
 }
 
 model User {
-  id                   String           @id @default(uuid()) @db.Uuid
-  email                String?          @unique
-  full_name            String
-  is_landlord          Boolean
-  password_hash        String?
-  google_subject       String?          @unique
-  user_apartments      UserApartment[]
-  landlord_apartments  Apartment[]      @relation("LandlordApartments")
-  createdTransactions  Transaction[]    @relation("CreatedTransactions")
-  receivedTransactions Transaction[]    @relation("ReceivedTransactions")
-  taskAssignments      TaskAssignment[]
-  availability_blocks  AvailabilityBlock[]
+  id                         String                    @id @default(uuid()) @db.Uuid
+  email                      String?                   @unique
+  full_name                  String
+  is_landlord                Boolean
+  password_hash              String?
+  google_subject             String?                   @unique
+  user_apartments            UserApartment[]
+  landlord_apartments        Apartment[]               @relation("LandlordApartments")
+  createdTransactions        Transaction[]             @relation("CreatedTransactions")
+  receivedTransactions       Transaction[]             @relation("ReceivedTransactions")
+  taskAssignments            TaskAssignment[]
+  availability_blocks        AvailabilityBlock[]
   google_calendar_connection GoogleCalendarConnection?
-  google_busy_blocks    GoogleBusyBlock[]
-  sessions             AuthSession[]
-  password_reset_codes PasswordResetCode[]
+  google_busy_blocks         GoogleBusyBlock[]
+  sessions                   AuthSession[]
+  password_reset_codes       PasswordResetCode[]
+  swaps_sent                 TaskSwapRequest[]         @relation("SwapFromUser")
+  swaps_received             TaskSwapRequest[]         @relation("SwapToUser")
 }
 
 model AuthSession {
@@ -52,15 +54,16 @@ model PasswordResetCode {
 }
 
 model Apartment {
-  id              String          @id @default(uuid()) @db.Uuid
+  id              String            @id @default(uuid()) @db.Uuid
   address         String
   name            String
-  invite_code     String          @unique @default(uuid()) @db.Uuid
-  landlord_id     String?         @db.Uuid
-  landlord        User?           @relation("LandlordApartments", fields: [landlord_id], references: [id])
+  invite_code     String            @unique @default(uuid()) @db.Uuid
+  landlord_id     String?           @db.Uuid
+  landlord        User?             @relation("LandlordApartments", fields: [landlord_id], references: [id])
   transactions    Transaction[]
   tasks           Task[]
   user_apartments UserApartment[]
+  swap_requests   TaskSwapRequest[]
 
   @@unique([landlord_id, name])
   @@index([landlord_id])
@@ -92,33 +95,57 @@ model Transaction {
 }
 
 model Task {
-  id           String           @id @default(uuid()) @db.Uuid
-  apartment_id String           @db.Uuid
-  title        String
-  description  String?
-  duration_minutes Int          @default(30)
-  status       TaskStatus
-  category     TaskCategory
-  priority     TaskPriority
-  frequency    TaskFrequency
-  apartment    Apartment        @relation(fields: [apartment_id], references: [id])
-  assignments  TaskAssignment[]
+  id               String           @id @default(uuid()) @db.Uuid
+  apartment_id     String           @db.Uuid
+  title            String
+  description      String?
+  duration_minutes Int              @default(30)
+  status           TaskStatus
+  category         TaskCategory
+  priority         TaskPriority
+  frequency        TaskFrequency
+  apartment        Apartment        @relation(fields: [apartment_id], references: [id])
+  assignments      TaskAssignment[]
 
   @@unique([apartment_id, title])
 }
 
 model TaskAssignment {
-  id       String           @id @default(uuid()) @db.Uuid
-  task_id  String           @db.Uuid
-  user_id  String           @db.Uuid
-  status   AssignmentStatus
-  due_date DateTime         @db.Date
-  start_minute Int          @default(540)
-  due_time String?          @db.VarChar(5)
-  task     Task             @relation(fields: [task_id], references: [id])
-  user     User             @relation(fields: [user_id], references: [id])
+  id           String            @id @default(uuid()) @db.Uuid
+  task_id      String            @db.Uuid
+  user_id      String            @db.Uuid
+  status       AssignmentStatus
+  due_date     DateTime          @db.Date
+  start_minute Int               @default(540)
+  due_time     String?           @db.VarChar(5)
+  task         Task              @relation(fields: [task_id], references: [id])
+  user         User              @relation(fields: [user_id], references: [id])
+  swap_as_from TaskSwapRequest?  @relation("SwapFromAssignment")
+  swap_as_to   TaskSwapRequest[] @relation("SwapToAssignment")
 
   @@unique([user_id, due_date, due_time])
+}
+
+// Petición de intercambio dirigida A→B. Solo existe mientras está pendiente:
+// al aceptar o rechazar se borra. Guarda las dos asignaciones implicadas.
+model TaskSwapRequest {
+  id                 String   @id @default(uuid()) @db.Uuid
+  apartment_id       String   @db.Uuid
+  from_user_id       String   @db.Uuid // emisor (A)
+  to_user_id         String   @db.Uuid // receptor (B)
+  from_assignment_id String   @unique @db.Uuid // tarea de A (1 petición pendiente por tarea)
+  to_assignment_id   String   @db.Uuid // tarea de B elegida por A
+  created_at         DateTime @default(now())
+
+  apartment       Apartment      @relation(fields: [apartment_id], references: [id], onDelete: Cascade)
+  from_user       User           @relation("SwapFromUser", fields: [from_user_id], references: [id])
+  to_user         User           @relation("SwapToUser", fields: [to_user_id], references: [id])
+  from_assignment TaskAssignment @relation("SwapFromAssignment", fields: [from_assignment_id], references: [id], onDelete: Cascade)
+  to_assignment   TaskAssignment @relation("SwapToAssignment", fields: [to_assignment_id], references: [id], onDelete: Cascade)
+
+  @@index([to_user_id])
+  @@index([from_user_id])
+  @@index([apartment_id])
 }
 
 model GoogleCalendarConnection {
@@ -131,13 +158,13 @@ model GoogleCalendarConnection {
 
 // Titles are visible only to the owner; descriptions are never retained.
 model GoogleBusyBlock {
-  id          String   @id
-  user_id     String   @db.Uuid
-  event_date  DateTime @db.Date
-  start_at    DateTime
-  end_at      DateTime
-  title       String?
-  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id         String   @id
+  user_id    String   @db.Uuid
+  event_date DateTime @db.Date
+  start_at   DateTime
+  end_at     DateTime
+  title      String?
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, event_date])
 }

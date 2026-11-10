@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
+import { USER_ID } from '@/constants/dev-session';
 import { api, errorMessage } from '@/lib/api';
 
 type TaskDetails = {
@@ -260,6 +261,8 @@ export default function ChoreDetailsScreen() {
   };
 
   const assignment = task?.assignments[0];
+  // Asignación del usuario actual en esta tarea: es la que puede poner a intercambio.
+  const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
   const assignmentDate = assignment
     ? formatAssignmentDay(assignment.due_date, {
       month: 'short',
@@ -339,9 +342,28 @@ export default function ChoreDetailsScreen() {
             <MaterialCommunityIcons name="account-plus-outline" size={18} color={Palette.primary} />
             <Text style={styles.secondaryText}>Asignar tarea manualmente</Text>
           </Pressable>
-          <Pressable style={styles.secondaryButton}>
+          <Pressable
+            disabled={!myAssignment}
+            onPress={() =>
+              myAssignment &&
+              router.push({
+                pathname: '/chores/swap',
+                params: { assignmentId: myAssignment.id },
+              })
+            }
+            style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
             <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Solicitar un cambio</Text>
+            <Text style={styles.secondaryText}>
+              {myAssignment
+                ? 'Solicitar un cambio'
+                : 'Solo puedes cambiar una tarea tuya'}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/chores/swaps')}
+            style={styles.secondaryButton}>
+            <MaterialCommunityIcons name="swap-vertical-bold" size={18} color={Palette.primary} />
+            <Text style={styles.secondaryText}>Ver intercambios</Text>
           </Pressable>
           <Pressable
             onPress={() => router.push({ pathname: '/chores/edit', params: { taskId } })}
@@ -561,6 +583,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
   },
   secondaryText: { fontSize: 15, fontWeight: '700', color: Palette.primary },
+  disabledButton: { opacity: 0.5 },
   deleteButton: { borderColor: Palette.error },
   deleteText: { color: Palette.error },
   modalBackdrop: {
