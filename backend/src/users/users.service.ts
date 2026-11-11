@@ -34,6 +34,7 @@ export class UsersService {
           password_hash: true,
           user_apartments: {
             select: {
+              joined_at: true,
               apartment: {
                 select: {
                   id: true,
@@ -57,6 +58,7 @@ export class UsersService {
           password_hash: true,
           user_apartments: {
             select: {
+              joined_at: true,
               apartment: {
                 select: {
                   id: true,
@@ -79,11 +81,12 @@ export class UsersService {
       full_name: user.full_name,
       avatar_url: user.avatar_url ?? null,
       has_password: Boolean(user.password_hash),
-      apartments: user.user_apartments.map(({ apartment }: any) => ({
+      apartments: user.user_apartments.map(({ joined_at, apartment }: any) => ({
         id: apartment.id,
         name: apartment.name,
         invite_code: apartment.invite_code,
         members_count: apartment._count.user_apartments,
+        ...(joined_at !== undefined && { joined_at }),
       })),
     };
   }

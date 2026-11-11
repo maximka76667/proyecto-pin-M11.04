@@ -36,7 +36,13 @@ type Profile = {
   full_name: string;
   avatar_url?: string | null;
   has_password: boolean;
-  apartments: { id: string; name: string; invite_code?: string; members_count: number }[];
+  apartments: {
+    id: string;
+    name: string;
+    invite_code?: string;
+    members_count: number;
+    joined_at?: string;
+  }[];
 };
 
 type GoogleStatus = { configured: boolean; connected: boolean };
@@ -45,6 +51,15 @@ type GoogleStatus = { configured: boolean; connected: boolean };
 const notices: Record<string, string> = {
   'password-updated': PASSWORD_UPDATED,
 };
+
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+function formatJoinedDate(joinedAt?: string) {
+  if (!joinedAt) return 'desde sep 2025';
+  const d = new Date(joinedAt);
+  if (isNaN(d.getTime())) return 'desde sep 2025';
+  return `desde ${MESES[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 export default function ProfileScreen() {
   const { notice } = useLocalSearchParams<{ notice?: string }>();
@@ -317,8 +332,8 @@ export default function ProfileScreen() {
             </Text>
             <Text style={styles.userSubtitle} numberOfLines={1}>
               {primaryApartment
-                ? `${primaryApartment.name} · desde sep 2025`
-                : 'Sin hogar · desde sep 2025'}
+                ? `${primaryApartment.name} · ${formatJoinedDate(primaryApartment.joined_at)}`
+                : 'Sin hogar'}
             </Text>
           </View>
           <Pressable

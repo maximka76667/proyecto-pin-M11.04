@@ -70,6 +70,7 @@ model Apartment {
 model UserApartment {
   user_id      String    @db.Uuid
   apartment_id String    @db.Uuid
+  joined_at    DateTime  @default(now())
   user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
   apartment    Apartment @relation(fields: [apartment_id], references: [id], onDelete: Cascade)
 
