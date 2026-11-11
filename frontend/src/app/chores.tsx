@@ -114,7 +114,7 @@ export default function ChoresScreen() {
     const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-    // Ids de asignaciones implicadas en un intercambio pendiente (para marcarlas "En cambio")
+    // Ids de asignaciones implicadas en un intercambio pendiente (para marcarlas "Swap pendiente")
     const [swapAssignmentIds, setSwapAssignmentIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -483,7 +483,7 @@ export default function ChoresScreen() {
                                         {assignment && swapAssignmentIds.has(assignment.id) ? (
                                             <View style={styles.swapBadge}>
                                                 <MaterialCommunityIcons name="swap-horizontal" size={12} color={Palette.primary} />
-                                                <Text style={styles.swapBadgeText}>En cambio</Text>
+                                                <Text style={styles.swapBadgeText}>Swap pendiente</Text>
                                             </View>
                                         ) : null}
                                         {task.description ? (
