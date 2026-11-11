@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Snackbar } from 'react-native-paper';
 import { Palette, Radius } from '@/constants/onboarding';
 import { APARTMENT_ID, USER_ID } from '@/constants/dev-session';
 import { api, errorMessage } from '@/lib/api';
@@ -24,6 +25,7 @@ type SwapAssignment = {
 
 type SwapRequest = {
   id: string;
+  status: 'pending' | 'completed';
   from_user_id: string;
   to_user_id: string;
   from_user: { id: string; full_name: string };
@@ -41,10 +43,12 @@ function slot(assignment: SwapAssignment) {
 }
 
 export default function SwapsInboxScreen() {
+  const { noticeText } = useLocalSearchParams<{ noticeText?: string }>();
   const [requests, setRequests] = useState<SwapRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actingId, setActingId] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,11 +76,13 @@ export default function SwapsInboxScreen() {
     id: string,
     method: 'POST' | 'DELETE',
     suffix: string,
+    successMessage: string,
   ) => {
     setActingId(id);
     setError('');
     try {
       await api(method, `/tasks/swap-requests/${encodeURIComponent(id)}${suffix}`);
+      setMessage(successMessage);
       await load();
     } catch (e) {
       setError(errorMessage(e));
@@ -85,8 +91,15 @@ export default function SwapsInboxScreen() {
     }
   };
 
-  const received = requests.filter((r) => r.to_user_id === USER_ID);
-  const sent = requests.filter((r) => r.from_user_id === USER_ID);
+  const received = requests.filter(
+    (r) => r.status === 'pending' && r.to_user_id === USER_ID,
+  );
+  const sentPending = requests.filter(
+    (r) => r.status === 'pending' && r.from_user_id === USER_ID,
+  );
+  const sentCompleted = requests.filter(
+    (r) => r.status === 'completed' && r.from_user_id === USER_ID,
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -117,7 +130,14 @@ export default function SwapsInboxScreen() {
             <View style={styles.actions}>
               <Pressable
                 disabled={actingId !== null}
-                onPress={() => void act(request.id, 'POST', '/accept')}
+                onPress={() =>
+                  void act(
+                    request.id,
+                    'POST',
+                    '/accept',
+                    'Intercambio realizado con éxito',
+                  )
+                }
                 style={[styles.actionButton, styles.accept]}>
                 {actingId === request.id ? (
                   <ActivityIndicator color={Palette.onPrimary} />
@@ -127,7 +147,14 @@ export default function SwapsInboxScreen() {
               </Pressable>
               <Pressable
                 disabled={actingId !== null}
-                onPress={() => void act(request.id, 'POST', '/reject')}
+                onPress={() =>
+                  void act(
+                    request.id,
+                    'POST',
+                    '/reject',
+                    'Solicitud de intercambio rechazada',
+                  )
+                }
                 style={[styles.actionButton, styles.reject]}>
                 <Text style={styles.rejectText}>Rechazar</Text>
               </Pressable>
@@ -136,10 +163,10 @@ export default function SwapsInboxScreen() {
         ))}
 
         <Text style={styles.sectionLabel}>PETICIONES ENVIADAS</Text>
-        {!loading && sent.length === 0 ? (
+        {!loading && sentPending.length === 0 && sentCompleted.length === 0 ? (
           <Text style={styles.muted}>No has enviado ninguna petición.</Text>
         ) : null}
-        {sent.map((request) => (
+        {sentPending.map((request) => (
           <View key={request.id} style={styles.card}>
             <Text style={styles.cardText}>
               Ofreces <Text style={styles.strong}>{request.from_assignment.task.title}</Text> (
@@ -150,7 +177,14 @@ export default function SwapsInboxScreen() {
             <View style={styles.actions}>
               <Pressable
                 disabled={actingId !== null}
-                onPress={() => void act(request.id, 'DELETE', '')}
+                onPress={() =>
+                  void act(
+                    request.id,
+                    'DELETE',
+                    '',
+                    'Solicitud de intercambio cancelada',
+                  )
+                }
                 style={[styles.actionButton, styles.reject]}>
                 {actingId === request.id ? (
                   <ActivityIndicator color={Palette.error} />
@@ -161,7 +195,31 @@ export default function SwapsInboxScreen() {
             </View>
           </View>
         ))}
+        {/* Aviso pasivo al emisor de que su petición fue aceptada (PA-1010.02) */}
+        {sentCompleted.map((request) => (
+          <View key={request.id} style={[styles.card, styles.cardDone]}>
+            <View style={styles.doneHeader}>
+              <MaterialCommunityIcons name="check-circle" size={18} color={Palette.primary} />
+              <Text style={styles.doneLabel}>Aceptada — intercambio realizado</Text>
+            </View>
+            <Text style={styles.cardText}>
+              <Text style={styles.strong}>{request.to_user.full_name}</Text> aceptó cambiar su{' '}
+              <Text style={styles.strong}>{request.to_assignment.task.title}</Text> por tu{' '}
+              <Text style={styles.strong}>{request.from_assignment.task.title}</Text>.
+            </Text>
+          </View>
+        ))}
       </ScrollView>
+      <Snackbar
+        visible={Boolean(message) || Boolean(noticeText)}
+        onDismiss={() => {
+          setMessage('');
+          if (noticeText) router.setParams({ noticeText: undefined });
+        }}
+        duration={4000}
+        style={styles.snackbar}>
+        {message || noticeText || ''}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -197,8 +255,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.input,
     backgroundColor: Palette.surface,
   },
+  cardDone: { backgroundColor: Palette.mint },
+  doneHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  doneLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5, color: Palette.primary },
   cardText: { fontSize: 14, lineHeight: 20, color: Palette.text },
   strong: { fontWeight: '800' },
+  snackbar: { backgroundColor: Palette.primary },
   actions: { flexDirection: 'row', gap: 10 },
   actionButton: {
     flex: 1,

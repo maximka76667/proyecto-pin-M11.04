@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Snackbar } from 'react-native-paper';
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { USER_ID } from '@/constants/dev-session';
@@ -77,7 +78,10 @@ function formatAssignmentDay(value: string, options: Intl.DateTimeFormatOptions)
 }
 
 export default function ChoreDetailsScreen() {
-  const { taskId } = useLocalSearchParams<{ taskId?: string }>();
+  const { taskId, swapNotice } = useLocalSearchParams<{
+    taskId?: string;
+    swapNotice?: string;
+  }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
   const [members, setMembers] = useState<HouseMember[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -348,7 +352,7 @@ export default function ChoreDetailsScreen() {
               myAssignment &&
               router.push({
                 pathname: '/chores/swap',
-                params: { assignmentId: myAssignment.id },
+                params: { assignmentId: myAssignment.id, taskId },
               })
             }
             style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
@@ -491,6 +495,13 @@ export default function ChoreDetailsScreen() {
           </View>
         </View>
       </Modal>
+      <Snackbar
+        visible={Boolean(swapNotice)}
+        onDismiss={() => router.setParams({ swapNotice: undefined })}
+        duration={4000}
+        style={styles.snackbar}>
+        {swapNotice ?? ''}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -584,6 +595,7 @@ const styles = StyleSheet.create({
   },
   secondaryText: { fontSize: 15, fontWeight: '700', color: Palette.primary },
   disabledButton: { opacity: 0.5 },
+  snackbar: { backgroundColor: Palette.primary },
   deleteButton: { borderColor: Palette.error },
   deleteText: { color: Palette.error },
   modalBackdrop: {

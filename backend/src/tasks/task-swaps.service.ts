@@ -51,14 +51,21 @@ export class TaskSwapsService {
     });
   }
 
-  // Peticiones en las que el usuario participa (como emisor o receptor) en ese piso.
+  // Peticiones relevantes para el usuario en ese piso: las pendientes en las que participa
+  // (emisor o receptor) y las ya completadas que él envió (aviso pasivo de que se aceptaron).
   async listMySwaps(apartmentId: string, currentUserId: string) {
     await this.tasksService.assertMember(apartmentId, currentUserId);
 
     return this.prisma.taskSwapRequest.findMany({
       where: {
         apartment_id: apartmentId,
-        OR: [{ from_user_id: currentUserId }, { to_user_id: currentUserId }],
+        OR: [
+          {
+            status: 'pending',
+            OR: [{ from_user_id: currentUserId }, { to_user_id: currentUserId }],
+          },
+          { status: 'completed', from_user_id: currentUserId },
+        ],
       },
       include: {
         from_user: { select: { id: true, full_name: true } },
@@ -132,8 +139,9 @@ export class TaskSwapsService {
     }
   }
 
-  // PA-1010.02: el receptor acepta. Se intercambian los dueños de ambas asignaciones y se borra
-  // la petición, todo en una transacción. Se revalida la disponibilidad por si cambió el estado.
+  // PA-1010.02: el receptor acepta. Se intercambian los dueños de ambas asignaciones y la petición
+  // queda guardada como `completed` (no se borra), todo en una transacción. Se revalida la
+  // disponibilidad por si cambió el estado.
   async acceptSwapRequest(id: string, currentUserId: string) {
     const request = await this.buscarPeticion(id);
 
@@ -141,6 +149,9 @@ export class TaskSwapsService {
       throw new ForbiddenException(
         'Solo el compañero que recibe la petición puede aceptarla',
       );
+    }
+    if (request.status !== 'pending') {
+      throw new ConflictException('Esta petición de intercambio ya se resolvió');
     }
 
     await this.assertCrossAvailability(
@@ -168,7 +179,10 @@ export class TaskSwapsService {
           where: { id: request.from_assignment_id },
           data: { user_id: request.to_user_id, due_time: fromDueTime },
         }),
-        this.prisma.taskSwapRequest.delete({ where: { id } }),
+        this.prisma.taskSwapRequest.update({
+          where: { id },
+          data: { status: 'completed', resolved_at: new Date() },
+        }),
       ]);
     } catch (error) {
       if (
@@ -194,6 +208,9 @@ export class TaskSwapsService {
         'Solo el compañero que recibe la petición puede rechazarla',
       );
     }
+    if (request.status !== 'pending') {
+      throw new ConflictException('Esta petición de intercambio ya se resolvió');
+    }
 
     await this.prisma.taskSwapRequest.delete({ where: { id } });
     return { status: 'rejected' as const };
@@ -208,6 +225,9 @@ export class TaskSwapsService {
         'Solo quien creó la petición puede cancelarla',
       );
     }
+    if (request.status !== 'pending') {
+      throw new ConflictException('Esta petición de intercambio ya se resolvió');
+    }
 
     await this.prisma.taskSwapRequest.delete({ where: { id } });
     return { status: 'cancelled' as const };
@@ -219,29 +239,51 @@ export class TaskSwapsService {
     from: AssignmentForSwap,
     to: AssignmentForSwap,
   ) {
+    const companionName = to.user.full_name;
+
     // El emisor (dueño de `from`) pasaría a hacer `to`: debe tener su hueco libre, ignorando
     // su propia tarea `from`, que cede en el intercambio (si no, chocaría consigo misma).
-    await this.tasksService.assertUserFreeAt(
-      from.user_id,
-      to.due_date,
-      this.startMinute(to),
-      to.task.duration_minutes ?? 30,
-      from.id,
-    );
+    try {
+      await this.tasksService.assertUserFreeAt(
+        from.user_id,
+        to.due_date,
+        this.startMinute(to),
+        to.task.duration_minutes ?? 30,
+        from.id,
+      );
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        throw new ConflictException(
+          `No se puede solicitar el cambio. No tienes disponibilidad en tu calendario para realizar la tarea de ${companionName}`,
+        );
+      }
+      throw error;
+    }
+
     // El receptor (dueño de `to`) pasaría a hacer `from`: debe tener su hueco libre, ignorando
     // su propia tarea `to`, que cede en el intercambio.
-    await this.tasksService.assertUserFreeAt(
-      to.user_id,
-      from.due_date,
-      this.startMinute(from),
-      from.task.duration_minutes ?? 30,
-      to.id,
-    );
+    try {
+      await this.tasksService.assertUserFreeAt(
+        to.user_id,
+        from.due_date,
+        this.startMinute(from),
+        from.task.duration_minutes ?? 30,
+        to.id,
+      );
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        throw new ConflictException(
+          `No se puede solicitar el cambio. ${companionName} no tiene disponibilidad en su calendario para realizar tu tarea`,
+        );
+      }
+      throw error;
+    }
   }
 
   private async ensureNotAlreadyPending(assignmentIds: string[]) {
     const pending = await this.prisma.taskSwapRequest.findFirst({
       where: {
+        status: 'pending',
         OR: [
           { from_assignment_id: { in: assignmentIds } },
           { to_assignment_id: { in: assignmentIds } },
@@ -258,7 +300,7 @@ export class TaskSwapsService {
 
   private async pendingAssignmentIds(apartmentId: string): Promise<string[]> {
     const pending = await this.prisma.taskSwapRequest.findMany({
-      where: { apartment_id: apartmentId },
+      where: { apartment_id: apartmentId, status: 'pending' },
       select: { from_assignment_id: true, to_assignment_id: true },
     });
     return pending.flatMap((p) => [p.from_assignment_id, p.to_assignment_id]);

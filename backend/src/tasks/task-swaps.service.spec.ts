@@ -56,6 +56,7 @@ function pendingRequest(overrides: Record<string, unknown> = {}) {
     to_user_id: 'user-B',
     from_assignment_id: 'assign-A',
     to_assignment_id: 'assign-B',
+    status: 'pending',
     from_assignment: fromAssignment(),
     to_assignment: toAssignment(),
     ...overrides,
@@ -76,6 +77,7 @@ describe('TaskSwapsService', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -92,6 +94,7 @@ describe('TaskSwapsService', () => {
     tasksService.assertUserFreeAt.mockResolvedValue(undefined);
     prisma.taskAssignment.update.mockResolvedValue({});
     prisma.taskSwapRequest.delete.mockResolvedValue({});
+    prisma.taskSwapRequest.update.mockResolvedValue({});
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -160,6 +163,40 @@ describe('TaskSwapsService', () => {
       ).rejects.toThrow(ConflictException);
 
       expect(prisma.taskSwapRequest.create).not.toHaveBeenCalled();
+    });
+
+    it('mensaje PA-1010.04 cuando el compañero no tiene disponibilidad', async () => {
+      prisma.taskAssignment.findUnique
+        .mockResolvedValueOnce(fromAssignment())
+        .mockResolvedValueOnce(toAssignment());
+      prisma.taskSwapRequest.findFirst.mockResolvedValue(null);
+      // Primera comprobación (emisor A) libre; segunda (compañero B) ocupada.
+      tasksService.assertUserFreeAt
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new ConflictException('ocupado'));
+
+      await expect(
+        service.createSwapRequest('assign-A', 'assign-B', 'user-A'),
+      ).rejects.toThrow(
+        'No se puede solicitar el cambio. Beto no tiene disponibilidad en su calendario para realizar tu tarea',
+      );
+    });
+
+    it('mensaje PA-1010.04 cuando el emisor no tiene disponibilidad', async () => {
+      prisma.taskAssignment.findUnique
+        .mockResolvedValueOnce(fromAssignment())
+        .mockResolvedValueOnce(toAssignment());
+      prisma.taskSwapRequest.findFirst.mockResolvedValue(null);
+      // Primera comprobación (emisor A) ocupada.
+      tasksService.assertUserFreeAt.mockRejectedValueOnce(
+        new ConflictException('ocupado'),
+      );
+
+      await expect(
+        service.createSwapRequest('assign-A', 'assign-B', 'user-A'),
+      ).rejects.toThrow(
+        'No se puede solicitar el cambio. No tienes disponibilidad en tu calendario para realizar la tarea de Beto',
+      );
     });
 
     it('rechaza ofrecer una tarea que no es del emisor', async () => {
@@ -233,9 +270,12 @@ describe('TaskSwapsService', () => {
         where: { id: 'assign-A' },
         data: { user_id: 'user-B', due_time: '10:00' },
       });
-      expect(prisma.taskSwapRequest.delete).toHaveBeenCalledWith({
+      // La petición se conserva como completada, no se borra (PA-1010.02).
+      expect(prisma.taskSwapRequest.update).toHaveBeenCalledWith({
         where: { id: 'swap-1' },
+        data: { status: 'completed', resolved_at: expect.any(Date) },
       });
+      expect(prisma.taskSwapRequest.delete).not.toHaveBeenCalled();
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(4);
     });

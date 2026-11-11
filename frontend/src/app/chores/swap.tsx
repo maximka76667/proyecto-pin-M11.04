@@ -31,7 +31,10 @@ function formatDay(value: string) {
 }
 
 export default function RequestSwapScreen() {
-  const { assignmentId } = useLocalSearchParams<{ assignmentId?: string }>();
+  const { assignmentId, taskId } = useLocalSearchParams<{
+    assignmentId?: string;
+    taskId?: string;
+  }>();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   // sin assignmentId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(assignmentId));
@@ -71,12 +74,23 @@ export default function RequestSwapScreen() {
         from_assignment_id: assignmentId,
         to_assignment_id: candidate.id,
       });
+      // PA-1010.01: confirmación nombrando al compañero, en la bandeja de intercambios.
       router.replace({
         pathname: '/chores/swaps',
-        params: { notice: 'sent' },
+        params: {
+          noticeText: `Solicitud de intercambio enviada a ${candidate.user.full_name}`,
+        },
       });
     } catch (e) {
-      setError(errorMessage(e));
+      // PA-1010.04: se muestra el aviso y se vuelve a la pantalla anterior (el detalle de la tarea).
+      if (taskId) {
+        router.replace({
+          pathname: '/chores/details',
+          params: { taskId, swapNotice: errorMessage(e) },
+        });
+      } else {
+        setError(errorMessage(e));
+      }
     } finally {
       setSendingId(null);
     }

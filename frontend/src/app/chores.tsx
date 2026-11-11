@@ -171,9 +171,10 @@ export default function ChoresScreen() {
             const data = await api(
                 'GET',
                 `/tasks/swap-requests?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-            ) as { from_assignment: { id: string }; to_assignment: { id: string } }[];
+            ) as { status: string; from_assignment: { id: string }; to_assignment: { id: string } }[];
             const ids = new Set<string>();
             for (const request of data) {
+                if (request.status !== 'pending') continue;
                 ids.add(request.from_assignment.id);
                 ids.add(request.to_assignment.id);
             }
