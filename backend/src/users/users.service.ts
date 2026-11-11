@@ -1,6 +1,8 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -146,26 +148,29 @@ export class UsersService {
     file: Express.Multer.File,
     tipo?: string,
   ): Promise<string> {
-    const supabaseUrl =
-      process.env.SUPABASE_URL || 'https://omkzblbxlobvyiwuvvkp.supabase.co';
+    const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey =
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new InternalServerErrorException(
+        'Falta la configuración de Supabase Storage',
+      );
+    }
 
     const extension =
       tipo === 'image/png'
         ? 'png'
         : tipo === 'image/webp'
         ? 'webp'
-        : file.originalname?.split('.').pop() || 'jpg';
-    const filename = `${userId}/avatar.${extension}`;
+        : file.originalname?.split('.').pop() || 'jpeg';
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const filename = `${userId}/avatar-${unique}.${extension}`;
 
-    if (!supabaseKey) {
-      return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
-    }
-
+    const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${filename}`;
+    let res: Response;
     try {
-      const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${filename}`;
-      const res = await fetch(uploadUrl, {
+      res = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
           apikey: supabaseKey,
@@ -175,28 +180,29 @@ export class UsersService {
         },
         body: new Uint8Array(file.buffer),
       });
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('Supabase storage upload error:', res.status, errorText);
-      }
-
-      return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
-    } catch (err) {
-      console.error('Failed to upload avatar to Supabase Storage:', err);
-      return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
+    } catch {
+      throw new BadGatewayException('No se ha podido conectar con Storage');
     }
+
+    if (!res.ok) {
+      throw new BadGatewayException('Error al subir la imagen a Storage');
+    }
+
+    return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
   }
 
   private async deleteFromSupabaseStorage(
     avatarUrl: string | null | undefined,
   ): Promise<void> {
     if (!avatarUrl) return;
-    const supabaseUrl =
-      process.env.SUPABASE_URL || 'https://omkzblbxlobvyiwuvvkp.supabase.co';
+    const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey =
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-    if (!supabaseKey || !avatarUrl.includes('/storage/v1/object/public/avatars/')) {
+    if (
+      !supabaseUrl ||
+      !supabaseKey ||
+      !avatarUrl.includes('/storage/v1/object/public/avatars/')
+    ) {
       return;
     }
 

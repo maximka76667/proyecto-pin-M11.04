@@ -165,16 +165,25 @@ describe('UsersService', () => {
     });
 
     it('guarda el avatar y devuelve el perfil si la imagen es válida', async () => {
+      process.env.SUPABASE_URL = 'https://omkzblbxlobvyiwuvvkp.supabase.co';
+      process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+      jest
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(() =>
+          Promise.resolve(
+            new Response(JSON.stringify({ Key: 'avatars/foto.png' }), { status: 200 }),
+          ),
+        );
+
       const mockImage = {
         originalname: 'avatar.png',
         mimetype: 'image/png',
         size: 2 * 1024 * 1024,
         buffer: PNG,
       } as Express.Multer.File;
-      const dataUri = `data:image/png;base64,${PNG.toString('base64')}`;
 
       const expectedUrl =
-        'https://omkzblbxlobvyiwuvvkp.supabase.co/storage/v1/object/public/avatars/u1/avatar.png';
+        'https://omkzblbxlobvyiwuvvkp.supabase.co/storage/v1/object/public/avatars/u1/avatar-test.png';
 
       prisma.user.update.mockResolvedValue({});
       prisma.user.findUnique.mockResolvedValue({
@@ -191,7 +200,7 @@ describe('UsersService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
         data: {
-          avatar_url: expect.stringContaining('/storage/v1/object/public/avatars/u1/avatar.png'),
+          avatar_url: expect.stringContaining('/storage/v1/object/public/avatars/u1/avatar-'),
         },
       });
       expect(res.avatar_url).toContain('supabase.co/storage/v1/object/public/avatars');
