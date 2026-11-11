@@ -114,7 +114,7 @@ export default function ChoresScreen() {
     const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-    // Ids de asignaciones implicadas en un intercambio pendiente (para marcarlas "En cambio")
+    // Ids de asignaciones implicadas en un intercambio pendiente (para marcarlas "Swap pendiente")
     const [swapAssignmentIds, setSwapAssignmentIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -159,8 +159,14 @@ export default function ChoresScreen() {
     const loadCalendar = useCallback(async () => {
         const from = dateKey(weekStart);
         const to = dateKey(addDays(weekStart, 7));
+        // Google sync is best-effort here: if it fails, still show the tasks and the
+        // calendar with the data already stored (the availability screen reports it).
         try {
             await api('POST', '/availability/google/sync', { from, to });
+        } catch (e) {
+            console.warn('Google Calendar sync failed:', errorMessage(e));
+        }
+        try {
             const result = await api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`);
             setCalendarEvents(result.events);
         } catch (e) { setError(errorMessage(e)); }
@@ -478,7 +484,7 @@ export default function ChoresScreen() {
                                         {assignment && swapAssignmentIds.has(assignment.id) ? (
                                             <View style={styles.swapBadge}>
                                                 <MaterialCommunityIcons name="swap-horizontal" size={12} color={Palette.primary} />
-                                                <Text style={styles.swapBadgeText}>En cambio</Text>
+                                                <Text style={styles.swapBadgeText}>Swap pendiente</Text>
                                             </View>
                                         ) : null}
                                         {task.description ? (

@@ -54,6 +54,8 @@ export default function AvailabilityScreen() {
     const [tab, setTab] = useState<'mine' | 'house'>(googleCallback === '1' ? 'house' : 'mine');
     const [day, setDay] = useState<Day>(() => DAYS[(new Date().getDay() + 6) % 7].key);
     const [blocks, setBlocks] = useState<MyBlock[]>([]);
+    // Lo último guardado en el servidor, para no rechazar franjas que ya existían
+    const [savedBlocks, setSavedBlocks] = useState<MyBlock[]>([]);
     const [members, setMembers] = useState<HouseMember[]>([]);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState(googleCallback === '1'
@@ -85,6 +87,7 @@ export default function AvailabilityScreen() {
                 api('GET', '/availability/google/status'),
             ]);
             setBlocks(mine.blocks);
+            setSavedBlocks(mine.blocks);
             setMembers(house.members);
             setGoogleConnected(google.connected);
             setGoogleConfigured(google.configured);
@@ -96,8 +99,18 @@ export default function AvailabilityScreen() {
     const loadCalendar = useCallback(async () => {
         const from = dateKey(calendarWeek);
         const to = dateKey(addDays(calendarWeek, 90));
+        // A failed Google sync must not hide the shared calendar: show the error and
+        // carry on with whatever is already stored.
         try {
-            await api('POST', '/availability/google/sync', { from, to });
+            const sync = await api('POST', '/availability/google/sync', { from, to });
+            if (sync?.connected === false) {
+                setGoogleConnected(false);
+                setMessage('La conexión con Google Calendar ha caducado. Vuelve a conectarla.');
+            }
+        } catch (e) {
+            setMessage(errorMessage(e));
+        }
+        try {
             const [result, mine] = await Promise.all([
                 api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`),
                 api('GET', `/availability/google/events?from=${from}&to=${to}`),
@@ -156,7 +169,7 @@ export default function AvailabilityScreen() {
             end: normalizeTime(b.end) ?? b.end,
             label: b.label?.trim() ? b.label.trim() : null,
         }));
-        const problem = validateBlocks(clean);
+        const problem = validateBlocks(clean, savedBlocks);
         if (problem) {
             setMessage(problem);
             return;
@@ -167,6 +180,7 @@ export default function AvailabilityScreen() {
                 blocks: clean.map(({ label, ...rest }) => (label ? { ...rest, label } : rest)),
             });
             setBlocks(saved.blocks);
+            setSavedBlocks(saved.blocks);
             const house = await api('GET', `/availability/apartment/${APARTMENT_ID}`);
             setMembers(house.members);
             await loadCalendar();

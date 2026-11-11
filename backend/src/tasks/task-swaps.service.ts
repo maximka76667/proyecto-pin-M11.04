@@ -185,13 +185,18 @@ export class TaskSwapsService {
         }),
       ]);
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'Una de las tareas ya ocupa ese horario para el nuevo responsable',
-        );
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new ConflictException(
+            'Una de las tareas ya ocupa ese horario para el nuevo responsable',
+          );
+        }
+        // La petición se resolvió a la vez desde otro sitio (carrera): 4xx, no 500.
+        if (error.code === 'P2025') {
+          throw new ConflictException(
+            'La petición de intercambio ya no está pendiente',
+          );
+        }
       }
       throw error;
     }
@@ -212,7 +217,7 @@ export class TaskSwapsService {
       throw new ConflictException('Esta petición de intercambio ya se resolvió');
     }
 
-    await this.prisma.taskSwapRequest.delete({ where: { id } });
+    await this.borrarPeticion(id);
     return { status: 'rejected' as const };
   }
 
@@ -229,11 +234,28 @@ export class TaskSwapsService {
       throw new ConflictException('Esta petición de intercambio ya se resolvió');
     }
 
-    await this.prisma.taskSwapRequest.delete({ where: { id } });
+    await this.borrarPeticion(id);
     return { status: 'cancelled' as const };
   }
 
   // --- helpers ---
+
+  // Borra una petición; si se resolvió a la vez desde otro sitio (carrera) responde 4xx, no 500.
+  private async borrarPeticion(id: string) {
+    try {
+      await this.prisma.taskSwapRequest.delete({ where: { id } });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new ConflictException(
+          'La petición de intercambio ya no está pendiente',
+        );
+      }
+      throw error;
+    }
+  }
 
   private async assertCrossAvailability(
     from: AssignmentForSwap,

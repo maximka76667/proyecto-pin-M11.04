@@ -69,6 +69,11 @@ export class GoogleCalendarService {
       const token = this.decrypt(connection.refresh_token);
       await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '' });
     }
+    return this.forgetConnection(userId);
+  }
+
+  // Drops the stored token and its synced busy blocks without contacting Google.
+  private async forgetConnection(userId: string) {
     await this.prisma.$transaction([
       this.prisma.googleCalendarConnection.deleteMany({ where: { user_id: userId } }),
       this.prisma.googleBusyBlock.deleteMany({ where: { user_id: userId } }),
@@ -80,7 +85,19 @@ export class GoogleCalendarService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from >= to) throw new BadRequestException('Invalid calendar date range');
     const connection = await this.prisma.googleCalendarConnection.findUnique({ where: { user_id: userId } });
     if (!connection) return { blocks: [] };
-    const accessToken = await this.accessToken(this.decrypt(connection.refresh_token));
+    let accessToken: string;
+    try {
+      accessToken = await this.accessToken(this.decrypt(connection.refresh_token));
+    } catch (error) {
+      // Google rejected the refresh token (revoked, or expired: tokens of an OAuth
+      // app in "Testing" mode only last 7 days). Retrying can never succeed, so
+      // drop the connection and let the client show Google as disconnected.
+      if (error instanceof BadRequestException && error.message === 'invalid_grant') {
+        await this.forgetConnection(userId);
+        return { blocks: [], connected: false };
+      }
+      throw error;
+    }
     const rangeStart = new Date(`${from}T00:00:00.000Z`);
     const rangeEnd = new Date(`${to}T00:00:00.000Z`);
     const apiStart = new Date(rangeStart);

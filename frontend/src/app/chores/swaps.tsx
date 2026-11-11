@@ -142,7 +142,7 @@ export default function SwapsInboxScreen() {
                 {actingId === request.id ? (
                   <ActivityIndicator color={Palette.onPrimary} />
                 ) : (
-                  <Text style={styles.acceptText}>Aceptar</Text>
+                  <Text style={styles.acceptText}>Aceptar cambio</Text>
                 )}
               </Pressable>
               <Pressable
@@ -156,7 +156,7 @@ export default function SwapsInboxScreen() {
                   )
                 }
                 style={[styles.actionButton, styles.reject]}>
-                <Text style={styles.rejectText}>Rechazar</Text>
+                <Text style={styles.rejectText}>Rechazar cambio</Text>
               </Pressable>
             </View>
           </View>
@@ -189,7 +189,7 @@ export default function SwapsInboxScreen() {
                 {actingId === request.id ? (
                   <ActivityIndicator color={Palette.error} />
                 ) : (
-                  <Text style={styles.rejectText}>Cancelar</Text>
+                  <Text style={styles.rejectText}>Cancelar solicitud de intercambio</Text>
                 )}
               </Pressable>
             </View>

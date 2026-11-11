@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -17,6 +17,7 @@ import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
 import { USER_ID } from '@/constants/dev-session';
 import { api, errorMessage } from '@/lib/api';
+import { normalizeTime, toMinutes } from '@/lib/availability';
 
 type TaskDetails = {
   apartment_id: string;
@@ -36,6 +37,59 @@ type TaskDetails = {
 };
 
 type HouseMember = { id: string; full_name: string; isCurrentUser?: boolean };
+
+// GET /tasks/swap-requests: solo lo necesario para saber si esta tarea tiene un intercambio
+// pendiente enviado por el usuario
+type SwapRequestSummary = {
+  id: string;
+  from_user_id: string;
+  status?: string;
+  from_assignment: { id: string };
+};
+
+// Hoy la API solo devuelve las pendientes; si algún día guarda también las resueltas
+// (p. ej. «completada»), esas no se pueden cancelar
+const isPendingSwap = (request: SwapRequestSummary) =>
+  !request.status || /^(pending|pendiente)$/i.test(request.status);
+const DEFAULT_ASSIGNMENT_TIME = '09:30';
+
+// GET /tasks/:id/availability: quién tiene ocupada la franja de la tarea en ese día y hora
+type SlotAvailability = {
+  start: string;
+  end: string;
+  members: {
+    id: string;
+    full_name: string;
+    available: boolean;
+    busy: { start: string; end: string } | null;
+  }[];
+};
+// La respuesta se guarda con el día y la hora a los que corresponde ("2026-11-10|09:30")
+type AvailabilityResult = { key: string; data: SlotAvailability | null; error: string };
+
+// "9:30" → "09:30". Una tarea no puede empezar a las 24:00
+function normalizeStartTime(text: string) {
+  const time = normalizeTime(text);
+  return time && time !== '24:00' ? time : null;
+}
+
+function addMinutes(time: string, minutes: number) {
+  const total = toMinutes(time) + minutes;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+// Franja que ocupa una asignación, p. ej. "09:30–10:00"
+function formatSlot(dueTime: string | null, durationMinutes: number) {
+  const start = dueTime ? normalizeStartTime(dueTime) : null;
+  if (!start) return 'hora sin definir';
+  return `${start}–${addMinutes(start, durationMinutes)}`;
+}
+
+function unavailableMessage(name: string, busy: { start: string; end: string } | null) {
+  return busy
+    ? `${name} no está disponible en esa franja: tiene ocupado de ${busy.start} a ${busy.end}.`
+    : `${name} no está disponible en esa franja.`;
+}
 
 const frequencyLabels: Record<string, string> = {
   none: 'Una vez',
@@ -93,10 +147,12 @@ export default function ChoreDetailsScreen() {
   const [assignDialogVisible, setAssignDialogVisible] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [assignedDay, setAssignedDay] = useState(todayAsInputDate);
-  const [assignedTime, setAssignedTime] = useState('');
+  const [assignedTime, setAssignedTime] = useState(DEFAULT_ASSIGNMENT_TIME);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [assignmentError, setAssignmentError] = useState('');
   const [assignmentNotice, setAssignmentNotice] = useState('');
+  const [availability, setAvailability] = useState<AvailabilityResult | null>(null);
+  const [availabilityWarning, setAvailabilityWarning] = useState('');
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
@@ -204,19 +260,88 @@ export default function ChoreDetailsScreen() {
     };
   }, [taskId]);
 
+  // Día y hora ya normalizados ("9:30" → "09:30"); null mientras no sean válidos
+  const assignmentDay = parseAssignmentDay(assignedDay);
+  const assignmentTime = normalizeStartTime(assignedTime);
+  const slotEndsAfterMidnight = Boolean(
+    task && assignmentTime && toMinutes(assignmentTime) + task.duration_minutes > 24 * 60,
+  );
+  const availabilityKey =
+    assignDialogVisible && assignmentDay && assignmentTime && !slotEndsAfterMidnight
+      ? `${assignmentDay}|${assignmentTime}`
+      : null;
+  // La respuesta solo vale si es del día y la hora que hay ahora en el formulario
+  const currentAvailability = availability?.key === availabilityKey ? availability : null;
+  const checkingAvailability = Boolean(availabilityKey) && !currentAvailability;
+  const busyById = new Map(
+    (currentAvailability?.data?.members ?? [])
+      .filter((member) => !member.available)
+      .map((member) => [member.id, member.busy]),
+  );
+  const selectedBusy = members.filter(
+    (member) => selectedUserIds.includes(member.id) && busyById.has(member.id),
+  );
+
+  // Con un día y una hora válidos, pregunta quién tiene esa franja ocupada (400 ms después de
+  // dejar de escribir). El estado solo cambia dentro del temporizador y de la promesa
+  useEffect(() => {
+    if (!availabilityKey || !taskId) return;
+    const [day, time] = availabilityKey.split('|');
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (api(
+        'GET',
+        `/tasks/${encodeURIComponent(taskId)}/availability?due_date=${day}&due_time=${encodeURIComponent(time)}`,
+      ) as Promise<SlotAvailability>)
+        .then((data) => {
+          if (!cancelled) setAvailability({ key: availabilityKey, data, error: '' });
+        })
+        .catch((e) => {
+          if (!cancelled) setAvailability({ key: availabilityKey, data: null, error: errorMessage(e) });
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [availabilityKey, taskId]);
+
   const openAssignmentDialog = () => {
     setSelectedUserIds([]);
     setAssignedDay(todayAsInputDate());
-    setAssignedTime('');
+    // 09:30 no debe ser solo un placeholder: la hora mostrada tiene que formar parte
+    // del estado para que se consulte disponibilidad y se envíe al asignar.
+    setAssignedTime(DEFAULT_ASSIGNMENT_TIME);
     setAssignmentError('');
+    setAvailabilityWarning('');
     setAssignDialogVisible(true);
   };
 
-  const toggleAssignee = (userId: string) => {
+  const changeAssignedDay = (value: string) => {
+    setAssignedDay(value);
+    setAvailabilityWarning('');
+  };
+
+  const changeAssignedTime = (value: string) => {
+    setAssignedTime(value);
+    setAvailabilityWarning('');
+  };
+
+  // Al salir del campo, "9:30" se queda escrito como "09:30"
+  const normalizeAssignedTime = () => {
+    if (assignmentTime && assignmentTime !== assignedTime) setAssignedTime(assignmentTime);
+  };
+
+  const toggleAssignee = (member: HouseMember) => {
+    const selected = selectedUserIds.includes(member.id);
+    // A quien tiene la franja ocupada no se le puede elegir; sí quitarlo si ya estaba
+    if (!selected && busyById.has(member.id)) {
+      setAvailabilityWarning(unavailableMessage(member.full_name, busyById.get(member.id) ?? null));
+      return;
+    }
+    setAvailabilityWarning('');
     setSelectedUserIds((current) =>
-      current.includes(userId)
-        ? current.filter((id) => id !== userId)
-        : [...current, userId],
+      selected ? current.filter((id) => id !== member.id) : [...current, member.id],
     );
   };
 
@@ -226,13 +351,20 @@ export default function ChoreDetailsScreen() {
       return;
     }
 
-    const day = parseAssignmentDay(assignedDay);
-    if (!day) {
+    if (!assignmentDay) {
       setAssignmentError('Introduce un día válido con el formato DD/MM/AAAA.');
       return;
     }
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(assignedTime)) {
-      setAssignmentError('Introduce una hora válida con el formato HH:mm.');
+    if (!assignmentTime) {
+      setAssignmentError('Introduce una hora válida, por ejemplo 09:30.');
+      return;
+    }
+    if (slotEndsAfterMidnight) {
+      setAssignmentError('La tarea no puede terminar después de medianoche.');
+      return;
+    }
+    if (selectedBusy.length > 0) {
+      setAssignmentError(unavailableMessage(selectedBusy[0].full_name, busyById.get(selectedBusy[0].id) ?? null));
       return;
     }
 
@@ -242,7 +374,7 @@ export default function ChoreDetailsScreen() {
       const newAssignments = await api(
         'POST',
         `/tasks/${encodeURIComponent(taskId)}/assignments`,
-        { user_ids: selectedUserIds, due_date: day, due_time: assignedTime },
+        { user_ids: selectedUserIds, due_date: assignmentDay, due_time: assignmentTime },
       ) as TaskDetails['assignments'];
       setTask((current) => current && ({
         ...current,
@@ -267,6 +399,55 @@ export default function ChoreDetailsScreen() {
   const assignment = task?.assignments[0];
   // Asignación del usuario actual en esta tarea: es la que puede poner a intercambio.
   const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
+  const apartmentId = task?.apartment_id;
+  const myAssignmentId = myAssignment?.id;
+
+  // PA-1010.05: la solicitud de intercambio que envió el usuario con esta tarea se cancela desde
+  // la propia tarea. Se vuelve a mirar al volver a la pantalla (p. ej. tras pedir el cambio)
+  const [sentSwapId, setSentSwapId] = useState<string | null>(null);
+  const [swapCancelling, setSwapCancelling] = useState(false);
+  const [swapError, setSwapError] = useState('');
+  useFocusEffect(
+    useCallback(() => {
+      if (!apartmentId || !myAssignmentId) return;
+      let active = true;
+      void (api(
+        'GET',
+        `/tasks/swap-requests?apartment_id=${encodeURIComponent(apartmentId)}`,
+      ) as Promise<SwapRequestSummary[]>)
+        .then((requests) => {
+          if (!active) return;
+          const sent = requests.find(
+            (request) =>
+              request.from_user_id === USER_ID &&
+              request.from_assignment.id === myAssignmentId &&
+              isPendingSwap(request),
+          );
+          setSentSwapId(sent?.id ?? null);
+        })
+        .catch(() => {
+          // Sin la lista no se ofrece cancelar aquí; sigue pudiéndose desde «Ver intercambios»
+        });
+      return () => {
+        active = false;
+      };
+    }, [apartmentId, myAssignmentId]),
+  );
+
+  const cancelSwapRequest = async () => {
+    if (!sentSwapId) return;
+    setSwapCancelling(true);
+    setSwapError('');
+    try {
+      await api('DELETE', `/tasks/swap-requests/${encodeURIComponent(sentSwapId)}`);
+      setSentSwapId(null);
+    } catch (e) {
+      setSwapError(errorMessage(e));
+    } finally {
+      setSwapCancelling(false);
+    }
+  };
+
   const assignmentDate = assignment
     ? formatAssignmentDay(assignment.due_date, {
       month: 'short',
@@ -308,7 +489,7 @@ export default function ChoreDetailsScreen() {
                     {item.user.full_name} · {formatAssignmentDay(item.due_date, {
                       month: 'short',
                       day: 'numeric',
-                    })} · {item.due_time ?? 'hora sin definir'} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
+                    })} · {formatSlot(item.due_time, task.duration_minutes)} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -346,23 +527,40 @@ export default function ChoreDetailsScreen() {
             <MaterialCommunityIcons name="account-plus-outline" size={18} color={Palette.primary} />
             <Text style={styles.secondaryText}>Asignar tarea manualmente</Text>
           </Pressable>
-          <Pressable
-            disabled={!myAssignment}
-            onPress={() =>
-              myAssignment &&
-              router.push({
-                pathname: '/chores/swap',
-                params: { assignmentId: myAssignment.id, taskId },
-              })
-            }
-            style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
-            <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>
-              {myAssignment
-                ? 'Solicitar un cambio'
-                : 'Solo puedes cambiar una tarea tuya'}
-            </Text>
-          </Pressable>
+          {sentSwapId && myAssignment ? (
+            <Pressable
+              disabled={swapCancelling}
+              onPress={() => void cancelSwapRequest()}
+              style={[styles.secondaryButton, styles.deleteButton]}>
+              {swapCancelling ? (
+                <ActivityIndicator color={Palette.error} />
+              ) : (
+                <MaterialCommunityIcons name="close-circle-outline" size={18} color={Palette.error} />
+              )}
+              <Text style={[styles.secondaryText, styles.deleteText]}>
+                Cancelar solicitud de intercambio
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              disabled={!myAssignment}
+              onPress={() =>
+                myAssignment &&
+                router.push({
+                  pathname: '/chores/swap',
+                  params: { assignmentId: myAssignment.id, taskId },
+                })
+              }
+              style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
+              <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
+              <Text style={styles.secondaryText}>
+                {myAssignment
+                  ? 'Solicitar un cambio'
+                  : 'Solo puedes cambiar una tarea tuya'}
+              </Text>
+            </Pressable>
+          )}
+          {swapError ? <Text style={styles.error}>{swapError}</Text> : null}
           <Pressable
             onPress={() => router.push('/chores/swaps')}
             style={styles.secondaryButton}>
@@ -422,8 +620,42 @@ export default function ChoreDetailsScreen() {
               </Pressable>
             </View>
             <Text style={styles.modalDescription}>
-              Elige una o varias personas y el día asignado.
+              Elige el día y la hora: quien tenga esa franja ocupada en su calendario no se podrá elegir.
             </Text>
+            <View style={styles.scheduleFields}>
+              <View style={styles.scheduleField}>
+                <Text style={styles.sectionLabel}>DÍA ASIGNADO</Text>
+                <TextInput
+                  value={assignedDay}
+                  onChangeText={changeAssignedDay}
+                  placeholder="DD/MM/AAAA"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={10}
+                  style={styles.dateInput}
+                  accessibilityLabel="Día asignado"
+                />
+              </View>
+              <View style={styles.scheduleField}>
+                <Text style={styles.sectionLabel}>HORA DE INICIO</Text>
+                <TextInput
+                  value={assignedTime}
+                  onChangeText={changeAssignedTime}
+                  onBlur={normalizeAssignedTime}
+                  placeholder="09:30"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                  style={styles.dateInput}
+                  accessibilityLabel="Hora de inicio"
+                />
+              </View>
+            </View>
+            {task && assignmentTime ? (
+              <Text style={slotEndsAfterMidnight ? styles.slotWarning : styles.slotText}>
+                {slotEndsAfterMidnight
+                  ? 'La tarea terminaría después de medianoche.'
+                  : `De ${assignmentTime} a ${addMinutes(assignmentTime, task.duration_minutes)} (${task.duration_minutes} min)`}
+              </Text>
+            ) : null}
             <Text style={styles.sectionLabel}>PERSONA</Text>
             {membersLoading ? (
               <ActivityIndicator color={Palette.primary} />
@@ -433,46 +665,55 @@ export default function ChoreDetailsScreen() {
               <Text style={styles.assignment}>No hay miembros disponibles en este hogar.</Text>
             ) : (
               <ScrollView style={styles.memberList} keyboardShouldPersistTaps="handled">
+                {checkingAvailability ? (
+                  <Text style={styles.memberHint}>Comprobando quién está libre en esa franja…</Text>
+                ) : currentAvailability?.error ? (
+                  <Text style={styles.error}>{currentAvailability.error}</Text>
+                ) : !availabilityKey ? (
+                  <Text style={styles.memberHint}>Indica el día y la hora para ver quién está libre.</Text>
+                ) : null}
                 {members.map((member) => {
                   const selected = selectedUserIds.includes(member.id);
+                  const busy = busyById.get(member.id);
+                  const unavailable = busyById.has(member.id);
                   return (
                     <Pressable
                       key={member.id}
-                      onPress={() => toggleAssignee(member.id)}
-                      style={[styles.memberOption, selected && styles.memberOptionSelected]}>
+                      onPress={() => toggleAssignee(member)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected, disabled: unavailable && !selected }}
+                      style={[
+                        styles.memberOption,
+                        selected && styles.memberOptionSelected,
+                        unavailable && styles.memberOptionBusy,
+                      ]}>
                       <MaterialCommunityIcons
-                        name={selected ? 'check-circle' : 'circle-outline'}
+                        name={unavailable ? 'calendar-remove-outline' : selected ? 'check-circle' : 'circle-outline'}
                         size={21}
-                        color={selected ? Palette.primary : Palette.textSecondary}
+                        color={unavailable ? Palette.error : selected ? Palette.primary : Palette.textSecondary}
                       />
-                      <Text style={styles.memberName}>
-                        {member.isCurrentUser ? `Yo · ${member.full_name}` : member.full_name}
-                      </Text>
+                      <View style={styles.memberText}>
+                        <Text style={[styles.memberName, unavailable && styles.memberNameBusy]}>
+                          {member.isCurrentUser ? `Yo · ${member.full_name}` : member.full_name}
+                        </Text>
+                        {unavailable ? (
+                          <Text style={styles.memberBusy}>
+                            {busy ? `No disponible · ocupado de ${busy.start} a ${busy.end}` : 'No disponible en esa franja'}
+                          </Text>
+                        ) : null}
+                      </View>
                     </Pressable>
                   );
                 })}
               </ScrollView>
             )}
-            <Text style={styles.sectionLabel}>DÍA ASIGNADO</Text>
-            <TextInput
-              value={assignedDay}
-              onChangeText={setAssignedDay}
-              placeholder="DD/MM/AAAA"
-              keyboardType="numbers-and-punctuation"
-              maxLength={10}
-              style={styles.dateInput}
-              accessibilityLabel="Día asignado"
-            />
-            <Text style={styles.sectionLabel}>HORA ASIGNADA</Text>
-            <TextInput
-              value={assignedTime}
-              onChangeText={setAssignedTime}
-              placeholder="HH:mm"
-              keyboardType="numbers-and-punctuation"
-              maxLength={5}
-              style={styles.dateInput}
-              accessibilityLabel="Hora asignada"
-            />
+            {availabilityWarning ? (
+              <Text style={styles.error} accessibilityLiveRegion="polite">{availabilityWarning}</Text>
+            ) : selectedBusy.length > 0 ? (
+              <Text style={styles.error} accessibilityLiveRegion="polite">
+                {unavailableMessage(selectedBusy[0].full_name, busyById.get(selectedBusy[0].id) ?? null)} Quítalo de la selección o cambia la hora.
+              </Text>
+            ) : null}
             {assignmentError ? <Text style={styles.error}>{assignmentError}</Text> : null}
             <Pressable
               onPress={() => void assignTask()}
@@ -480,9 +721,14 @@ export default function ChoreDetailsScreen() {
                 assignmentSaving ||
                 membersLoading ||
                 Boolean(membersError) ||
-                members.length === 0
+                members.length === 0 ||
+                checkingAvailability ||
+                selectedBusy.length > 0
               }
-              style={styles.actionButton}>
+              style={[
+                styles.actionButton,
+                (checkingAvailability || selectedBusy.length > 0) && styles.actionButtonDisabled,
+              ]}>
               {assignmentSaving ? (
                 <ActivityIndicator color={Palette.onPrimary} />
               ) : (
@@ -638,6 +884,15 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.mint,
   },
   memberName: { flex: 1, fontSize: 14, fontWeight: '700', color: Palette.text },
+  memberText: { flex: 1, gap: 2 },
+  memberOptionBusy: { borderColor: '#F2C4BF', backgroundColor: '#FBF1EF' },
+  memberNameBusy: { color: Palette.textSecondary },
+  memberBusy: { fontSize: 12, color: Palette.error },
+  memberHint: { marginBottom: 8, fontSize: 13, color: Palette.textSecondary },
+  scheduleField: { flex: 1, gap: 8 },
+  slotText: { fontSize: 13, fontWeight: '700', color: Palette.primary },
+  slotWarning: { fontSize: 13, fontWeight: '700', color: Palette.error },
+  actionButtonDisabled: { opacity: 0.55 },
   dateInput: {
     paddingHorizontal: 14,
     paddingVertical: 12,
