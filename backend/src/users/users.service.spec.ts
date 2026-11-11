@@ -166,18 +166,22 @@ describe('UsersService', () => {
 
     it('guarda el avatar y devuelve el perfil si la imagen es válida', async () => {
       const mockImage = {
+        originalname: 'avatar.png',
         mimetype: 'image/png',
         size: 2 * 1024 * 1024,
         buffer: PNG,
       } as Express.Multer.File;
       const dataUri = `data:image/png;base64,${PNG.toString('base64')}`;
 
+      const expectedUrl =
+        'https://omkzblbxlobvyiwuvvkp.supabase.co/storage/v1/object/public/avatars/u1/avatar.png';
+
       prisma.user.update.mockResolvedValue({});
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
         email: 'alex@example.com',
         full_name: 'Alex Morgan',
-        avatar_url: dataUri,
+        avatar_url: expectedUrl,
         password_hash: null,
         user_apartments: [],
       });
@@ -186,9 +190,11 @@ describe('UsersService', () => {
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
-        data: { avatar_url: dataUri },
+        data: {
+          avatar_url: expect.stringContaining('/storage/v1/object/public/avatars/u1/avatar.png'),
+        },
       });
-      expect(res.avatar_url).toContain('data:image/png');
+      expect(res.avatar_url).toContain('supabase.co/storage/v1/object/public/avatars');
     });
   });
 

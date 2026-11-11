@@ -59,6 +59,7 @@ export type UploadFile = { uri: string; name: string; type: string; file?: Blob 
 export type Member = {
   id: string;
   full_name: string;
+  avatar_url?: string | null;
   isCurrentUser?: boolean;
 };
 
@@ -207,8 +208,12 @@ export async function apiUpload(
 }
 
 async function getUploadBlob(upload: UploadFile): Promise<Blob> {
-  if (Platform.OS === 'web' && upload.file) {
+  if (upload.file) {
     return upload.file;
+  }
+  if (Platform.OS === 'web' || upload.uri.startsWith('blob:') || upload.uri.startsWith('data:')) {
+    const res = await fetch(upload.uri);
+    return await res.blob();
   }
 
   // On native, image-picker returns a local file:// URI. Expo's File is a

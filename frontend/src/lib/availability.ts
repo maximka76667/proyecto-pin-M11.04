@@ -12,7 +12,7 @@ export const DAYS: { key: Day; short: string; long: string }[] = [
 
 export type MyBlock = { day_of_week: Day; start: string; end: string; label: string | null };
 export type HouseBlock = { day_of_week: Day; start: string; end: string };
-export type HouseMember = { id: string; full_name: string; isCurrentUser: boolean; blocks: HouseBlock[] };
+export type HouseMember = { id: string; full_name: string; avatar_url?: string | null; isCurrentUser: boolean; blocks: HouseBlock[] };
 
 const HORA = /^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$/;
 

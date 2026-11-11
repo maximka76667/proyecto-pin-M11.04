@@ -20,8 +20,4 @@ export class UpdateUserDto {
   @IsRequiredText({ message: NOMBRE_VACIO })
   @MaxLength(50, { message: NOMBRE_LARGO })
   full_name?: string;
-
-  @IsOptional()
-  @IsString({ message: 'El enlace del avatar debe ser una cadena de texto' })
-  avatar_url?: string;
 }

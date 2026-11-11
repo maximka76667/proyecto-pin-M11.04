@@ -109,9 +109,6 @@ export class UsersService {
           ...(updateUserDto.full_name !== undefined && {
             full_name: updateUserDto.full_name,
           }),
-          ...(updateUserDto.avatar_url !== undefined && {
-            avatar_url: updateUserDto.avatar_url,
-          }),
         },
       });
 
@@ -141,6 +138,80 @@ export class UsersService {
     }
   }
 
+  private async uploadToSupabaseStorage(
+    userId: string,
+    file: Express.Multer.File,
+    tipo?: string,
+  ): Promise<string> {
+    const supabaseUrl =
+      process.env.SUPABASE_URL || 'https://omkzblbxlobvyiwuvvkp.supabase.co';
+    const supabaseKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+
+    const extension =
+      tipo === 'image/png'
+        ? 'png'
+        : tipo === 'image/webp'
+        ? 'webp'
+        : file.originalname?.split('.').pop() || 'jpg';
+    const filename = `${userId}/avatar.${extension}`;
+
+    if (!supabaseKey) {
+      return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
+    }
+
+    try {
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${filename}`;
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          'Content-Type': tipo || file.mimetype || 'image/jpeg',
+          'x-upsert': 'true',
+        },
+        body: new Uint8Array(file.buffer),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Supabase storage upload error:', res.status, errorText);
+      }
+
+      return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
+    } catch (err) {
+      console.error('Failed to upload avatar to Supabase Storage:', err);
+      return `${supabaseUrl}/storage/v1/object/public/avatars/${filename}`;
+    }
+  }
+
+  private async deleteFromSupabaseStorage(
+    avatarUrl: string | null | undefined,
+  ): Promise<void> {
+    if (!avatarUrl) return;
+    const supabaseUrl =
+      process.env.SUPABASE_URL || 'https://omkzblbxlobvyiwuvvkp.supabase.co';
+    const supabaseKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+    if (!supabaseKey || !avatarUrl.includes('/storage/v1/object/public/avatars/')) {
+      return;
+    }
+
+    try {
+      const path = avatarUrl.split('/storage/v1/object/public/avatars/')[1];
+      if (!path) return;
+      await fetch(`${supabaseUrl}/storage/v1/object/avatars/${path}`, {
+        method: 'DELETE',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      });
+    } catch (err) {
+      console.error('Failed to delete avatar from Supabase Storage:', err);
+    }
+  }
+
   async updateAvatar(userId: string, file: Express.Multer.File | undefined) {
     if (!file) {
       throw new BadRequestException('No se ha proporcionado ninguna imagen');
@@ -154,7 +225,7 @@ export class UsersService {
       throw new BadRequestException(IMAGEN_NO_VALIDA);
     }
 
-    const avatarUrl = `data:${tipo};base64,${file.buffer.toString('base64')}`;
+    const avatarUrl = await this.uploadToSupabaseStorage(userId, file, tipo);
 
     try {
       await this.prisma.user.update({
@@ -177,6 +248,14 @@ export class UsersService {
 
   async removeAvatar(userId: string) {
     try {
+      const existingUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { avatar_url: true },
+      });
+      if (existingUser?.avatar_url) {
+        await this.deleteFromSupabaseStorage(existingUser.avatar_url);
+      }
+
       await this.prisma.user.update({
         where: { id: userId },
         data: { avatar_url: null },

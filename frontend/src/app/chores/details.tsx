@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   SafeAreaView,
@@ -33,7 +34,12 @@ type TaskDetails = {
   }[];
 };
 
-type HouseMember = { id: string; full_name: string; isCurrentUser?: boolean };
+type HouseMember = {
+  id: string;
+  full_name: string;
+  avatar_url?: string | null;
+  isCurrentUser?: boolean;
+};
 
 const frequencyLabels: Record<string, string> = {
   none: 'Una vez',
@@ -409,6 +415,7 @@ export default function ChoreDetailsScreen() {
               <ScrollView style={styles.memberList} keyboardShouldPersistTaps="handled">
                 {members.map((member) => {
                   const selected = selectedUserIds.includes(member.id);
+                  const initial = member.full_name.trim().charAt(0).toUpperCase() || '?';
                   return (
                     <Pressable
                       key={member.id}
@@ -419,6 +426,13 @@ export default function ChoreDetailsScreen() {
                         size={21}
                         color={selected ? Palette.primary : Palette.textSecondary}
                       />
+                      {member.avatar_url ? (
+                        <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+                      ) : (
+                        <View style={styles.memberAvatarPlaceholder}>
+                          <Text style={styles.memberAvatarText}>{initial}</Text>
+                        </View>
+                      )}
                       <Text style={styles.memberName}>
                         {member.isCurrentUser ? `Yo · ${member.full_name}` : member.full_name}
                       </Text>
@@ -603,6 +617,24 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.mint,
   },
   memberName: { flex: 1, fontSize: 14, fontWeight: '700', color: Palette.text },
+  memberAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  memberAvatarPlaceholder: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Palette.peach,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.text,
+  },
   dateInput: {
     paddingHorizontal: 14,
     paddingVertical: 12,

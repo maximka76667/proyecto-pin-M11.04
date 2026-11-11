@@ -176,6 +176,7 @@ export default function ProfileScreen() {
   };
 
   const handleSaveProfile = async () => {
+    if (!profile) return;
     const trimmed = newName.trim();
     if (!trimmed) {
       setEditError('El nombre no puede estar vacío');
@@ -189,12 +190,14 @@ export default function ProfileScreen() {
     setSaving(true);
     setEditError('');
     try {
+      let updatedProfile: Profile | null = null;
+
       // 1. Si el usuario decidió quitar la foto
       if (removePhoto && !selectedPhoto) {
-        await api('DELETE', '/users/me/avatar');
+        updatedProfile = (await api('DELETE', '/users/me/avatar')) as Profile;
       } else if (selectedPhoto) {
         // 2. Si se eligió una foto nueva, subirla
-        await apiUpload(
+        updatedProfile = (await apiUpload(
           '/users/me/avatar',
           'image',
           {
@@ -205,15 +208,19 @@ export default function ProfileScreen() {
           },
           // Máximo 5 MB: si en 20 s no ha terminado, se avisa y se puede volver a intentar
           20_000,
-        );
+        )) as Profile;
       }
 
-      // 3. Guardar el nombre actualizado
-      const updated = (await api('PATCH', '/users/me', {
-        full_name: trimmed,
-      })) as Profile;
+      // 3. Guardar el nombre actualizado si cambió o si no tenemos perfil actualizado
+      if (trimmed !== profile.full_name || !updatedProfile) {
+        updatedProfile = (await api('PATCH', '/users/me', {
+          full_name: trimmed,
+        })) as Profile;
+      }
 
-      setProfile(updated);
+      if (updatedProfile) {
+        setProfile(updatedProfile);
+      }
       setSelectedPhoto(null);
       setRemovePhoto(false);
       setEditModalVisible(false);
