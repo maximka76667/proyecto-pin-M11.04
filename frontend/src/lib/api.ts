@@ -9,8 +9,7 @@ import {
   saveStoredToken,
 } from '@/lib/auth-storage';
 
-//export const API_URL = 'http://localhost:3000';
-export const API_URL = 'http://192.168.1.134:3000';
+export const API_URL = 'http://localhost:3000';
 //export const API_URL = 'http://10.236.61.168:3000';
 
 export type Apartment = {

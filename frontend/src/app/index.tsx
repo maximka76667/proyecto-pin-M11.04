@@ -8,7 +8,7 @@ import { Palette } from '@/constants/onboarding';
 import { getCurrentUser, hasAuthToken, type CurrentUser } from '@/lib/api';
 
 export default function Welcome() {
-  const { inviteCode } = useLocalSearchParams<{ inviteCode?: string }>();
+  const { inviteCode, verified } = useLocalSearchParams<{ inviteCode?: string; verified?: string }>();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [checked, setChecked] = useState(false);
   useFocusEffect(useCallback(() => {
@@ -41,12 +41,13 @@ export default function Welcome() {
   }
 
   if (checked && user?.user_apartments.length) {
-    return <CatHome name={user.full_name} />;
+    return <CatHome name={user.full_name} verified={verified === '1'} />;
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        {verified === '1' ? <VerificationNotice /> : null}
         <View style={styles.topBar}>
           <View style={styles.brand}>
             <View style={styles.logo}>
@@ -85,16 +86,25 @@ export default function Welcome() {
   );
 }
 
-function CatHome({ name }: { name: string }) {
+function CatHome({ name, verified }: { name: string; verified: boolean }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.homeContainer}>
+        {verified ? <VerificationNotice /> : null}
         <Eyebrow>Bienvenido a casa</Eyebrow>
         <Text style={styles.homeTitle}>Hola, {name}</Text>
         <Text style={styles.cat}>🐱</Text>
         <Text style={styles.homeSubtitle}>Tu hogar compartido empieza aquí.</Text>
       </View>
     </SafeAreaView>
+  );
+}
+
+function VerificationNotice() {
+  return (
+    <View style={styles.verificationNotice} accessibilityLiveRegion="polite">
+      <Text style={styles.verificationNoticeText}>Email verificado correctamente. Bienvenido a Room8.</Text>
+    </View>
   );
 }
 
@@ -129,6 +139,18 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 24,
     paddingBottom: 16,
+  },
+  verificationNotice: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: Palette.mint,
+  },
+  verificationNoticeText: {
+    color: Palette.primary,
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   topBar: {
     flexDirection: 'row',

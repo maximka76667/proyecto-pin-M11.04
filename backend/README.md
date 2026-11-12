@@ -71,6 +71,10 @@ MAIL_FROM=Room8 <room8.app@gmail.com>
 # Genérala con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # Al ponerla o cambiarla, los códigos pendientes en ese momento dejan de valer
 PASSWORD_RESET_SECRET=<secreto-largo-aleatorio>
+# URL pública del backend, usada en los enlaces de confirmación de email
+BACKEND_URL=http://localhost:3000
+# Ruta web de la app al confirmar el email; permite abrirla con la sesión ya iniciada
+EMAIL_VERIFICATION_REDIRECT_URI=http://localhost:8081/auth
 ```
 
 ### Al desplegar
@@ -111,7 +115,7 @@ GOOGLE_AUTH_REDIRECT_URI=http://localhost:3000/auth/google/callback
 FRONTEND_URL=http://localhost:8081
 ```
 
-Registra `GOOGLE_AUTH_REDIRECT_URI` como URI autorizada en Google Cloud. Las cuentas creadas con email y contraseña requieren al menos 8 caracteres; tras registrarse, la aplicación conduce al usuario a crear un hogar o unirse mediante código.
+Registra `GOOGLE_AUTH_REDIRECT_URI` como URI autorizada en Google Cloud. Las cuentas creadas con email y contraseña requieren al menos 8 caracteres y deben confirmar el enlace enviado por correo antes de iniciar sesión; las cuentas de Google siguen entrando directamente. Tras confirmar, la aplicación conduce al usuario a crear un hogar o unirse mediante código.
 
 El consentimiento solicita acceso de solo lectura para poder listar todos los calendarios de Google y traer sus eventos. La app muestra los títulos solo a su dueño; los demás miembros de «La casa» únicamente ven «Ocupado». Las descripciones no se guardan. Al desconectar, se eliminan también los eventos importados.
 

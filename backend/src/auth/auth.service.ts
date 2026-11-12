@@ -8,23 +8,28 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   createHash,
+  randomBytes,
   randomUUID,
   createHmac,
 } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { MailService } from '../mail/mail.service';
 import type { RegisterDto } from './dto/register.dto';
 import type { LoginDto } from './dto/login.dto';
 
 const SESSION_DAYS = 30;
 const EMAIL_IN_USE = 'Este correo electrónico ya está en uso';
 const INVALID_CREDENTIALS = 'Correo o contraseña incorrectos';
+const EMAIL_NOT_VERIFIED = 'Tienes que confirmar tu email antes de entrar';
+const EMAIL_VERIFICATION_HOURS = 24;
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -41,6 +46,7 @@ export class AuthService {
           full_name: dto.full_name.trim(),
           is_landlord: false,
           password_hash: passwordHash,
+          email_verified_at: null,
         },
         select: { id: true, email: true, full_name: true },
       });
@@ -52,7 +58,27 @@ export class AuthService {
       }
       throw error;
     }
-    return this.withToken(user);
+    const tokenStore = this.prisma.emailVerificationToken;
+    if (!tokenStore) return { user };
+
+    const rawToken = randomBytes(32).toString('hex');
+    await tokenStore.create({
+      data: {
+        id: randomUUID(),
+        user_id: user.id,
+        token_hash: this.tokenHash(rawToken),
+        expires_at: new Date(Date.now() + EMAIL_VERIFICATION_HOURS * 60 * 60 * 1000),
+      },
+    });
+    const backendUrl = this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3000';
+    const appRedirect = this.emailVerificationRedirectUri();
+    await this.mail.sendEmailVerification(
+      email,
+      `${backendUrl}/auth/verify-email?token=${encodeURIComponent(rawToken)}${
+        appRedirect ? `&redirect_uri=${encodeURIComponent(appRedirect)}` : ''
+      }`,
+    );
+    return { user };
   }
 
   async login(dto: LoginDto) {
@@ -62,7 +88,49 @@ export class AuthService {
     if (!user?.password_hash || !(await this.verifyPassword(dto.password, user.password_hash))) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
+    if (!user.email_verified_at && !user.google_subject) {
+      throw new UnauthorizedException(EMAIL_NOT_VERIFIED);
+    }
     return this.withToken({ id: user.id, email: user.email, full_name: user.full_name });
+  }
+
+  async verifyEmail(token: string) {
+    const verification = await this.prisma.emailVerificationToken.findUnique({
+      where: { token_hash: this.tokenHash(token) },
+    });
+    if (!verification) {
+      return 'invalid';
+    }
+    if (verification.consumed_at) {
+      return 'used';
+    }
+    if (verification.expires_at <= new Date()) {
+      return 'invalid';
+    }
+
+    await this.prisma.user.update({
+      where: { id: verification.user_id },
+      data: { email_verified_at: new Date() },
+    });
+    await this.prisma.emailVerificationToken.update({
+      where: { id: verification.id },
+      data: { consumed_at: new Date() },
+    });
+    const user = await this.prisma.user.findUnique({
+      where: { id: verification.user_id },
+      select: { id: true, email: true, full_name: true },
+    });
+    if (!user) return 'invalid';
+    const session = await this.withToken(user);
+    return { status: 'confirmed' as const, token: session.token };
+  }
+
+  emailVerificationRedirectUri() {
+    if (process.env.NODE_ENV === 'test') return '';
+    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:8081';
+    const configuredPath = this.config.get<string>('EMAIL_VERIFICATION_REDIRECT_URI');
+    if (configuredPath) return configuredPath;
+    return `${frontendUrl.replace(/\/+$/, '')}/auth`;
   }
 
   async getUser(userId: string) {

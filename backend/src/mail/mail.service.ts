@@ -69,6 +69,7 @@ export class MailService implements OnModuleInit {
       } else {
         this.logger.error('Gmail no está configurado: no se ha enviado el código de recuperación');
       }
+
       return false;
     }
 
@@ -78,6 +79,25 @@ export class MailService implements OnModuleInit {
       resetText(code, expiresInMinutes),
       resetHtml(code, expiresInMinutes),
       'el código',
+    );
+  }
+
+  async sendEmailVerification(to: string, link: string) {
+    if (!this.transporter) {
+      if (IS_DEV_ENV) {
+        this.logger.warn(`Gmail no está configurado. Enlace de verificación para ${to}: ${link}`);
+      } else {
+        this.logger.error('Gmail no está configurado: no se ha enviado el enlace de verificación');
+      }
+      return false;
+    }
+
+    return this.send(
+      to,
+      'Confirma tu email en Room8',
+      verificationText(link),
+      verificationHtml(link),
+      'el enlace de verificación',
     );
   }
 
@@ -139,6 +159,26 @@ function resetHtml(code: string, minutes: number) {
   <p style="font-size:32px;font-weight:700;letter-spacing:8px;margin:16px 0;color:#2F6B55">${code}</p>
   <p>Caduca en ${minutes} minutos y solo se puede usar una vez.</p>
   <p style="color:#6B7280;font-size:13px">Si no has pedido cambiar la contraseña, ignora este email: tu cuenta sigue igual.</p>
+</div>`;
+}
+
+function verificationText(link: string) {
+  return [
+    'Confirma tu email en Room8',
+    '',
+    `Pulsa este enlace para confirmar tu email: ${link}`,
+    '',
+    'El enlace caduca en 24 horas.',
+    'Si no has creado una cuenta en Room8, ignora este email.',
+  ].join('\n');
+}
+
+function verificationHtml(link: string) {
+  return `<div style="font-family:Arial,sans-serif;color:#1F2A24;max-width:480px">
+  <h2 style="margin:0 0 12px">Confirma tu email en Room8</h2>
+  <p><a href="${link}" style="display:inline-block;padding:12px 20px;background:#2F6B55;color:#fff;text-decoration:none;border-radius:6px">Confirmar mi email</a></p>
+  <p>El enlace caduca en 24 horas.</p>
+  <p style="color:#6B7280;font-size:13px">Si no has creado una cuenta en Room8, ignora este email.</p>
 </div>`;
 }
 
