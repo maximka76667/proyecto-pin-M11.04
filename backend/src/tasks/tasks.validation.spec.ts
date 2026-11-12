@@ -6,6 +6,7 @@ import { configureApp } from '../app.setup';
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
+import { TaskSwapsService } from './task-swaps.service';
 
 describe('Validación de tareas', () => {
   let app: INestApplication<App>;
@@ -34,6 +35,7 @@ describe('Validación de tareas', () => {
       controllers: [TasksController],
       providers: [
         TasksService,
+        TaskSwapsService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();

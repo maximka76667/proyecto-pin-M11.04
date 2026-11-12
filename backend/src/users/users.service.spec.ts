@@ -31,7 +31,6 @@ describe('UsersService', () => {
 
     service = module.get<UsersService>(UsersService);
   });
-
   describe('getUserNames', () => {
     it('devuelve un mapa vacío si no hay ids', async () => {
       const res = await service.getUserNames([]);
@@ -229,4 +228,3 @@ describe('UsersService', () => {
     });
   });
 });
-

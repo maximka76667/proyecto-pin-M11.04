@@ -193,12 +193,6 @@ export async function api(method: string, path: string, body?: object) {
       }
     },
   );
-  const response = await fetch(`${API_URL}${path}`, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return readResponse(response);
 }
 
 // Uploads a file as multipart/form-data in the given field.
@@ -215,15 +209,6 @@ export async function apiUpload(
   const headers: Record<string, string> = {};
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
   return sendWithTimeout(`${API_URL}${path}`, { method: 'POST', headers, body: form }, timeoutMs);
-}
-
-async function getUploadBlob(upload: UploadFile): Promise<Blob> {
-  if (upload.file) {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    body: form,
-  });
-  return readResponse(response);
 }
 
 async function getUploadBlob(upload: UploadFile): Promise<Blob> {

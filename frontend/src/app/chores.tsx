@@ -114,6 +114,8 @@ export default function ChoresScreen() {
     const [showHouseTasks, setShowHouseTasks] = useState(false);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+    // Ids de asignaciones implicadas en un intercambio pendiente (para marcarlas "Swap pendiente")
+    const [swapAssignmentIds, setSwapAssignmentIds] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [pageWidth, setPageWidth] = useState(0);
@@ -170,11 +172,30 @@ export default function ChoresScreen() {
         } catch (e) { setError(errorMessage(e)); }
     }, [weekStart]);
 
+    const loadSwaps = useCallback(async () => {
+        try {
+            const data = await api(
+                'GET',
+                `/tasks/swap-requests?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+            ) as { status: string; from_assignment: { id: string }; to_assignment: { id: string } }[];
+            const ids = new Set<string>();
+            for (const request of data) {
+                if (request.status !== 'pending') continue;
+                ids.add(request.from_assignment.id);
+                ids.add(request.to_assignment.id);
+            }
+            setSwapAssignmentIds(ids);
+        } catch {
+            // Marcar "En cambio" es secundario: si falla, la lista se muestra igual
+        }
+    }, []);
+
     useFocusEffect(
         useCallback(() => {
             void loadTasks();
             void loadCalendar();
-        }, [loadTasks, loadCalendar]),
+            void loadSwaps();
+        }, [loadTasks, loadCalendar, loadSwaps]),
     );
 
     const openDeleteDialog = (task: Task) => {
@@ -336,6 +357,11 @@ export default function ChoresScreen() {
                     <Text style={styles.availabilityButtonText}>Mi disponibilidad y la de la casa</Text>
                 </Pressable>
 
+                <Pressable style={styles.availabilityButton} onPress={() => router.push('/chores/swaps')}>
+                    <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
+                    <Text style={styles.availabilityButtonText}>Intercambios de tareas</Text>
+                </Pressable>
+
                 <View style={styles.segmented}>
                     <Pressable
                         accessibilityRole="button"
@@ -455,6 +481,12 @@ export default function ChoresScreen() {
                                                 ? frequencyLabels[task.frequency]
                                                 : `${assignment?.user.full_name ?? 'Unassigned'} · ${frequencyLabels[task.frequency]}`}
                                         </Text>
+                                        {assignment && swapAssignmentIds.has(assignment.id) ? (
+                                            <View style={styles.swapBadge}>
+                                                <MaterialCommunityIcons name="swap-horizontal" size={12} color={Palette.primary} />
+                                                <Text style={styles.swapBadgeText}>Swap pendiente</Text>
+                                            </View>
+                                        ) : null}
                                         {task.description ? (
                                             <Text style={styles.choreDescription} numberOfLines={1}>
                                                 {task.description}
@@ -602,6 +634,8 @@ const styles = StyleSheet.create({
     choreTitle: { fontSize: 16, fontWeight: '800', color: Palette.text },
     choreMeta: { fontSize: 12, color: Palette.textSecondary },
     choreDescription: { marginTop: 2, fontSize: 11, color: Palette.textSecondary },
+    swapBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: Palette.mint },
+    swapBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5, color: Palette.primary },
     choreActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     choreAction: { padding: 4, borderRadius: 10 },
     pressed: { opacity: 0.75 },

@@ -22,7 +22,6 @@ describe('UsersController', () => {
 
     controller = module.get<UsersController>(UsersController);
   });
-
   it('getProfile llama a usersService.getProfile', async () => {
     const mock = { id: 'u1', full_name: 'Alex' };
     usersService.getProfile.mockResolvedValue(mock);
@@ -62,4 +61,3 @@ describe('UsersController', () => {
     expect(res).toBe(mock);
   });
 });
-

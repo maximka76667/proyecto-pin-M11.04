@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -13,8 +13,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Snackbar } from 'react-native-paper';
 import { DeleteChoreDialog } from '@/components/delete-chore-dialog';
 import { Palette, Radius } from '@/constants/onboarding';
+import { USER_ID } from '@/constants/dev-session';
 import { api, errorMessage } from '@/lib/api';
 import { normalizeTime, toMinutes } from '@/lib/availability';
 
@@ -41,6 +43,20 @@ type HouseMember = {
   avatar_url?: string | null;
   isCurrentUser?: boolean;
 };
+
+// GET /tasks/swap-requests: solo lo necesario para saber si esta tarea tiene un intercambio
+// pendiente enviado por el usuario
+type SwapRequestSummary = {
+  id: string;
+  from_user_id: string;
+  status?: string;
+  from_assignment: { id: string };
+};
+
+// Hoy la API solo devuelve las pendientes; si algún día guarda también las resueltas
+// (p. ej. «completada»), esas no se pueden cancelar
+const isPendingSwap = (request: SwapRequestSummary) =>
+  !request.status || /^(pending|pendiente)$/i.test(request.status);
 const DEFAULT_ASSIGNMENT_TIME = '09:30';
 
 // GET /tasks/:id/availability: quién tiene ocupada la franja de la tarea en ese día y hora
@@ -122,7 +138,10 @@ function formatAssignmentDay(value: string, options: Intl.DateTimeFormatOptions)
 }
 
 export default function ChoreDetailsScreen() {
-  const { taskId } = useLocalSearchParams<{ taskId?: string }>();
+  const { taskId, swapNotice } = useLocalSearchParams<{
+    taskId?: string;
+    swapNotice?: string;
+  }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
   const [members, setMembers] = useState<HouseMember[]>([]);
   const [completed, setCompleted] = useState(false);
@@ -384,6 +403,57 @@ export default function ChoreDetailsScreen() {
   };
 
   const assignment = task?.assignments[0];
+  // Asignación del usuario actual en esta tarea: es la que puede poner a intercambio.
+  const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
+  const apartmentId = task?.apartment_id;
+  const myAssignmentId = myAssignment?.id;
+
+  // PA-1010.05: la solicitud de intercambio que envió el usuario con esta tarea se cancela desde
+  // la propia tarea. Se vuelve a mirar al volver a la pantalla (p. ej. tras pedir el cambio)
+  const [sentSwapId, setSentSwapId] = useState<string | null>(null);
+  const [swapCancelling, setSwapCancelling] = useState(false);
+  const [swapError, setSwapError] = useState('');
+  useFocusEffect(
+    useCallback(() => {
+      if (!apartmentId || !myAssignmentId) return;
+      let active = true;
+      void (api(
+        'GET',
+        `/tasks/swap-requests?apartment_id=${encodeURIComponent(apartmentId)}`,
+      ) as Promise<SwapRequestSummary[]>)
+        .then((requests) => {
+          if (!active) return;
+          const sent = requests.find(
+            (request) =>
+              request.from_user_id === USER_ID &&
+              request.from_assignment.id === myAssignmentId &&
+              isPendingSwap(request),
+          );
+          setSentSwapId(sent?.id ?? null);
+        })
+        .catch(() => {
+          // Sin la lista no se ofrece cancelar aquí; sigue pudiéndose desde «Ver intercambios»
+        });
+      return () => {
+        active = false;
+      };
+    }, [apartmentId, myAssignmentId]),
+  );
+
+  const cancelSwapRequest = async () => {
+    if (!sentSwapId) return;
+    setSwapCancelling(true);
+    setSwapError('');
+    try {
+      await api('DELETE', `/tasks/swap-requests/${encodeURIComponent(sentSwapId)}`);
+      setSentSwapId(null);
+    } catch (e) {
+      setSwapError(errorMessage(e));
+    } finally {
+      setSwapCancelling(false);
+    }
+  };
+
   const assignmentDate = assignment
     ? formatAssignmentDay(assignment.due_date, {
       month: 'short',
@@ -463,9 +533,45 @@ export default function ChoreDetailsScreen() {
             <MaterialCommunityIcons name="account-plus-outline" size={18} color={Palette.primary} />
             <Text style={styles.secondaryText}>Asignar tarea manualmente</Text>
           </Pressable>
-          <Pressable style={styles.secondaryButton}>
-            <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Solicitar un cambio</Text>
+          {sentSwapId && myAssignment ? (
+            <Pressable
+              disabled={swapCancelling}
+              onPress={() => void cancelSwapRequest()}
+              style={[styles.secondaryButton, styles.deleteButton]}>
+              {swapCancelling ? (
+                <ActivityIndicator color={Palette.error} />
+              ) : (
+                <MaterialCommunityIcons name="close-circle-outline" size={18} color={Palette.error} />
+              )}
+              <Text style={[styles.secondaryText, styles.deleteText]}>
+                Cancelar solicitud de intercambio
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              disabled={!myAssignment}
+              onPress={() =>
+                myAssignment &&
+                router.push({
+                  pathname: '/chores/swap',
+                  params: { assignmentId: myAssignment.id, taskId },
+                })
+              }
+              style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
+              <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
+              <Text style={styles.secondaryText}>
+                {myAssignment
+                  ? 'Solicitar un cambio'
+                  : 'Solo puedes cambiar una tarea tuya'}
+              </Text>
+            </Pressable>
+          )}
+          {swapError ? <Text style={styles.error}>{swapError}</Text> : null}
+          <Pressable
+            onPress={() => router.push('/chores/swaps')}
+            style={styles.secondaryButton}>
+            <MaterialCommunityIcons name="swap-vertical-bold" size={18} color={Palette.primary} />
+            <Text style={styles.secondaryText}>Ver intercambios</Text>
           </Pressable>
           <Pressable
             onPress={() => router.push({ pathname: '/chores/edit', params: { taskId } })}
@@ -600,7 +706,7 @@ export default function ChoreDetailsScreen() {
                           <Text style={styles.memberAvatarText}>{initial}</Text>
                         </View>
                       )}
-                 
+
                       <View style={styles.memberText}>
                         <Text style={[styles.memberName, unavailable && styles.memberNameBusy]}>
                           {member.isCurrentUser ? `Yo · ${member.full_name}` : member.full_name}
@@ -650,6 +756,13 @@ export default function ChoreDetailsScreen() {
           </View>
         </View>
       </Modal>
+      <Snackbar
+        visible={Boolean(swapNotice)}
+        onDismiss={() => router.setParams({ swapNotice: undefined })}
+        duration={4000}
+        style={styles.snackbar}>
+        {swapNotice ?? ''}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -742,6 +855,8 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
   },
   secondaryText: { fontSize: 15, fontWeight: '700', color: Palette.primary },
+  disabledButton: { opacity: 0.5 },
+  snackbar: { backgroundColor: Palette.primary },
   deleteButton: { borderColor: Palette.error },
   deleteText: { color: Palette.error },
   modalBackdrop: {

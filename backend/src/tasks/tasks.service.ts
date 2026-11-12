@@ -277,6 +277,8 @@ export class TasksService {
 
     const task = await this.buscarTarea(id);
     await this.asegurarMiembro(task.apartment_id, userId);
+    // PA-1010.01: las tareas con un intercambio pendiente quedan bloqueadas.
+    await this.assertNoPendingSwapForAssignments(await this.assignmentIdsOfTask(id));
 
     try {
       return await this.prisma.task.update({
@@ -316,6 +318,8 @@ export class TasksService {
     }
 
     await this.asegurarMiembro(assignment.task.apartment_id, userId);
+    // PA-1010.01: una asignación con un intercambio pendiente no se puede quitar.
+    await this.assertNoPendingSwapForAssignments([id]);
 
     try {
       return await this.prisma.taskAssignment.delete({ where: { id } });
@@ -335,6 +339,8 @@ export class TasksService {
   async remove(id: string, userId: string) {
     const task = await this.buscarTarea(id);
     await this.asegurarMiembro(task.apartment_id, userId);
+    // PA-1010.01: una tarea con un intercambio pendiente no se puede borrar.
+    await this.assertNoPendingSwapForAssignments(await this.assignmentIdsOfTask(id));
 
     try {
       const [, tareaBorrada] = await this.prisma.$transaction([
@@ -344,6 +350,97 @@ export class TasksService {
       return tareaBorrada;
     } catch (error) {
       this.handlePrismaError(error);
+    }
+  }
+
+  // Comprueba que `userId` tiene el hueco libre en `dueDate` desde `startMinute` durante
+  // `durationMinutes`, contra sus otras asignaciones, su disponibilidad semanal y sus eventos
+  // de Google Calendar. Reutiliza las mismas reglas que al asignar una tarea. `excludeAssignmentId`
+  // ignora una asignación propia (la que el usuario libera en un intercambio).
+  async assertUserFreeAt(
+    userId: string,
+    dueDate: Date,
+    startMinute: number,
+    durationMinutes: number,
+    excludeAssignmentId?: string,
+  ): Promise<void> {
+    const endMinute = startMinute + durationMinutes;
+
+    const existingAssignments = await this.prisma.taskAssignment.findMany({
+      where: {
+        user_id: userId,
+        due_date: dueDate,
+        ...(excludeAssignmentId ? { id: { not: excludeAssignmentId } } : {}),
+      },
+      include: {
+        user: { select: { full_name: true } },
+        task: { select: { duration_minutes: true } },
+      },
+    });
+    const assignmentConflict = existingAssignments.find((assignment) => {
+      const otherStart = this.assignmentStartMinute(
+        assignment.due_time,
+        assignment.start_minute,
+      );
+      return this.overlaps(
+        startMinute,
+        endMinute,
+        otherStart,
+        otherStart + (assignment.task.duration_minutes ?? 30),
+      );
+    });
+    if (assignmentConflict) {
+      throw new ConflictException(
+        `${assignmentConflict.user.full_name} ya tiene otra tarea asignada que se solapa con ese horario`,
+      );
+    }
+
+    // Disponibilidad de calendario (semanal + Google, con sincronización y borde inclusivo
+    // PA-1524.03), igual que al asignar una tarea.
+    const busy = await this.findBusyMembers(
+      [userId],
+      dueDate,
+      startMinute,
+      endMinute,
+    );
+    if (busy.length > 0) {
+      throw new ConflictException(this.busyMessage(busy));
+    }
+  }
+
+  // Lanza ForbiddenException si el usuario no pertenece al piso (versión pública de asegurarMiembro).
+  async assertMember(apartmentId: string, userId: string) {
+    return this.asegurarMiembro(apartmentId, userId);
+  }
+
+  // Ids de las asignaciones de una tarea (vacío si el mock de prisma no soporta findMany).
+  private async assignmentIdsOfTask(taskId: string): Promise<string[]> {
+    if (typeof this.prisma.taskAssignment.findMany !== 'function') return [];
+    const assignments = await this.prisma.taskAssignment.findMany({
+      where: { task_id: taskId },
+      select: { id: true },
+    });
+    return assignments.map((assignment) => assignment.id);
+  }
+
+  // PA-1010.01: una tarea/asignación implicada en un intercambio pendiente queda bloqueada.
+  private async assertNoPendingSwapForAssignments(assignmentIds: string[]) {
+    if (assignmentIds.length === 0) return;
+    if (typeof this.prisma.taskSwapRequest?.findFirst !== 'function') return;
+    const pending = await this.prisma.taskSwapRequest.findFirst({
+      where: {
+        status: 'pending',
+        OR: [
+          { from_assignment_id: { in: assignmentIds } },
+          { to_assignment_id: { in: assignmentIds } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (pending) {
+      throw new ConflictException(
+        'No puedes modificar una tarea mientras tiene un intercambio pendiente',
+      );
     }
   }
 
