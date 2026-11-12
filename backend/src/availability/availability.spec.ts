@@ -56,12 +56,28 @@ describe('Availability', () => {
     });
 
     it('PA: guarda una franja horaria manual válida y devuelve confirmación', async () => {
-        const response = await request(app.getHttpServer())
-            .put('/availability/me')
-            .send({
-                blocks: [{ day_of_week: 'tuesday', start: '09:00', end: '13:30', label: ' Clases ' }],
-            })
-            .expect(200);
+        // El servicio rechaza franjas que empiezan antes de la hora actual del mismo día, así
+        // que el reloj se fija en un lunes por la mañana: sin esto, el test fallaba cada martes
+        // después de las 9:00. Solo se falsea Date; los temporizadores de supertest siguen reales
+        jest.useFakeTimers({
+            now: new Date('2026-11-02T06:00:00.000Z'),
+            doNotFake: [
+                'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame',
+                'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate',
+                'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+            ],
+        });
+        let response: request.Response;
+        try {
+            response = await request(app.getHttpServer())
+                .put('/availability/me')
+                .send({
+                    blocks: [{ day_of_week: 'tuesday', start: '09:00', end: '13:30', label: ' Clases ' }],
+                })
+                .expect(200);
+        } finally {
+            jest.useRealTimers();
+        }
         expect(response.body).toEqual({ blocks: [] });
         expect(prisma.availabilityBlock.createMany).toHaveBeenCalledWith({
             data: [
@@ -225,7 +241,7 @@ describe('Availability', () => {
                 due_time: '12:30',
                 start_minute: 540,
                 user: { id: 'u1', full_name: 'Ana' },
-                task: { id: 'task-1', title: 'Limpiar' },
+                task: { id: 'task-1', title: 'Limpiar', duration_minutes: 30 },
             },
         ]);
 

@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, usePathname, type Href } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Palette } from '@/constants/onboarding';
+import { getCurrentUser, hasAuthToken } from '@/lib/api';
 
 type Tab = {
   label: string;
@@ -18,14 +20,35 @@ const tabs: Tab[] = [
   { label: 'Tareas', icon: 'checkbox-marked-outline', href: '/chores' },
   { label: 'Calendario', icon: 'calendar-month-outline', href: '/availability' },
   { label: 'Dinero', icon: 'credit-card-outline', href: '/transactions' },
-  { label: 'Tú', icon: 'account-outline', href: '/household' },
+  { label: 'Tú', icon: 'account-outline', href: '/profile' },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const [hasHousehold, setHasHousehold] = useState(false);
 
-  if (!tabs.some(({ href }) => href === pathname)) return null;
+  useEffect(() => {
+    let active = true;
+    if (!hasAuthToken()) {
+      Promise.resolve().then(() => {
+        if (active) setHasHousehold(false);
+      });
+      return () => {
+        active = false;
+      };
+    }
+    void getCurrentUser()
+      .then((user) => {
+        if (active) setHasHousehold(user.user_apartments.length > 0);
+      })
+      .catch(() => {
+        if (active) setHasHousehold(false);
+      });
+    return () => { active = false; };
+  }, [pathname]);
+
+  if (!hasHousehold || !tabs.some(({ href }) => href === pathname)) return null;
 
   return (
     <View

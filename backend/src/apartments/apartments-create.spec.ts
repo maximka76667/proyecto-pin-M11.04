@@ -24,11 +24,13 @@ describe('Creación de apartamentos', () => {
   };
 
   const landlordId = '8b7c6d5e-4f3a-4210-9b8c-7d6e5f4a3210';
+  // El usuario que devuelve @CurrentUser() mientras no hay login (NODE_ENV=test)
+  const usuarioActual = '22222222-2222-2222-2222-222222222222';
   const apartment = {
     id: '6c5d4e3f-2a19-4876-9b0c-1d2e3f4a5b6c',
     name: 'PisoCentro',
     address: 'Calle Mayor 3',
-    landlord_id: landlordId,
+    landlord_id: usuarioActual,
   };
 
   beforeAll(async () => {
@@ -81,7 +83,8 @@ describe('Creación de apartamentos', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('crea el apartamento y vincula al propietario como organizador', async () => {
+  // El organizador sale de la sesión: un landlord_id en el cuerpo no puede nombrar a otro
+  it('crea el apartamento y vincula como organizador al usuario de la sesión, no al del cuerpo', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: landlordId,
       is_landlord: true,
@@ -107,11 +110,11 @@ describe('Creación de apartamentos', () => {
       data: {
         name: apartment.name,
         address: apartment.address,
-        landlord_id: landlordId,
+        landlord_id: usuarioActual,
       },
     });
     expect(prisma.userApartment.create).toHaveBeenCalledWith({
-      data: { user_id: landlordId, apartment_id: apartment.id },
+      data: { user_id: usuarioActual, apartment_id: apartment.id },
     });
     expect(response.body).toEqual(apartment);
   });

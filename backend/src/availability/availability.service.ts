@@ -93,6 +93,7 @@ export class AvailabilityService {
             select: {
                 id: true,
                 full_name: true,
+                avatar_url: true,
                 availability_blocks: {
                     select: { day_of_week: true, start_minute: true, end_minute: true },
                 },
@@ -104,6 +105,7 @@ export class AvailabilityService {
             members: users.map((u) => ({
                 id: u.id,
                 full_name: u.full_name,
+                avatar_url: u.avatar_url,
                 isCurrentUser: u.id === currentUserId,
                 blocks: this.sort(u.availability_blocks).map((b) => ({
                     day_of_week: b.day_of_week,

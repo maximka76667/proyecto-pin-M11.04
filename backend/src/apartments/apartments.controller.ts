@@ -29,13 +29,13 @@ export class ApartmentsController {
   constructor(private readonly apartmentsService: ApartmentsService) {}
 
   @Post()
-  create(@Body() createApartmentDto: CreateApartmentDto) {
-    return this.apartmentsService.create(createApartmentDto);
+  create(@Body() createApartmentDto: CreateApartmentDto, @CurrentUser() userId: string) {
+    return this.apartmentsService.create(createApartmentDto, userId);
   }
 
   @Post('join')
-  join(@Body() joinApartmentDto: JoinApartmentDto) {
-    return this.apartmentsService.join(joinApartmentDto);
+  join(@Body() joinApartmentDto: JoinApartmentDto, @CurrentUser() userId: string) {
+    return this.apartmentsService.join(joinApartmentDto, userId);
   }
 
   @Post(':id/invitation')
