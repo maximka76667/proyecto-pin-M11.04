@@ -4,6 +4,9 @@ import { TasksService } from './tasks.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
+import { TaskAvailabilityQueryDto } from './dto/task-availability-query.dto';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 
 @Controller('tasks')
@@ -26,6 +29,19 @@ export class TasksController {
       assignmentDto,
       currentUserId
     );
+  }
+
+  // Quién del hogar está libre para la tarea en ese día y hora (diálogo "Asignar tarea")
+  @Get(':id/availability')
+  membersAvailability(
+    @Param('id') taskId: string,
+    @Query() query: TaskAvailabilityQueryDto,
+    @CurrentUser() currentUserId: string,
+  ) {
+    if (!UUID_PATTERN.test(taskId)) {
+      throw new BadRequestException('Validation failed (uuid is expected)');
+    }
+    return this.tasksService.membersAvailability(taskId, query, currentUserId);
   }
 
   @Delete('assignments/:id')

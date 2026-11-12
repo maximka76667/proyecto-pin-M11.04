@@ -157,8 +157,14 @@ export default function ChoresScreen() {
     const loadCalendar = useCallback(async () => {
         const from = dateKey(weekStart);
         const to = dateKey(addDays(weekStart, 7));
+        // Google sync is best-effort here: if it fails, still show the tasks and the
+        // calendar with the data already stored (the availability screen reports it).
         try {
             await api('POST', '/availability/google/sync', { from, to });
+        } catch (e) {
+            console.warn('Google Calendar sync failed:', errorMessage(e));
+        }
+        try {
             const result = await api('GET', `/availability/calendar?apartment_id=${encodeURIComponent(APARTMENT_ID)}&from=${from}&to=${to}`);
             setCalendarEvents(result.events);
         } catch (e) { setError(errorMessage(e)); }
