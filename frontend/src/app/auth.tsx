@@ -10,8 +10,24 @@ import * as Linking from 'expo-linking';
 import { Eyebrow, Field, PrimaryButton, SegmentedControl } from '@/components/onboarding';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage, setAuthToken } from '@/lib/api';
+import { PASSWORD_HINT, PASSWORD_MESSAGES, validateEmail, validateNewPassword } from '@/lib/password-policy';
 
 type Mode = 'login' | 'register';
+type AuthField = 'name' | 'email' | 'password';
+type AuthErrors = Partial<Record<AuthField, string>>;
+
+// PA-1014.05: se valida antes de enviar para no llamar a la API con datos que va a rechazar.
+// En el login la contraseña solo es obligatoria, para no dejar fuera contraseñas antiguas
+function validateAuthForm(mode: Mode, values: { name: string; email: string; password: string }) {
+  const errors: AuthErrors = {};
+  if (mode === 'register' && !values.name.trim()) errors.name = PASSWORD_MESSAGES.required;
+  const emailError = validateEmail(values.email);
+  if (emailError) errors.email = emailError;
+  const passwordError =
+    mode === 'register' ? validateNewPassword(values.password) : !values.password ? PASSWORD_MESSAGES.required : undefined;
+  if (passwordError) errors.password = passwordError;
+  return errors;
+}
 
 export default function Auth() {
   const params = useLocalSearchParams<{
@@ -19,36 +35,50 @@ export default function Auth() {
     google_error?: string;
     expired?: string;
     reset?: string;
+    verified?: string;
   }>();
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<AuthErrors>({});
   const [loading, setLoading] = useState(false);
+  const [verificationPending, setVerificationPending] = useState(false);
+
+  // Al escribir en un campo desaparece su error
+  const edit = (field: AuthField, setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    if (fieldErrors[field]) setFieldErrors((previous) => ({ ...previous, [field]: undefined }));
+  };
 
   useEffect(() => {
     if (params.token) {
       setAuthToken(params.token);
-      router.replace('/');
+      router.replace(params.verified ? { pathname: '/', params: { verified: '1' } } : '/');
     } else if (params.google_error) {
       setError('No se pudo conectar con Google.');
     }
   }, [params.google_error, params.token]);
 
   const submit = async () => {
-    if (mode === 'register' && !name.trim()) return setError('Introduce tu nombre.');
-    if (!email.trim() || !password) return setError('Completa tu email y contraseña.');
-    setLoading(true);
+    const errors = validateAuthForm(mode, { name, email, password });
+    setFieldErrors(errors);
     setError('');
+    if (Object.values(errors).some(Boolean)) return;
+    setLoading(true);
     try {
       const result = await api('POST', `/auth/${mode}`, {
         email: email.trim(),
         password,
         ...(mode === 'register' ? { full_name: name.trim() } : {}),
       });
-      setAuthToken(result.token);
-      router.replace('/');
+      if (mode === 'register') {
+        setVerificationPending(true);
+      } else {
+        setAuthToken(result.token);
+        router.replace('/');
+      }
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -100,6 +130,14 @@ export default function Auth() {
           <Text style={styles.title}>{mode === 'login' ? 'Bienvenido de nuevo.' : 'Crea tu cuenta.'}</Text>
           <Text style={styles.subtitle}>Organiza tu casa de forma sencilla, justa y compartida.</Text>
         </View>
+        {verificationPending ? (
+          <View style={[styles.notice, styles.noticeSuccess]} accessibilityLiveRegion="polite">
+            <MaterialCommunityIcons name="email-check-outline" size={20} color={Palette.primary} />
+            <Text style={[styles.noticeText, { color: Palette.primary }]}>
+              Confirma tu email. Te hemos enviado un enlace a {email}. Después podrás iniciar sesión.
+            </Text>
+          </View>
+        ) : null}
         {/* PA-1015.02: llega aquí cuando el backend rechaza el token (p. ej. contraseña cambiada en otro dispositivo) */}
         {params.expired ? (
           <View style={[styles.notice, styles.noticeWarning]} accessibilityLiveRegion="polite">
@@ -113,28 +151,63 @@ export default function Auth() {
             <Text style={[styles.noticeText, { color: Palette.primary }]}>Contraseña restablecida. Inicia sesión con tu nueva contraseña.</Text>
           </View>
         ) : null}
-        <SegmentedControl options={[{ value: 'login', label: 'Iniciar sesión' }, { value: 'register', label: 'Registrarme' }]} value={mode} onChange={(value) => { setMode(value); setError(''); }} />
-        <View style={styles.form}>
-          {mode === 'register' ? <Field label="Tu nombre" placeholder="p. ej. Alex" value={name} onChangeText={setName} /> : null}
-          <Field label="Email" placeholder="tu@email.com" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-          <Field label="Contraseña" placeholder="Mínimo 8 caracteres" value={password} onChangeText={setPassword} secureTextEntry />
-          {mode === 'login' ? (
-            <Pressable onPress={() => router.push('/forgot-password' as Href)} disabled={loading} hitSlop={8} accessibilityRole="link" style={styles.forgot}>
-              <Text style={styles.forgotText}>¿Has olvidado tu contraseña?</Text>
+        {params.verified ? (
+          <View style={[styles.notice, styles.noticeSuccess]} accessibilityLiveRegion="polite">
+            <MaterialCommunityIcons name="email-check-outline" size={20} color={Palette.primary} />
+            <Text style={[styles.noticeText, { color: Palette.primary }]}>
+              Email verificado correctamente. Ya puedes entrar en Room8.
+            </Text>
+          </View>
+        ) : null}
+        {!verificationPending ? <SegmentedControl options={[{ value: 'login', label: 'Iniciar sesión' }, { value: 'register', label: 'Registrarme' }]} value={mode} onChange={(value) => { setMode(value); setError(''); setFieldErrors({}); }} /> : null}
+        {!verificationPending ? (
+          <>
+            <View style={styles.form}>
+              {mode === 'register' ? (
+                <View style={styles.field}>
+                  <Field label="Tu nombre" placeholder="p. ej. Alex" value={name} onChangeText={edit('name', setName)} />
+                  <FieldMessage error={fieldErrors.name} />
+                </View>
+              ) : null}
+              <View style={styles.field}>
+                <Field label="Email" placeholder="tu@email.com" value={email} onChangeText={edit('email', setEmail)} keyboardType="email-address" autoCapitalize="none" />
+                <FieldMessage error={fieldErrors.email} />
+              </View>
+              <View style={styles.field}>
+                <Field label="Contraseña" placeholder="Mínimo 8 caracteres" value={password} onChangeText={edit('password', setPassword)} secureTextEntry />
+                <FieldMessage error={fieldErrors.password} hint={mode === 'register' ? PASSWORD_HINT : undefined} />
+              </View>
+              {mode === 'login' ? (
+                <Pressable onPress={() => router.push('/forgot-password' as Href)} disabled={loading} hitSlop={8} accessibilityRole="link" style={styles.forgot}>
+                  <Text style={styles.forgotText}>¿Has olvidado tu contraseña?</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <PrimaryButton title={mode === 'login' ? 'Entrar' : 'Crear cuenta'} onPress={submit} loading={loading} />
+            <View style={styles.divider}><View style={styles.line} /><Text style={styles.or}>o</Text><View style={styles.line} /></View>
+            <Pressable style={styles.google} onPress={googleLogin} disabled={loading}>
+              <MaterialCommunityIcons name="google" size={20} color={Palette.text} />
+              <Text style={styles.googleText}>Continuar con Google</Text>
             </Pressable>
-          ) : null}
-        </View>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <PrimaryButton title={mode === 'login' ? 'Entrar' : 'Crear cuenta'} onPress={submit} loading={loading} />
-        <View style={styles.divider}><View style={styles.line} /><Text style={styles.or}>o</Text><View style={styles.line} /></View>
-        <Pressable style={styles.google} onPress={googleLogin} disabled={loading}>
-          <MaterialCommunityIcons name="google" size={20} color={Palette.text} />
-          <Text style={styles.googleText}>Continuar con Google</Text>
-        </Pressable>
+          </>
+        ) : null}
         <Text style={styles.footer}>Al continuar aceptas usar Room8 para gestionar tu hogar.</Text>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+// Error (o ayuda) justo debajo de su campo, con el mismo estilo que FieldShell de password-field.tsx
+function FieldMessage({ error, hint }: { error?: string; hint?: string }) {
+  if (error) {
+    return (
+      <Text style={styles.fieldError} accessibilityLiveRegion="polite">
+        {error}
+      </Text>
+    );
+  }
+  return hint ? <Text style={styles.fieldHint}>{hint}</Text> : null;
 }
 
 const styles = StyleSheet.create({
@@ -148,6 +221,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, lineHeight: 38, fontWeight: '800', color: Palette.text },
   subtitle: { fontSize: 15, lineHeight: 22, color: Palette.textSecondary },
   form: { gap: 16 },
+  field: { gap: 6 },
+  fieldError: { fontSize: 13, lineHeight: 18, color: Palette.error },
+  fieldHint: { fontSize: 13, lineHeight: 18, color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   line: { flex: 1, height: 1, backgroundColor: Palette.border },

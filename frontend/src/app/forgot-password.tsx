@@ -21,7 +21,7 @@ const RESEND_SECONDS = 60;
 type Step = 'email' | 'reset';
 
 // "¿Has olvidado tu contraseña?" desde el login. Sin la contraseña actual, el usuario
-// demuestra que el email es suyo con un código de 6 dígitos que le llega allí.
+// demuestra que el email es suyo con un código de 8 dígitos que le llega allí.
 // Paso 1: pedir el código. Paso 2: la misma interfaz que "Cambiar contraseña",
 // con el código en lugar de la contraseña actual.
 export default function ForgotPasswordScreen() {
@@ -144,7 +144,7 @@ export default function ForgotPasswordScreen() {
         setGeneralError('');
       }}
       title="Cambiar contraseña"
-      subtitle={`Si ${email.trim()} tiene una cuenta, te hemos enviado un código de 6 dígitos. Escríbelo y elige tu nueva contraseña.`}
+      subtitle={`Si ${email.trim()} tiene una cuenta, te hemos enviado un código de 8 dígitos. Escríbelo y elige tu nueva contraseña.`}
       error={generalError}
       submitLabel="Guardar contraseña"
       onSubmit={resetPassword}
@@ -163,7 +163,7 @@ export default function ForgotPasswordScreen() {
       }>
       <CodeField
         label="Código de verificación"
-        placeholder="000000"
+        placeholder="00000000"
         value={code}
         onChangeText={edit('code', setCode)}
         error={errors.code}

@@ -12,7 +12,10 @@ describe('GET /users/me', () => {
   let app: INestApplication<App>;
 
   const prisma = {
-    user: { findUnique: jest.fn() },
+    user: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
   };
 
   // El usuario que devuelve @CurrentUser() en los tests (NODE_ENV=test)
@@ -58,8 +61,9 @@ describe('GET /users/me', () => {
       id: usuarioActual,
       email: 'alex@ejemplo.com',
       full_name: 'Alex Morgan',
+      avatar_url: null,
       has_password: true,
-      apartments: [{ id: piso, name: 'MapleHouse', members_count: 4 }],
+      apartments: [{ id: piso, name: 'MapleHouse', invite_code: undefined, members_count: 4 }],
     });
   });
 
@@ -99,5 +103,36 @@ describe('GET /users/me', () => {
     prisma.user.findUnique.mockResolvedValue(null);
 
     await request(app.getHttpServer()).get('/users/me').expect(401);
+  });
+
+  describe('PATCH /users/me (UT1016)', () => {
+    it('actualiza el nombre del usuario y devuelve el perfil actualizado', async () => {
+      prisma.user.update.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue(
+        usuario({ full_name: 'Alex Morgan Updated' }),
+      );
+
+      const response = await request(app.getHttpServer())
+        .patch('/users/me')
+        .send({ full_name: '  Alex Morgan Updated  ' })
+        .expect(200);
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: usuarioActual },
+          data: { full_name: 'Alex Morgan Updated' },
+        }),
+      );
+      expect(response.body.full_name).toBe('Alex Morgan Updated');
+    });
+
+    it('rechaza un nombre vacío con 400', async () => {
+      await request(app.getHttpServer())
+        .patch('/users/me')
+        .send({ full_name: '   ' })
+        .expect(400);
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
   });
 });

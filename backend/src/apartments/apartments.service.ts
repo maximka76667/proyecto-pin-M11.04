@@ -121,7 +121,7 @@ export class ApartmentsService {
     // participantes. El casero aparece si es miembro (create() lo añade al crear el piso).
     const members = await this.prisma.user.findMany({
       where: { user_apartments: { some: { apartment_id: id } } },
-      select: { id: true, full_name: true },
+      select: { id: true, full_name: true, avatar_url: true },
       orderBy: { full_name: 'asc' },
     });
 

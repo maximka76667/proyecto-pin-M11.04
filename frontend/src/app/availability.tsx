@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
-import { Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Snackbar } from 'react-native-paper';
 
 import { PrimaryButton } from '@/components/onboarding';
@@ -402,9 +402,19 @@ export default function AvailabilityScreen() {
                         {members.length === 0 && <Text style={styles.empty}>No hay compañeros en esta casa.</Text>}
                         {members.map((member) => {
                             const events = calendarEvents.filter((event) => event.date === selectedDate && event.user_id === member.id);
+                            const initial = member.full_name.trim().charAt(0).toUpperCase() || '?';
                             return <View key={member.id} style={styles.card}>
                                 <View style={styles.memberHeader}>
-                                    <Text style={styles.memberName}>{member.full_name}{member.isCurrentUser ? ' (tú)' : ''}</Text>
+                                    <View style={styles.memberInfo}>
+                                        {member.avatar_url ? (
+                                            <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+                                        ) : (
+                                            <View style={styles.memberAvatarPlaceholder}>
+                                                <Text style={styles.memberAvatarText}>{initial}</Text>
+                                            </View>
+                                        )}
+                                        <Text style={styles.memberName}>{member.full_name}{member.isCurrentUser ? ' (tú)' : ''}</Text>
+                                    </View>
                                     <Text style={styles.memberState}>{events.length === 0 ? 'Libre todo el día' : `${events.length} franja(s) ocupada(s)`}</Text>
                                 </View>
                                 <View style={styles.bar}>
@@ -490,6 +500,10 @@ const styles = StyleSheet.create({
     readOnlyTagText: { fontSize: 11, fontWeight: '700', color: Palette.primary },
     importedLabel: { fontSize: 13, color: Palette.textSecondary },
     memberHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    memberInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    memberAvatar: { width: 24, height: 24, borderRadius: 12 },
+    memberAvatarPlaceholder: { width: 24, height: 24, borderRadius: 12, backgroundColor: Palette.peach, alignItems: 'center', justifyContent: 'center' },
+    memberAvatarText: { fontSize: 12, fontWeight: '700', color: Palette.text },
     memberName: { fontSize: 15, fontWeight: '700', color: Palette.text },
     memberState: { fontSize: 12, color: Palette.textSecondary },
 });

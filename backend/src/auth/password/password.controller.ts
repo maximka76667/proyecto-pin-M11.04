@@ -9,6 +9,8 @@ import { PasswordService } from './password.service';
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
+// Los límites de @Throttle son del limitador "account" (por usuario o por email);
+// el limitador "sweep" de auth.module.ts cuenta aparte, por IP
 @Controller('auth')
 @UseGuards(PasswordThrottlerGuard)
 export class PasswordController {
@@ -17,23 +19,23 @@ export class PasswordController {
   // 5 intentos cada 15 min por usuario: frena a quien pruebe contraseñas con una sesión robada
   @Post('change-password')
   @HttpCode(200)
-  @Throttle({ default: { limit: 5, ttl: FIFTEEN_MINUTES } })
+  @Throttle({ account: { limit: 5, ttl: FIFTEEN_MINUTES } })
   changePassword(@CurrentUser() userId: string, @Body() dto: ChangePasswordDto) {
     return this.passwords.changePassword(userId, dto);
   }
 
-  // 3 peticiones cada 15 min por IP, además de la espera de 60 s por email del servicio
+  // 5 códigos cada 15 min por email, además de la espera de 60 s que aplica el servicio
   @Post('forgot-password')
   @HttpCode(200)
-  @Throttle({ default: { limit: 3, ttl: FIFTEEN_MINUTES } })
+  @Throttle({ account: { limit: 5, ttl: FIFTEEN_MINUTES } })
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.passwords.requestReset(dto.email);
   }
 
-  // Cada código admite 5 intentos; este límite por IP corta además los barridos entre cuentas
+  // Cada código admite 5 intentos; este límite por email corta el goteo entre códigos
   @Post('reset-password')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: FIFTEEN_MINUTES } })
+  @Throttle({ account: { limit: 10, ttl: FIFTEEN_MINUTES } })
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.passwords.resetPassword(dto);
   }

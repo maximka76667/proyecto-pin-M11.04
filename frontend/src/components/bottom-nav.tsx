@@ -31,8 +31,12 @@ export function BottomNav() {
   useEffect(() => {
     let active = true;
     if (!hasAuthToken()) {
-      setHasHousehold(false);
-      return () => { active = false; };
+      Promise.resolve().then(() => {
+        if (active) setHasHousehold(false);
+      });
+      return () => {
+        active = false;
+      };
     }
     void getCurrentUser()
       .then((user) => {
