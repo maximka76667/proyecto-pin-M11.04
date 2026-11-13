@@ -10,6 +10,7 @@ import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { AuthModule } from './auth/auth.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AuthMiddleware } from './auth/auth.middleware';
 import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 
@@ -27,6 +28,7 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
     ScannerModule,
     AvailabilityModule,
     AuthModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -77,6 +77,24 @@ BACKEND_URL=http://localhost:3000
 EMAIL_VERIFICATION_REDIRECT_URI=http://localhost:8081/auth
 ```
 
+### Notificaciones de tareas (UT1019)
+
+Cada usuario tiene avisos de las tareas de su piso: una asignación nueva, una solicitud de
+intercambio y su aceptación o rechazo, y las tareas que vencen en las próximas 24 horas.
+
+- `GET /notifications?apartment_id=<piso>`: los avisos del usuario en ese piso, del más reciente
+  al más antiguo.
+- `GET /notifications/unread-count?apartment_id=<piso>`: cuántos quedan sin leer.
+- `PATCH /notifications/:id/read`: marca uno como leído. Responde 403 si el aviso es de otra
+  persona.
+
+Los avisos de asignación e intercambio se guardan cuando ocurre el evento. Los recordatorios de
+vencimiento no usan ningún proceso programado: se crean al consultar los avisos. Con
+`reminders=false` (interruptor «Recordatorios de tareas» del perfil) ni se crean ni se devuelven.
+
+La migración `20261113120000_task_notifications` crea la tabla `Notification`. Aplícala con
+`npx prisma migrate deploy`.
+
 ### Al desplegar
 
 ```env

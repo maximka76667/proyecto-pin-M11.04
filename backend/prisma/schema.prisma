@@ -30,6 +30,7 @@ model User {
   email_verification_tokens  EmailVerificationToken[]
   swaps_sent                 TaskSwapRequest[]         @relation("SwapFromUser")
   swaps_received             TaskSwapRequest[]         @relation("SwapToUser")
+  notifications              Notification[]
 }
 
 model AuthSession {
@@ -80,6 +81,7 @@ model Apartment {
   tasks           Task[]
   user_apartments UserApartment[]
   swap_requests   TaskSwapRequest[]
+  notifications   Notification[]
 
   @@unique([landlord_id, name])
   @@index([landlord_id])
@@ -137,8 +139,9 @@ model TaskAssignment {
   due_time     String?           @db.VarChar(5)
   task         Task              @relation(fields: [task_id], references: [id])
   user         User              @relation(fields: [user_id], references: [id])
-  swap_as_from TaskSwapRequest[] @relation("SwapFromAssignment")
-  swap_as_to   TaskSwapRequest[] @relation("SwapToAssignment")
+  swap_as_from  TaskSwapRequest[] @relation("SwapFromAssignment")
+  swap_as_to    TaskSwapRequest[] @relation("SwapToAssignment")
+  notifications Notification[]
 
   @@unique([user_id, due_date, due_time])
 }
@@ -170,6 +173,40 @@ model TaskSwapRequest {
 enum SwapStatus {
   pending
   completed
+}
+
+// Aviso de un usuario sobre las tareas de un piso (UT1019). Se guarda cuando ocurre el evento
+// (asignación, petición o respuesta de intercambio); el recordatorio de vencimiento se crea al
+// consultar los avisos.
+model Notification {
+  id            String           @id @default(uuid()) @db.Uuid
+  user_id       String           @db.Uuid // destinatario
+  apartment_id  String           @db.Uuid
+  type          NotificationType
+  title         String
+  body          String
+  // Lo que abre la app al tocar el aviso: la tarea o la petición de intercambio, según `type`
+  reference_id  String?          @db.Uuid
+  // Asignación de la que habla un aviso de tarea. Con la restricción única impide repetir el
+  // mismo recordatorio; los avisos de intercambio no la llevan
+  assignment_id String?          @db.Uuid
+  is_read       Boolean          @default(false)
+  created_at    DateTime         @default(now())
+
+  user       User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  apartment  Apartment       @relation(fields: [apartment_id], references: [id], onDelete: Cascade)
+  assignment TaskAssignment? @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, type, assignment_id])
+  @@index([user_id, apartment_id, created_at])
+}
+
+enum NotificationType {
+  task_assigned
+  task_due_soon
+  swap_requested
+  swap_accepted
+  swap_rejected
 }
 
 model GoogleCalendarConnection {
