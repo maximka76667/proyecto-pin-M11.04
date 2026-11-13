@@ -42,11 +42,23 @@ export class AvailabilityService {
             label: b.label?.trim() || null,
         }));
 
+        // Se guarda la semana entera de una vez: una franja de hoy que ya existía y empieza antes
+        // de ahora no es "nueva en el pasado" y no debe impedir guardar el resto
+        const existing = await this.prisma.availabilityBlock.findMany({
+            where: { user_id: userId },
+            select: { day_of_week: true, start_minute: true, end_minute: true },
+        });
+        const alreadySaved = (b: { day_of_week: string; start_minute: number; end_minute: number }) =>
+            existing.some((e) =>
+                e.day_of_week === b.day_of_week
+                && e.start_minute === b.start_minute
+                && e.end_minute === b.end_minute);
+
         for (const b of data) {
             if (b.end_minute <= b.start_minute) {
                 throw new BadRequestException('End time must be after start time');
             }
-            if (b.day_of_week === this.currentDay() && b.start_minute < this.currentMinute()) {
+            if (b.day_of_week === this.currentDay() && b.start_minute < this.currentMinute() && !alreadySaved(b)) {
                 throw new BadRequestException('Availability cannot start in the past');
             }
         }
@@ -81,6 +93,7 @@ export class AvailabilityService {
             select: {
                 id: true,
                 full_name: true,
+                avatar_url: true,
                 availability_blocks: {
                     select: { day_of_week: true, start_minute: true, end_minute: true },
                 },
@@ -92,6 +105,7 @@ export class AvailabilityService {
             members: users.map((u) => ({
                 id: u.id,
                 full_name: u.full_name,
+                avatar_url: u.avatar_url,
                 isCurrentUser: u.id === currentUserId,
                 blocks: this.sort(u.availability_blocks).map((b) => ({
                     day_of_week: b.day_of_week,

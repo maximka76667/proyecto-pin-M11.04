@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   LIMIT_MESSAGE,
@@ -135,6 +135,7 @@ export function ReceiptSplit({
       ) : (
         members.map((member) => {
           const selected = selectedMembers.includes(member.id);
+          const initial = member.full_name.trim().charAt(0).toUpperCase() || '?';
           return (
             <Pressable
               key={member.id}
@@ -146,6 +147,13 @@ export function ReceiptSplit({
                 size={22}
                 color={selected ? Palette.primary : Palette.textSecondary}
               />
+              {member.avatar_url ? (
+                <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+              ) : (
+                <View style={styles.memberAvatarPlaceholder}>
+                  <Text style={styles.memberAvatarText}>{initial}</Text>
+                </View>
+              )}
               <Text style={styles.memberName}>{member.full_name}</Text>
             </Pressable>
           );
@@ -195,6 +203,24 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.mint,
   },
   memberName: { fontSize: 15, fontWeight: "700", color: Palette.text },
+  memberAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  memberAvatarPlaceholder: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Palette.peach,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberAvatarText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Palette.text,
+  },
   splitSummary: {
     padding: 14,
     borderRadius: 14,

@@ -9,6 +9,9 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AvailabilityModule } from './availability/availability.module';
+import { AuthModule } from './auth/auth.module';
+import { AuthMiddleware } from './auth/auth.middleware';
+import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 
 @Module({
   imports: [
@@ -23,8 +26,13 @@ import { AvailabilityModule } from './availability/availability.module';
     TasksModule,
     ScannerModule,
     AvailabilityModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(AuthMiddleware).forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}

@@ -152,7 +152,7 @@ describe('TasksService', () => {
     await expect(
       service.createAssignment(
         'task-1',
-        { user_ids: [], due_date: '2026-10-28' },
+        { user_ids: [], due_date: '2026-10-28', due_time: '09:00' },
         'user-1',
       ),
     ).rejects.toThrow(BadRequestException);

@@ -6,6 +6,7 @@ import { configureApp } from '../app.setup';
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
+import { TaskSwapsService } from './task-swaps.service';
 
 describe('Validación de tareas', () => {
   let app: INestApplication<App>;
@@ -34,6 +35,7 @@ describe('Validación de tareas', () => {
       controllers: [TasksController],
       providers: [
         TasksService,
+        TaskSwapsService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
@@ -172,7 +174,7 @@ describe('Validación de tareas', () => {
     expect(prisma.task.findUnique).not.toHaveBeenCalled();
   });
 
-  it.each(['25:00', '10:60', '9:00', 'invalid'])(
+  it.each(['25:00', '10:60', 'invalid'])(
     'rechaza una hora inválida (%s) antes de consultar Prisma',
     async (dueTime) => {
       await request(app.getHttpServer())

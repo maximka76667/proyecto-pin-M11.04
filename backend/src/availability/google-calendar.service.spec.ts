@@ -91,6 +91,29 @@ describe('GoogleCalendarService', () => {
     ]);
   });
 
+  it('forgets the connection instead of failing when Google rejects the refresh token', async () => {
+    prisma.googleCalendarConnection.findUnique.mockResolvedValue({ refresh_token: encryptToken('dead-token') });
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }),
+    );
+
+    await expect(service.sync('user-1', '2026-11-02', '2026-11-09')).resolves.toEqual({ blocks: [], connected: false });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(prisma.googleCalendarConnection.deleteMany).toHaveBeenCalledWith({ where: { user_id: 'user-1' } });
+    expect(prisma.googleBusyBlock.deleteMany).toHaveBeenCalledWith({ where: { user_id: 'user-1' } });
+  });
+
+  it('still reports other Google token errors', async () => {
+    prisma.googleCalendarConnection.findUnique.mockResolvedValue({ refresh_token: encryptToken('refresh-token') });
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 }),
+    );
+
+    await expect(service.sync('user-1', '2026-11-02', '2026-11-09')).rejects.toThrow('invalid_client');
+    expect(prisma.googleCalendarConnection.deleteMany).not.toHaveBeenCalled();
+  });
+
   it('removes imported events when disconnecting', async () => {
     prisma.googleCalendarConnection.findUnique.mockResolvedValue(null);
 

@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
@@ -5,6 +6,7 @@ import {
   Matches,
   ValidateIf,
 } from 'class-validator';
+import { normalizeTaskTime, TASK_TIME_MESSAGE, TASK_TIME_PATTERN } from './task-time';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,8 +30,8 @@ export class CreateTaskAssignmentDto {
   @IsDateString()
   due_date: string;
 
-  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, {
-    message: 'due_time must be a valid time in HH:mm format',
-  })
+  // Acepta "9:30" y lo guarda como "09:30"
+  @Transform(normalizeTaskTime)
+  @Matches(TASK_TIME_PATTERN, { message: TASK_TIME_MESSAGE })
   due_time: string;
 }

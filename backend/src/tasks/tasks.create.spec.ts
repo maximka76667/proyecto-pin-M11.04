@@ -15,6 +15,7 @@ import { configureApp } from '../app.setup';
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
+import { TaskSwapsService } from './task-swaps.service';
 
 // El mismo hogar que usa el formulario de la app
 const HOGAR = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -196,6 +197,7 @@ describe('POST /tasks: crear tareas (UT1005)', () => {
       controllers: [TasksController],
       providers: [
         TasksService,
+        TaskSwapsService,
         { provide: PrismaService, useValue: base.prisma },
       ],
     }).compile();
