@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
-import { ReactNode, useCallback, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Modal,
   Platform,
@@ -69,6 +70,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [myPoints, setMyPoints] = useState<MyPoints | null>(null);
+  const [pointsLoading, setPointsLoading] = useState(false);
   const [error, setError] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [lastNotice, setLastNotice] = useState('');
@@ -131,8 +133,10 @@ export default function ProfileScreen() {
         const apartmentId = me.apartments[0]?.id;
         if (!apartmentId) {
           setMyPoints(null);
+          setPointsLoading(false);
           return;
         }
+        setPointsLoading(true);
         void (api(
           'GET',
           `/points/me?apartment_id=${encodeURIComponent(apartmentId)}`,
@@ -142,6 +146,9 @@ export default function ProfileScreen() {
           })
           .catch(() => {
             if (active) setMyPoints(null);
+          })
+          .finally(() => {
+            if (active) setPointsLoading(false);
           });
       })
       .catch(() => {
@@ -410,6 +417,10 @@ export default function ProfileScreen() {
               onPress={() => router.push('/ranking' as Href)}
             />
           </Section>
+        ) : pointsLoading ? (
+          <Section label="Reputación">
+            <SkeletonRow />
+          </Section>
         ) : null}
 
         {/* Botón de invitar a conviviente (UT1016) */}
@@ -622,6 +633,35 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+// Marcador de una fila mientras carga: mismo tamaño que Row, para que no se mueva nada al llegar los datos
+function SkeletonRow() {
+  const opacity = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(opacity, { toValue: 0.45, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      accessibilityLabel="Cargando tus puntos"
+      accessibilityRole="progressbar"
+      style={[styles.row, { opacity }]}>
+      <View style={[styles.iconTile, styles.skeleton]} />
+      <View style={styles.rowText}>
+        <View style={[styles.skeleton, styles.skeletonTitle]} />
+        <View style={[styles.skeleton, styles.skeletonSubtitle]} />
+      </View>
+    </Animated.View>
+  );
+}
+
 function Row({
   icon,
   tint,
@@ -728,6 +768,9 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 15, fontWeight: '700' },
   rowSubtitle: { fontSize: 13, color: Palette.textSecondary },
   divider: { height: 1, marginLeft: 70, backgroundColor: Palette.border },
+  skeleton: { backgroundColor: Palette.border },
+  skeletonTitle: { width: '55%', height: 15, borderRadius: 6 },
+  skeletonSubtitle: { width: '80%', height: 13, borderRadius: 6, marginTop: 4 },
   pressed: { opacity: 0.6 },
   error: { fontSize: 15, color: Palette.error, textAlign: 'center' },
   errorContainer: { alignItems: 'center', gap: 12 },
