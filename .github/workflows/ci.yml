@@ -1,0 +1,46 @@
+name: CI
+
+# Se ejecuta en cada pull request hacia main y en cada push a main.
+# Para que bloquee el merge hay que marcar el check «Backend Tests» como obligatorio en
+# Settings > Branches > Branch protection rules de GitHub.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Un push nuevo a la misma rama cancela la ejecución anterior que aún no ha terminado
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Prisma los pide al generar el cliente; los tests usan una base de datos en memoria,
+      # así que no se conecta a nada y no hace falta ningún secreto
+      DATABASE_URL: postgresql://user:password@localhost:5432/test
+      DIRECT_URL: postgresql://user:password@localhost:5432/test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Genera el cliente de Prisma y compila: sirve también de comprobación de tipos
+      - name: Compilar
+        run: npm run build
+
+      - name: Tests
+        run: npm test -- --ci
