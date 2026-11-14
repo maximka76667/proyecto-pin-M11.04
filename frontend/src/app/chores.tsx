@@ -362,6 +362,11 @@ export default function ChoresScreen() {
                     <Text style={styles.availabilityButtonText}>Intercambios de tareas</Text>
                 </Pressable>
 
+                <Pressable style={styles.availabilityButton} onPress={() => router.push('/ranking')}>
+                    <MaterialCommunityIcons name="trophy-outline" size={18} color={Palette.primary} />
+                    <Text style={styles.availabilityButtonText}>Ranking de la casa</Text>
+                </Pressable>
+
                 <View style={styles.segmented}>
                     <Pressable
                         accessibilityRole="button"

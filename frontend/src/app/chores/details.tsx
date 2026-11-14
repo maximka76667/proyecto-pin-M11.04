@@ -25,6 +25,7 @@ type TaskDetails = {
   title: string;
   description: string | null;
   duration_minutes: number;
+  points: number;
   frequency: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
   status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
   assignments: {
@@ -144,7 +145,8 @@ export default function ChoreDetailsScreen() {
   }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
   const [members, setMembers] = useState<HouseMember[]>([]);
-  const [completed, setCompleted] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState('');
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
   const [error, setError] = useState(taskId ? '' : 'No se encontró la tarea.');
@@ -407,6 +409,43 @@ export default function ChoreDetailsScreen() {
   const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
   const apartmentId = task?.apartment_id;
   const myAssignmentId = myAssignment?.id;
+  // La que se puede marcar como hecha: una asignación mía que aún no está completada
+  const myOpenAssignment = task?.assignments.find(
+    (item) =>
+      item.user_id === USER_ID && item.status !== 'completed' && item.status !== 'rejected',
+  );
+  const iCompletedIt = !myOpenAssignment && Boolean(myAssignment) &&
+    task?.assignments.some((item) => item.user_id === USER_ID && item.status === 'completed');
+
+  // Marca la tarea como hecha en el backend, que es quien registra los puntos
+  const completeAssignment = async () => {
+    if (!myOpenAssignment || !task) return;
+    setCompleting(true);
+    setCompleteError('');
+    try {
+      const result = await api(
+        'PATCH',
+        `/points/assignments/${encodeURIComponent(myOpenAssignment.id)}/complete`,
+      ) as { points: number };
+      setTask((current) =>
+        current
+          ? {
+            ...current,
+            assignments: current.assignments.map((item) =>
+              item.id === myOpenAssignment.id ? { ...item, status: 'completed' } : item,
+            ),
+          }
+          : current,
+      );
+      setAssignmentNotice(
+        result.points > 0 ? `¡Hecho! Has ganado ${result.points} puntos.` : 'La tarea ya estaba hecha.',
+      );
+    } catch (e) {
+      setCompleteError(errorMessage(e));
+    } finally {
+      setCompleting(false);
+    }
+  };
 
   // PA-1010.05: la solicitud de intercambio que envió el usuario con esta tarea se cancela desde
   // la propia tarea. Se vuelve a mirar al volver a la pantalla (p. ej. tras pedir el cambio)
@@ -466,7 +505,7 @@ export default function ChoreDetailsScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.topBar}>
           <Text style={styles.title}>Detalles de la tarea</Text>
-          <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Cerrar">
+          <Pressable onPress={() => router.dismissTo('/chores')} hitSlop={12} accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={23} color={Palette.text} />
           </Pressable>
         </View>
@@ -479,7 +518,7 @@ export default function ChoreDetailsScreen() {
           </View>
           <Text style={styles.choreTitle}>{task.title}</Text>
           <Text style={styles.meta}>
-            {frequencyLabels[task.frequency] ?? task.frequency} · {assignmentDate ?? 'En cualquier momento'}
+            {frequencyLabels[task.frequency] ?? task.frequency} · {assignmentDate ?? 'En cualquier momento'} · {task.points} pts
           </Text>
           {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
         </View> : null}
@@ -521,11 +560,27 @@ export default function ChoreDetailsScreen() {
         {task ? <>
           <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
           <Pressable
-            onPress={() => setCompleted(true)}
-            style={[styles.actionButton, completed && styles.completedButton]}>
-            <MaterialCommunityIcons name="check-circle-outline" size={18} color={Palette.onPrimary} />
-            <Text style={styles.actionText}>{completed ? 'Marcada como hecha' : 'Marcar como hecha'}</Text>
+            disabled={!myOpenAssignment || completing}
+            onPress={() => void completeAssignment()}
+            style={[
+              styles.actionButton,
+              iCompletedIt && styles.completedButton,
+              !myOpenAssignment && !iCompletedIt && styles.disabledButton,
+            ]}>
+            {completing ? (
+              <ActivityIndicator color={Palette.onPrimary} />
+            ) : (
+              <MaterialCommunityIcons name="check-circle-outline" size={18} color={Palette.onPrimary} />
+            )}
+            <Text style={styles.actionText}>
+              {iCompletedIt
+                ? 'Marcada como hecha'
+                : myOpenAssignment
+                  ? `Marcar como hecha (+${task.points} pts)`
+                  : 'Solo quien la tiene asignada puede marcarla'}
+            </Text>
           </Pressable>
+          {completeError ? <Text style={styles.error}>{completeError}</Text> : null}
           <Pressable
             disabled={membersLoading}
             onPress={openAssignmentDialog}

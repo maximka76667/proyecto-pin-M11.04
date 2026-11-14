@@ -18,6 +18,7 @@ type TaskToEdit = {
   title: string;
   description: string | null;
   duration_minutes: number;
+  points: number;
   category: ChoreFormValues['category'];
   frequency: ChoreFormValues['frequency'];
 };
@@ -42,6 +43,7 @@ export default function EditChoreScreen() {
           title: task.title,
           description: task.description ?? '',
           duration_minutes: task.duration_minutes,
+          points: task.points,
           category: task.category,
           frequency: task.frequency,
         });
@@ -80,6 +82,7 @@ export default function EditChoreScreen() {
           title: values.title,
           description: values.description,
           duration_minutes: values.duration_minutes,
+          points: values.points ?? undefined,
           category: values.category,
           frequency: values.frequency,
         });

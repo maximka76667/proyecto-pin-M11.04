@@ -30,6 +30,7 @@ export default function CreateChoreScreen() {
           title: values.title,
           description: values.description || undefined,
           duration_minutes: values.duration_minutes,
+          points: values.points ?? undefined,
           frequency: values.frequency,
           category: values.category,
         });
