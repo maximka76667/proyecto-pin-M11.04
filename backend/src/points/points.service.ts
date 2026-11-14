@@ -103,6 +103,19 @@ export class PointsService {
     };
   }
 
+  // Puntos de la persona en su casa: su fila del ranking (mes, total y posición). Sale del
+  // mismo cálculo que el ranking para que el perfil y el ranking nunca digan cosas distintas
+  async getMyPoints(apartmentId: string, userId: string, month?: string) {
+    const { month: selectedMonth, ranking } = await this.getRanking(apartmentId, userId, month);
+    const mine = ranking.find((row) => row.user_id === userId);
+    return {
+      month: selectedMonth,
+      points: mine?.points ?? 0,
+      total_points: mine?.total_points ?? 0,
+      rank: mine?.rank ?? null,
+    };
+  }
+
   // Ranking de la casa: puntos del mes y totales de cada miembro (con 0 si aún no tiene),
   // de mayor a menor. Los empates comparten posición.
   async getRanking(apartmentId: string, userId: string, month?: string) {

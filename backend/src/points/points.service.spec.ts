@@ -217,4 +217,46 @@ describe('PointsService', () => {
       expect(prisma.taskPoints.groupBy).not.toHaveBeenCalled();
     });
   });
+
+  describe('getMyPoints', () => {
+    beforeEach(() => {
+      prisma.userApartment.findUnique.mockResolvedValue({ user_id: ANA });
+      prisma.user.findMany.mockResolvedValue([
+        { id: ANA, full_name: 'Ana' },
+        { id: LUIS, full_name: 'Luis' },
+      ]);
+    });
+
+    it('devuelve mis puntos del mes, los totales y mi posición, igual que el ranking', async () => {
+      prisma.taskPoints.groupBy
+        .mockResolvedValueOnce([
+          { user_id: ANA, _sum: { points: 30 } },
+          { user_id: LUIS, _sum: { points: 60 } },
+        ])
+        .mockResolvedValueOnce([
+          { user_id: ANA, _sum: { points: 130 } },
+          { user_id: LUIS, _sum: { points: 60 } },
+        ]);
+
+      const result = await service.getMyPoints(APARTMENT, ANA, '2026-11');
+
+      expect(result).toEqual({ month: '2026-11', points: 30, total_points: 130, rank: 2 });
+    });
+
+    it('con 0 puntos devuelve 0 y no falla', async () => {
+      prisma.taskPoints.groupBy.mockResolvedValue([]);
+
+      const result = await service.getMyPoints(APARTMENT, ANA, '2026-11');
+
+      expect(result).toMatchObject({ points: 0, total_points: 0 });
+    });
+
+    it('rechaza a quien no pertenece al piso', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue(null);
+
+      await expect(service.getMyPoints(APARTMENT, LUIS, '2026-11')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
 });

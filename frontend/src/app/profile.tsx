@@ -47,6 +47,9 @@ type Profile = {
 
 type GoogleStatus = { configured: boolean; connected: boolean };
 
+// Respuesta de GET /points/me
+type MyPoints = { month: string; points: number; total_points: number; rank: number | null };
+
 // Avisos que llegan al volver de otra pantalla
 const notices: Record<string, string> = {
   'password-updated': PASSWORD_UPDATED,
@@ -65,6 +68,7 @@ export default function ProfileScreen() {
   const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
+  const [myPoints, setMyPoints] = useState<MyPoints | null>(null);
   const [error, setError] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [lastNotice, setLastNotice] = useState('');
@@ -122,6 +126,23 @@ export default function ProfileScreen() {
         setNewName(me.full_name);
         setGoogle(googleStatus);
         setError('');
+
+        // Los puntos se piden aparte: si fallan, el resto del perfil se muestra igual
+        const apartmentId = me.apartments[0]?.id;
+        if (!apartmentId) {
+          setMyPoints(null);
+          return;
+        }
+        void (api(
+          'GET',
+          `/points/me?apartment_id=${encodeURIComponent(apartmentId)}`,
+        ) as Promise<MyPoints>)
+          .then((result) => {
+            if (active) setMyPoints(result);
+          })
+          .catch(() => {
+            if (active) setMyPoints(null);
+          });
       })
       .catch(() => {
         if (active) setError('No se ha podido conectar. Inténtalo de nuevo');
@@ -375,6 +396,21 @@ export default function ProfileScreen() {
             />
           )}
         </Section>
+
+        {/* Sección REPUTACIÓN: puntos del mes y posición en la casa */}
+        {myPoints ? (
+          <Section label="Reputación">
+            <Row
+              icon="trophy-outline"
+              tint={Palette.sun}
+              title={`${myPoints.points} ${myPoints.points === 1 ? 'punto' : 'puntos'} este mes`}
+              subtitle={`${myPoints.total_points} en total${
+                myPoints.rank ? ` · puesto ${myPoints.rank} en la casa` : ''
+              }`}
+              onPress={() => router.push('/ranking' as Href)}
+            />
+          </Section>
+        ) : null}
 
         {/* Botón de invitar a conviviente (UT1016) */}
         {primaryApartment?.invite_code ? (

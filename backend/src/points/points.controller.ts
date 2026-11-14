@@ -22,6 +22,19 @@ export class PointsController {
     return this.pointsService.completeAssignment(assignmentId, userId);
   }
 
+  // Mis puntos del mes, los totales y mi posición en la casa
+  @Get('me')
+  me(
+    @Query('apartment_id') apartmentId: string,
+    @Query('month') month: string | undefined,
+    @CurrentUser() userId: string,
+  ) {
+    if (!apartmentId || !UUID_PATTERN.test(apartmentId)) {
+      throw new BadRequestException('apartment_id debe ser un UUID válido');
+    }
+    return this.pointsService.getMyPoints(apartmentId, userId, month);
+  }
+
   // Ranking de la casa en un mes (AAAA-MM, por defecto el actual)
   @Get('ranking')
   ranking(
