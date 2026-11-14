@@ -1,7 +1,7 @@
 name: CI
 
 # Se ejecuta en cada pull request hacia main y en cada push a main.
-# Para que bloquee el merge hay que marcar el check «backend» como obligatorio en
+# Para que bloquee el merge hay que marcar el check «Backend Tests» como obligatorio en
 # Settings > Branches > Branch protection rules de GitHub.
 on:
   pull_request:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   backend:
-    name: backend
+    name: Backend Tests
     runs-on: ubuntu-latest
     defaults:
       run:
