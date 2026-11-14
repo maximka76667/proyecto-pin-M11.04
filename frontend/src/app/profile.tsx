@@ -50,6 +50,7 @@ type GoogleStatus = { configured: boolean; connected: boolean };
 // Avisos que llegan al volver de otra pantalla
 const notices: Record<string, string> = {
   'password-updated': PASSWORD_UPDATED,
+  'preferences-saved': 'Preferencias de tareas guardadas correctamente',
 };
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -428,6 +429,19 @@ export default function ProfileScreen() {
               thumbColor={Palette.surface}
             />
           </View>
+
+          <View style={styles.divider} />
+
+          {/* Preferencias de tareas (UT1020) */}
+          <Row
+            icon="thumb-up-outline"
+            tint="#E2ECE9"
+            iconColor={Palette.primary}
+            title="Preferencias de tareas"
+            subtitle="Elige qué tareas prefieres o quieres evitar"
+            trailing="chevron-right"
+            onPress={() => router.push('/task-preferences' as Href)}
+          />
         </Section>
 
         {/* Sección CUENTA (Cambio de contraseña + Logout - UT1015) */}
