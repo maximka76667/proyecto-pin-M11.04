@@ -1,8 +1,8 @@
 name: CI
 
 # Se ejecuta en cada pull request hacia main y en cada push a main.
-# Para que bloquee el merge hay que marcar el check «Backend Tests» como obligatorio en
-# Settings > Branches > Branch protection rules de GitHub.
+# Para que bloquee el merge hay que marcar los checks «Backend Tests» y «Frontend Checks»
+# como obligatorios en Settings > Branches > Branch protection rules de GitHub.
 on:
   pull_request:
     branches: [main]
@@ -44,3 +44,27 @@ jobs:
 
       - name: Tests
         run: npm test -- --ci
+
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Comprobar tipos
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
