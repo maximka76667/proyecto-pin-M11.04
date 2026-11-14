@@ -14,6 +14,7 @@ import {
 import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
+import { currentMonth, monthLabel, shiftMonth } from '@/lib/month';
 
 // GET /points/ranking: puntos del mes y totales de cada miembro de la casa
 type RankingRow = {
@@ -26,27 +27,6 @@ type RankingRow = {
 };
 
 type RankingResponse = { month: string; ranking: RankingRow[] };
-
-// "2026-11" del mes actual
-function currentMonth() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Suma o resta meses a un "AAAA-MM"
-function shiftMonth(month: string, amount: number) {
-  const [year, monthNumber] = month.split('-').map(Number);
-  const date = new Date(year, monthNumber - 1 + amount, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthLabel(month: string) {
-  const [year, monthNumber] = month.split('-').map(Number);
-  return new Date(year, monthNumber - 1, 1).toLocaleDateString('es-ES', {
-    month: 'long',
-    year: 'numeric',
-  });
-}
 
 const medalColors: Record<number, string> = { 1: '#E0A82E', 2: '#9AA3AE', 3: '#B87A4B' };
 

@@ -1,11 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
-import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { ReactNode, useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Image,
   Modal,
   Platform,
@@ -22,6 +21,7 @@ import { Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SkeletonRow } from '@/components/skeleton-row';
 import { Palette, Radius } from '@/constants/onboarding';
 import { ApiError, api, apiUpload, hasAuthToken } from '@/lib/api';
 import { PASSWORD_UPDATED } from '@/lib/password-policy';
@@ -419,7 +419,7 @@ export default function ProfileScreen() {
           </Section>
         ) : pointsLoading ? (
           <Section label="Reputación">
-            <SkeletonRow />
+            <SkeletonRow label="Cargando tus puntos" />
           </Section>
         ) : null}
 
@@ -633,35 +633,6 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// Marcador de una fila mientras carga: mismo tamaño que Row, para que no se mueva nada al llegar los datos
-function SkeletonRow() {
-  const opacity = useRef(new Animated.Value(0.45)).current;
-
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
-        Animated.timing(opacity, { toValue: 0.45, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
-      ]),
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, [opacity]);
-
-  return (
-    <Animated.View
-      accessibilityLabel="Cargando tus puntos"
-      accessibilityRole="progressbar"
-      style={[styles.row, { opacity }]}>
-      <View style={[styles.iconTile, styles.skeleton]} />
-      <View style={styles.rowText}>
-        <View style={[styles.skeleton, styles.skeletonTitle]} />
-        <View style={[styles.skeleton, styles.skeletonSubtitle]} />
-      </View>
-    </Animated.View>
-  );
-}
-
 function Row({
   icon,
   tint,
@@ -768,9 +739,6 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 15, fontWeight: '700' },
   rowSubtitle: { fontSize: 13, color: Palette.textSecondary },
   divider: { height: 1, marginLeft: 70, backgroundColor: Palette.border },
-  skeleton: { backgroundColor: Palette.border },
-  skeletonTitle: { width: '55%', height: 15, borderRadius: 6 },
-  skeletonSubtitle: { width: '80%', height: 13, borderRadius: 6, marginTop: 4 },
   pressed: { opacity: 0.6 },
   error: { fontSize: 15, color: Palette.error, textAlign: 'center' },
   errorContainer: { alignItems: 'center', gap: 12 },
