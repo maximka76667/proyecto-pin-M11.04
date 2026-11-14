@@ -185,12 +185,7 @@ function DevApartments({ showError }: { showError: ShowError }) {
     <>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Nuevo hogar</Text>
-        <Field
-          label="Nombre"
-          placeholder="p. ej. Piso Centro"
-          value={name}
-          onChangeText={setName}
-        />
+        <Field label="Nombre" placeholder="p. ej. Piso Centro" value={name} onChangeText={setName} />
         <Field
           label="Dirección"
           placeholder="p. ej. Calle Mayor 3, Valencia"
@@ -447,11 +442,7 @@ function DevExpenses({ showError }: { showError: ShowError }) {
         <ActivityIndicator color={Palette.primary} />
       ) : transactions.length === 0 ? (
         <View style={styles.empty}>
-          <MaterialCommunityIcons
-            name="receipt-text-outline"
-            size={32}
-            color={Palette.textSecondary}
-          />
+          <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
           <Text style={styles.emptyText}>Todavía no hay gastos. Crea el primero arriba.</Text>
         </View>
       ) : (
@@ -535,9 +526,7 @@ function TransactionItem({
         <Text style={styles.itemName}>{Number(transaction.amount).toFixed(2)} €</Text>
         <View style={styles.badge}>
           <MaterialCommunityIcons name="tag-outline" size={12} color={Palette.primary} />
-          <Text style={styles.badgeText}>
-            {CATEGORY_LABELS[transaction.category] ?? transaction.category}
-          </Text>
+          <Text style={styles.badgeText}>{CATEGORY_LABELS[transaction.category] ?? transaction.category}</Text>
         </View>
         <Text style={styles.itemId} numberOfLines={1}>
           id: {transaction.id}
@@ -612,24 +601,14 @@ function DevScanner({ showError }: { showError: ShowError }) {
           onError={(e) => showError('Scan ticket', e)}
         />
         {image && !scanning ? (
-          <IconButton
-            icon="refresh"
-            label="Escanear la misma foto de nuevo"
-            onPress={() => scanAgain(image)}
-          />
+          <IconButton icon="refresh" label="Escanear la misma foto de nuevo" onPress={() => scanAgain(image)} />
         ) : null}
         {image ? (
           <Image source={{ uri: image.uri }} style={styles.preview} resizeMode="contain" />
         ) : (
           <View style={styles.empty}>
-            <MaterialCommunityIcons
-              name="receipt-text-outline"
-              size={32}
-              color={Palette.textSecondary}
-            />
-            <Text style={styles.emptyText}>
-              Elige una foto de ticket para enviarla a POST /scanner/ticket.
-            </Text>
+            <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
+            <Text style={styles.emptyText}>Elige una foto de ticket para enviarla a POST /scanner/ticket.</Text>
           </View>
         )}
         {scanning ? <ActivityIndicator color={Palette.primary} /> : null}

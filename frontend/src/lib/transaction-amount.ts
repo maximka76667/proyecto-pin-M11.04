@@ -6,7 +6,10 @@ export function limitTransactionAmountInput(value: string): string {
     return sanitized.slice(0, 6);
   }
 
-  const integerPart = sanitized.slice(0, separatorIndex).replace(/[.,]/g, '').slice(0, 6);
+  const integerPart = sanitized
+    .slice(0, separatorIndex)
+    .replace(/[.,]/g, '')
+    .slice(0, 6);
   const decimalPart = sanitized
     .slice(separatorIndex + 1)
     .replace(/[.,]/g, '')

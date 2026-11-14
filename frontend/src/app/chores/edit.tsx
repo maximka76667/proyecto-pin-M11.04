@@ -1,7 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { ChoreForm, closeChoreForm, type ChoreFormValues } from '@/components/chore-form';
 import { Palette } from '@/constants/onboarding';
@@ -28,7 +35,10 @@ export default function EditChoreScreen() {
 
     void (async () => {
       try {
-        const task = (await api('GET', `/tasks/${encodeURIComponent(taskId)}`)) as TaskToEdit;
+        const task = await api(
+          'GET',
+          `/tasks/${encodeURIComponent(taskId)}`,
+        ) as TaskToEdit;
         setInitialValues({
           title: task.title,
           description: task.description ?? '',

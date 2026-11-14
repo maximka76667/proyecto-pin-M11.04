@@ -38,9 +38,9 @@ export default function CreateChoreScreen() {
         router.replace({ pathname: '/chores', params: { notice: 'created' } });
       }}>
       <View style={styles.infoCard}>
-        <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
-      </View>
-    </ChoreForm>
+        <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />      
+        </View>    
+        </ChoreForm>
   );
 }
 

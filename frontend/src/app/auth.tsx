@@ -10,12 +10,7 @@ import * as Linking from 'expo-linking';
 import { Eyebrow, Field, PrimaryButton, SegmentedControl } from '@/components/onboarding';
 import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage, setAuthToken } from '@/lib/api';
-import {
-  PASSWORD_HINT,
-  PASSWORD_MESSAGES,
-  validateEmail,
-  validateNewPassword,
-} from '@/lib/password-policy';
+import { PASSWORD_HINT, PASSWORD_MESSAGES, validateEmail, validateNewPassword } from '@/lib/password-policy';
 
 type Mode = 'login' | 'register';
 type AuthField = 'name' | 'email' | 'password';
@@ -29,11 +24,7 @@ function validateAuthForm(mode: Mode, values: { name: string; email: string; pas
   const emailError = validateEmail(values.email);
   if (emailError) errors.email = emailError;
   const passwordError =
-    mode === 'register'
-      ? validateNewPassword(values.password)
-      : !values.password
-        ? PASSWORD_MESSAGES.required
-        : undefined;
+    mode === 'register' ? validateNewPassword(values.password) : !values.password ? PASSWORD_MESSAGES.required : undefined;
   if (passwordError) errors.password = passwordError;
   return errors;
 }
@@ -133,27 +124,17 @@ export default function Auth() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.brand}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>8</Text>
-          </View>
-          <Text style={styles.brandText}>room8</Text>
-        </View>
+        <View style={styles.brand}><View style={styles.logo}><Text style={styles.logoText}>8</Text></View><Text style={styles.brandText}>room8</Text></View>
         <View style={styles.header}>
           <Eyebrow>Tu hogar, en buenas manos</Eyebrow>
-          <Text style={styles.title}>
-            {mode === 'login' ? 'Bienvenido de nuevo.' : 'Crea tu cuenta.'}
-          </Text>
-          <Text style={styles.subtitle}>
-            Organiza tu casa de forma sencilla, justa y compartida.
-          </Text>
+          <Text style={styles.title}>{mode === 'login' ? 'Bienvenido de nuevo.' : 'Crea tu cuenta.'}</Text>
+          <Text style={styles.subtitle}>Organiza tu casa de forma sencilla, justa y compartida.</Text>
         </View>
         {verificationPending ? (
           <View style={[styles.notice, styles.noticeSuccess]} accessibilityLiveRegion="polite">
             <MaterialCommunityIcons name="email-check-outline" size={20} color={Palette.primary} />
             <Text style={[styles.noticeText, { color: Palette.primary }]}>
-              Confirma tu email. Te hemos enviado un enlace a {email}. Después podrás iniciar
-              sesión.
+              Confirma tu email. Te hemos enviado un enlace a {email}. Después podrás iniciar sesión.
             </Text>
           </View>
         ) : null}
@@ -161,17 +142,13 @@ export default function Auth() {
         {params.expired ? (
           <View style={[styles.notice, styles.noticeWarning]} accessibilityLiveRegion="polite">
             <MaterialCommunityIcons name="clock-alert-outline" size={20} color={Palette.error} />
-            <Text style={[styles.noticeText, { color: Palette.error }]}>
-              Tu sesión ha caducado. Vuelve a iniciar sesión
-            </Text>
+            <Text style={[styles.noticeText, { color: Palette.error }]}>Tu sesión ha caducado. Vuelve a iniciar sesión</Text>
           </View>
         ) : null}
         {params.reset ? (
           <View style={[styles.notice, styles.noticeSuccess]} accessibilityLiveRegion="polite">
             <MaterialCommunityIcons name="shield-check-outline" size={20} color={Palette.primary} />
-            <Text style={[styles.noticeText, { color: Palette.primary }]}>
-              Contraseña restablecida. Inicia sesión con tu nueva contraseña.
-            </Text>
+            <Text style={[styles.noticeText, { color: Palette.primary }]}>Contraseña restablecida. Inicia sesión con tu nueva contraseña.</Text>
           </View>
         ) : null}
         {params.verified ? (
@@ -182,80 +159,33 @@ export default function Auth() {
             </Text>
           </View>
         ) : null}
-        {!verificationPending ? (
-          <SegmentedControl
-            options={[
-              { value: 'login', label: 'Iniciar sesión' },
-              { value: 'register', label: 'Registrarme' },
-            ]}
-            value={mode}
-            onChange={(value) => {
-              setMode(value);
-              setError('');
-              setFieldErrors({});
-            }}
-          />
-        ) : null}
+        {!verificationPending ? <SegmentedControl options={[{ value: 'login', label: 'Iniciar sesión' }, { value: 'register', label: 'Registrarme' }]} value={mode} onChange={(value) => { setMode(value); setError(''); setFieldErrors({}); }} /> : null}
         {!verificationPending ? (
           <>
             <View style={styles.form}>
               {mode === 'register' ? (
                 <View style={styles.field}>
-                  <Field
-                    label="Tu nombre"
-                    placeholder="p. ej. Alex"
-                    value={name}
-                    onChangeText={edit('name', setName)}
-                  />
+                  <Field label="Tu nombre" placeholder="p. ej. Alex" value={name} onChangeText={edit('name', setName)} />
                   <FieldMessage error={fieldErrors.name} />
                 </View>
               ) : null}
               <View style={styles.field}>
-                <Field
-                  label="Email"
-                  placeholder="tu@email.com"
-                  value={email}
-                  onChangeText={edit('email', setEmail)}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
+                <Field label="Email" placeholder="tu@email.com" value={email} onChangeText={edit('email', setEmail)} keyboardType="email-address" autoCapitalize="none" />
                 <FieldMessage error={fieldErrors.email} />
               </View>
               <View style={styles.field}>
-                <Field
-                  label="Contraseña"
-                  placeholder="Mínimo 8 caracteres"
-                  value={password}
-                  onChangeText={edit('password', setPassword)}
-                  secureTextEntry
-                />
-                <FieldMessage
-                  error={fieldErrors.password}
-                  hint={mode === 'register' ? PASSWORD_HINT : undefined}
-                />
+                <Field label="Contraseña" placeholder="Mínimo 8 caracteres" value={password} onChangeText={edit('password', setPassword)} secureTextEntry />
+                <FieldMessage error={fieldErrors.password} hint={mode === 'register' ? PASSWORD_HINT : undefined} />
               </View>
               {mode === 'login' ? (
-                <Pressable
-                  onPress={() => router.push('/forgot-password' as Href)}
-                  disabled={loading}
-                  hitSlop={8}
-                  accessibilityRole="link"
-                  style={styles.forgot}>
+                <Pressable onPress={() => router.push('/forgot-password' as Href)} disabled={loading} hitSlop={8} accessibilityRole="link" style={styles.forgot}>
                   <Text style={styles.forgotText}>¿Has olvidado tu contraseña?</Text>
                 </Pressable>
               ) : null}
             </View>
             {error ? <Text style={styles.error}>{error}</Text> : null}
-            <PrimaryButton
-              title={mode === 'login' ? 'Entrar' : 'Crear cuenta'}
-              onPress={submit}
-              loading={loading}
-            />
-            <View style={styles.divider}>
-              <View style={styles.line} />
-              <Text style={styles.or}>o</Text>
-              <View style={styles.line} />
-            </View>
+            <PrimaryButton title={mode === 'login' ? 'Entrar' : 'Crear cuenta'} onPress={submit} loading={loading} />
+            <View style={styles.divider}><View style={styles.line} /><Text style={styles.or}>o</Text><View style={styles.line} /></View>
             <Pressable style={styles.google} onPress={googleLogin} disabled={loading}>
               <MaterialCommunityIcons name="google" size={20} color={Palette.text} />
               <Text style={styles.googleText}>Continuar con Google</Text>
@@ -282,24 +212,9 @@ function FieldMessage({ error, hint }: { error?: string; hint?: string }) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Palette.background },
-  container: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    width: '100%',
-    maxWidth: 480,
-    alignSelf: 'center',
-    padding: 24,
-    gap: 20,
-  },
+  container: { flexGrow: 1, justifyContent: 'center', width: '100%', maxWidth: 480, alignSelf: 'center', padding: 24, gap: 20 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  logo: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Palette.peach,
-  },
+  logo: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: Palette.peach },
   logoText: { fontSize: 18, fontWeight: '800', color: Palette.text },
   brandText: { fontSize: 20, fontWeight: '800', color: Palette.text },
   header: { gap: 8 },
@@ -313,26 +228,10 @@ const styles = StyleSheet.create({
   divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   line: { flex: 1, height: 1, backgroundColor: Palette.border },
   or: { color: Palette.textSecondary },
-  google: {
-    height: 52,
-    borderRadius: Radius.button,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    backgroundColor: Palette.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
+  google: { height: 52, borderRadius: Radius.button, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   googleText: { fontSize: 15, fontWeight: '700', color: Palette.text },
   footer: { fontSize: 12, textAlign: 'center', color: Palette.textSecondary },
-  notice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 14,
-    borderRadius: Radius.input,
-  },
+  notice: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: Radius.input },
   noticeWarning: { backgroundColor: '#FBE9E7' },
   noticeSuccess: { backgroundColor: Palette.mint },
   noticeText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '600' },

@@ -78,11 +78,7 @@ export function PasswordScreen({
 
           {tip ? (
             <View style={styles.tip}>
-              <MaterialCommunityIcons
-                name="shield-check-outline"
-                size={20}
-                color={Palette.primary}
-              />
+              <MaterialCommunityIcons name="shield-check-outline" size={20} color={Palette.primary} />
               <Text style={styles.tipText}>{tip}</Text>
             </View>
           ) : null}
@@ -100,10 +96,7 @@ export function PasswordScreen({
               disabled={loading}
               accessibilityRole="button"
               accessibilityState={{ disabled: loading, busy: loading }}
-              style={({ pressed }) => [
-                styles.submit,
-                (pressed || loading) && styles.submitPressed,
-              ]}>
+              style={({ pressed }) => [styles.submit, (pressed || loading) && styles.submitPressed]}>
               {loading ? (
                 <ActivityIndicator color={Palette.onPrimary} />
               ) : (

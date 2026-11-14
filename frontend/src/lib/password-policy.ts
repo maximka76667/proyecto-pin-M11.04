@@ -54,8 +54,7 @@ export function validatePasswordChange(values: { current: string; next: string; 
   const errors: FieldErrors = {};
 
   if (!values.current) errors.current = PASSWORD_MESSAGES.required;
-  else if (utf8Bytes(values.current) > CURRENT_PASSWORD_MAX_BYTES)
-    errors.current = PASSWORD_MESSAGES.tooLong;
+  else if (utf8Bytes(values.current) > CURRENT_PASSWORD_MAX_BYTES) errors.current = PASSWORD_MESSAGES.tooLong;
 
   const nextError = validateNewPassword(values.next);
   if (nextError) errors.next = nextError;
@@ -109,16 +108,10 @@ const FIELD_BY_MESSAGE: Record<string, PasswordField> = {
 // Los detalles internos (404, 500, "Cannot POST…") no se enseñan al usuario
 export function describeApiError(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) {
-    return {
-      fields: {} as FieldErrors,
-      general: 'No se ha podido conectar. Revisa tu conexión e inténtalo de nuevo.',
-    };
+    return { fields: {} as FieldErrors, general: 'No se ha podido conectar. Revisa tu conexión e inténtalo de nuevo.' };
   }
   if (error.status === 429) {
-    return {
-      fields: {} as FieldErrors,
-      general: error.message || 'Demasiados intentos. Inténtalo más tarde.',
-    };
+    return { fields: {} as FieldErrors, general: error.message || 'Demasiados intentos. Inténtalo más tarde.' };
   }
   if (error.status === 401) {
     return { fields: {} as FieldErrors, general: 'Tu sesión ha caducado. Vuelve a iniciar sesión' };

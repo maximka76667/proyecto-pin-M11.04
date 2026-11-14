@@ -42,12 +42,10 @@ export default function RankingScreen() {
       let active = true;
       setLoading(true);
       setError('');
-      void (
-        api(
-          'GET',
-          `/points/ranking?apartment_id=${encodeURIComponent(APARTMENT_ID)}&month=${month}`,
-        ) as Promise<RankingResponse>
-      )
+      void (api(
+        'GET',
+        `/points/ranking?apartment_id=${encodeURIComponent(APARTMENT_ID)}&month=${month}`,
+      ) as Promise<RankingResponse>)
         .then((result) => {
           if (active) setData(result);
         })
@@ -102,7 +100,9 @@ export default function RankingScreen() {
         {!loading && !error && data ? (
           <View style={styles.list}>
             {data.ranking.map((row) => (
-              <View key={row.user_id} style={[styles.row, row.isCurrentUser && styles.rowCurrent]}>
+              <View
+                key={row.user_id}
+                style={[styles.row, row.isCurrentUser && styles.rowCurrent]}>
                 <View style={styles.rankBadge}>
                   {row.points > 0 && medalColors[row.rank] ? (
                     <MaterialCommunityIcons name="trophy" size={22} color={medalColors[row.rank]} />

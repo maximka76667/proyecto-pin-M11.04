@@ -66,9 +66,7 @@ export default function SharedBalance() {
             ) : (
               <View style={styles.list}>
                 {balance.globalPayments.map((payment, index) => (
-                  <View
-                    key={`${payment.deudor}-${payment.acreedor}-${index}`}
-                    style={styles.payment}>
+                  <View key={`${payment.deudor}-${payment.acreedor}-${index}`} style={styles.payment}>
                     <View style={styles.paymentText}>
                       <Text style={styles.debtor}>{payment.deudor}</Text>
                       <Text style={styles.arrow}>debe a {payment.acreedor}</Text>

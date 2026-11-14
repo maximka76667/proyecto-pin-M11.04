@@ -36,13 +36,7 @@ export function SkeletonRow({ label = 'Cargando' }: { label?: string }) {
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 14 },
   block: { backgroundColor: Palette.border },
   icon: { width: 40, height: 40, borderRadius: 12 },
   text: { flex: 1, gap: 2 },

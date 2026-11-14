@@ -45,9 +45,7 @@ export function BottomNav() {
       .catch(() => {
         if (active) setHasHousehold(false);
       });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [pathname]);
 
   if (!hasHousehold || !tabs.some(({ href }) => href === pathname)) return null;

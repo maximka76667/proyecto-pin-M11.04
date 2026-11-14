@@ -21,7 +21,13 @@ export type Apartment = {
 };
 
 export type TransactionCategory =
-  'utilities' | 'maintenance' | 'supplies' | 'entertainment' | 'payment' | 'other' | 'pending';
+  | "utilities"
+  | "maintenance"
+  | "supplies"
+  | "entertainment"
+  | "payment"
+  | "other"
+  | "pending";
 
 export type Transaction = {
   id: string;
@@ -105,7 +111,7 @@ export class ApiError extends Error {
     readonly status: number,
   ) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
   }
 }
 
@@ -206,7 +212,7 @@ export async function apiUpload(
 }
 
 async function getUploadBlob(upload: UploadFile): Promise<Blob> {
-  if (Platform.OS === 'web' && upload.file) {
+  if (Platform.OS === "web" && upload.file) {
     return upload.file;
   }
   if (Platform.OS === 'web' || upload.uri.startsWith('blob:') || upload.uri.startsWith('data:')) {
@@ -222,12 +228,14 @@ async function getUploadBlob(upload: UploadFile): Promise<Blob> {
 async function readResponse(response: Response) {
   const data = await response.json();
   if (!response.ok) {
-    const message = Array.isArray(data.message) ? data.message.join('\n') : data.message;
+    const message = Array.isArray(data.message)
+      ? data.message.join("\n")
+      : data.message;
     throw new ApiError(message, response.status);
   }
   return data;
 }
 
 export function errorMessage(e: unknown) {
-  return e instanceof Error ? e.message : 'Error al conectar';
+  return e instanceof Error ? e.message : "Error al conectar";
 }

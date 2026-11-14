@@ -1,7 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { APARTMENT_ID } from '@/constants/dev-session';
@@ -50,7 +57,9 @@ export default function Transactions() {
         <View style={styles.header}>
           <Text style={styles.eyebrow}>DETALLE DEL BALANCE</Text>
           <Text style={styles.title}>¿Cuál es mi balance?</Text>
-          <Text style={styles.subtitle}>Aquí puedes ver el detalle de tus pagos pendientes.</Text>
+          <Text style={styles.subtitle}>
+            Aquí puedes ver el detalle de tus pagos pendientes.
+          </Text>
         </View>
 
         {loading ? <ActivityIndicator color={Palette.primary} size="large" /> : null}
@@ -61,7 +70,9 @@ export default function Transactions() {
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Mi balance</Text>
               <Text style={styles.message}>{summary.mensaje}</Text>
-              <Text style={styles.amount}>{summary.miResumen.monto.toFixed(2)} €</Text>
+              <Text style={styles.amount}>
+                {summary.miResumen.monto.toFixed(2)} €
+              </Text>
               <Text style={styles.status}>
                 {summary.miResumen.esDeudor ? 'Tienes que pagar' : 'Pendiente de cobro'}
               </Text>
@@ -82,6 +93,7 @@ export default function Transactions() {
                 <Text style={styles.muted}>No hay conceptos pendientes.</Text>
               )}
             </View>
+
           </>
         ) : null}
       </ScrollView>

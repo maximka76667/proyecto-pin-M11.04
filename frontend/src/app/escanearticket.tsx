@@ -75,9 +75,7 @@ export default function ScanReceiptScreen() {
             <View style={styles.header}>
               <Text style={styles.eyebrow}>ESCANEAR TICKET</Text>
               <Text style={styles.title}>Haz una foto del ticket</Text>
-              <Text style={styles.subtitle}>
-                Leeremos los productos y podrás revisarlos antes de repartir el gasto.
-              </Text>
+              <Text style={styles.subtitle}>Leeremos los productos y podrás revisarlos antes de repartir el gasto.</Text>
             </View>
             <TicketScanner onScanned={onScanned} onError={onScanError} />
             <Pressable onPress={() => setManual(true)} style={styles.secondaryButton}>
@@ -89,9 +87,7 @@ export default function ScanReceiptScreen() {
             <View style={styles.header}>
               <Text style={styles.eyebrow}>REVISAR TICKET</Text>
               <Text style={styles.title}>¿Todo correcto?</Text>
-              <Text style={styles.subtitle}>
-                Añade lo que falte o toca un producto para modificarlo.
-              </Text>
+              <Text style={styles.subtitle}>Añade lo que falte o toca un producto para modificarlo.</Text>
             </View>
             <TicketScanner compact onScanned={onScanned} onError={onScanError} />
             <ReceiptEditor items={items} onChange={setItems} />
@@ -105,21 +101,15 @@ export default function ScanReceiptScreen() {
             <View style={styles.header}>
               <Text style={styles.eyebrow}>REPARTIR GASTO</Text>
               <Text style={styles.title}>{total.toFixed(2)} €</Text>
-              <Text style={styles.subtitle}>
-                Selecciona las personas que comparten este ticket y quién lo ha pagado.
-              </Text>
+              <Text style={styles.subtitle}>Selecciona las personas que comparten este ticket y quién lo ha pagado.</Text>
             </View>
             <ReceiptSplit
               apartmentId={APARTMENT_ID}
               items={items}
-              onCreated={() =>
-                router.replace({ pathname: '/transactions', params: { notice: 'receipt' } })
-              }
+              onCreated={() => router.replace({ pathname: '/transactions', params: { notice: 'receipt' } })}
               onError={onSplitError}
             />
-            <Pressable onPress={() => setShowSplit(false)} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Volver a productos</Text>
-            </Pressable>
+            <Pressable onPress={() => setShowSplit(false)} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>Volver a productos</Text></Pressable>
           </>
         )}
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -139,14 +129,7 @@ function parseItems(encodedItems?: string): ReceiptItem[] {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Palette.background },
-  container: {
-    flexGrow: 1,
-    width: '100%',
-    maxWidth: 560,
-    alignSelf: 'center',
-    padding: 24,
-    gap: 14,
-  },
+  container: { flexGrow: 1, width: '100%', maxWidth: 560, alignSelf: 'center', padding: 24, gap: 14 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   screenTitle: { fontSize: 18, fontWeight: '800', color: Palette.text },
   step: { fontSize: 12, fontWeight: '700', color: Palette.primary },
@@ -154,16 +137,7 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.4, color: Palette.primary },
   title: { fontSize: 30, fontWeight: '800', color: Palette.text },
   subtitle: { fontSize: 14, lineHeight: 21, color: Palette.textSecondary },
-  primaryButton: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 8,
-    borderRadius: 16,
-    backgroundColor: Palette.primary,
-  },
+  primaryButton: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8, borderRadius: 16, backgroundColor: Palette.primary },
   primaryButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
   secondaryButton: { alignItems: 'center', padding: 12 },
   secondaryButtonText: { fontSize: 14, fontWeight: '800', color: Palette.primary },

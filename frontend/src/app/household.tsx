@@ -4,13 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  Eyebrow,
-  Field,
-  PhotoField,
-  PrimaryButton,
-  SegmentedControl,
-} from '@/components/onboarding';
+import { Eyebrow, Field, PhotoField, PrimaryButton, SegmentedControl } from '@/components/onboarding';
 import { Palette } from '@/constants/onboarding';
 import { Apartment, api, errorMessage, getCurrentUser } from '@/lib/api';
 
@@ -96,7 +90,9 @@ export default function Household() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled">
         <Pressable onPress={goBack} hitSlop={12} style={styles.back}>
           <MaterialCommunityIcons name="arrow-left" size={24} color={Palette.text} />
         </Pressable>
