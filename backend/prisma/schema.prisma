@@ -30,6 +30,7 @@ model User {
   email_verification_tokens  EmailVerificationToken[]
   swaps_sent                 TaskSwapRequest[]         @relation("SwapFromUser")
   swaps_received             TaskSwapRequest[]         @relation("SwapToUser")
+  task_points                TaskPoints[]
 }
 
 model AuthSession {
@@ -80,6 +81,7 @@ model Apartment {
   tasks           Task[]
   user_apartments UserApartment[]
   swap_requests   TaskSwapRequest[]
+  task_points     TaskPoints[]
 
   @@unique([landlord_id, name])
   @@index([landlord_id])
@@ -117,6 +119,7 @@ model Task {
   title            String
   description      String?
   duration_minutes Int              @default(30)
+  points           Int              @default(0)
   status           TaskStatus
   category         TaskCategory
   priority         TaskPriority
@@ -139,8 +142,28 @@ model TaskAssignment {
   user         User              @relation(fields: [user_id], references: [id])
   swap_as_from TaskSwapRequest[] @relation("SwapFromAssignment")
   swap_as_to   TaskSwapRequest[] @relation("SwapToAssignment")
+  points_entry TaskPoints?
 
   @@unique([user_id, due_date, due_time])
+}
+
+// Ledger de reputación: una fila por asignación que dio puntos. Los puntos de un usuario son
+// la suma de sus filas. `points` es una copia del valor de la tarea en el momento de ganarlos,
+// así que editar `Task.points` después no cambia lo ya ganado. `month` es "YYYY-MM".
+model TaskPoints {
+  id            String         @id @default(uuid()) @db.Uuid
+  user_id       String         @db.Uuid
+  apartment_id  String         @db.Uuid
+  assignment_id String         @unique @db.Uuid
+  points        Int
+  month         String         @db.VarChar(7)
+  created_at    DateTime       @default(now())
+  user          User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  apartment     Apartment      @relation(fields: [apartment_id], references: [id], onDelete: Cascade)
+  assignment    TaskAssignment @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+
+  @@index([apartment_id, month])
+  @@index([user_id, month])
 }
 
 // Petición de intercambio dirigida A→B. Las pendientes se pueden aceptar (quedan como
