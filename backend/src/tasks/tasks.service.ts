@@ -21,6 +21,7 @@ import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { TaskAvailabilityQueryDto } from './dto/task-availability-query.dto';
 import { toHHmm } from '../availability/availability.service';
 import { GoogleCalendarService } from '../availability/google-calendar.service';
+import { defaultTaskPoints } from './task-points';
 
 // Integrante con la franja ocupada; solo la hora, nunca el título del evento
 type BusyMember = { id: string; full_name: string; busy: { start: string; end: string } };
@@ -67,13 +68,17 @@ export class TasksService {
       );
     }
 
+    const durationMinutes = createTaskDto.duration_minutes ?? 30;
     try {
       return await this.prisma.task.create({
         data: {
           apartment_id: createTaskDto.apartment_id,
           title,
           description: createTaskDto.description?.trim() || null,
-          duration_minutes: createTaskDto.duration_minutes ?? 30,
+          duration_minutes: durationMinutes,
+          points:
+            createTaskDto.points ??
+            defaultTaskPoints(durationMinutes, TaskPriority.medium),
           frequency: createTaskDto.frequency,
           status: TaskStatus.pending,
           category: createTaskDto.category ?? TaskCategory.other,
@@ -474,7 +479,7 @@ export class TasksService {
   // Un campo que no se envía no se toca. @IsOptional deja pasar null, pero el nombre,
   // la frecuencia y la categoría son obligatorios: null no puede vaciarlos
   private datosEditados(updateTaskDto: UpdateTaskDto) {
-    const { title, description, frequency, category, duration_minutes } = updateTaskDto;
+    const { title, description, frequency, category, duration_minutes, points } = updateTaskDto;
     if (title === null) {
       throw new BadRequestException('El nombre de la tarea es obligatorio');
     }
@@ -494,6 +499,8 @@ export class TasksService {
     if (frequency !== undefined) data.frequency = frequency;
     if (category !== undefined) data.category = category;
     if (duration_minutes !== undefined) data.duration_minutes = duration_minutes;
+    // Los puntos solo cambian si se envían: editar la duración no los recalcula
+    if (points !== undefined) data.points = points;
     return data;
   }
 

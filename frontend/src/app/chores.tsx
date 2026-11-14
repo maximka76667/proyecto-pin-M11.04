@@ -35,6 +35,7 @@ type Task = {
     id: string;
     title: string;
     description: string | null;
+    points: number;
     category: ChoreCategory;
     frequency: ChoreFrequency;
     status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
@@ -362,6 +363,11 @@ export default function ChoresScreen() {
                     <Text style={styles.availabilityButtonText}>Intercambios de tareas</Text>
                 </Pressable>
 
+                <Pressable style={styles.availabilityButton} onPress={() => router.push('/ranking')}>
+                    <MaterialCommunityIcons name="trophy-outline" size={18} color={Palette.primary} />
+                    <Text style={styles.availabilityButtonText}>Ranking de la casa</Text>
+                </Pressable>
+
                 <View style={styles.segmented}>
                     <Pressable
                         accessibilityRole="button"
@@ -478,8 +484,8 @@ export default function ChoresScreen() {
                                         <Text style={styles.choreTitle}>{task.title}</Text>
                                         <Text style={styles.choreMeta}>
                                             {showHouseTasks
-                                                ? frequencyLabels[task.frequency]
-                                                : `${assignment?.user.full_name ?? 'Unassigned'} · ${frequencyLabels[task.frequency]}`}
+                                                ? `${frequencyLabels[task.frequency]} · ${task.points} pts`
+                                                : `${assignment?.user.full_name ?? 'Unassigned'} · ${frequencyLabels[task.frequency]} · ${task.points} pts`}
                                         </Text>
                                         {assignment && swapAssignmentIds.has(assignment.id) ? (
                                             <View style={styles.swapBadge}>

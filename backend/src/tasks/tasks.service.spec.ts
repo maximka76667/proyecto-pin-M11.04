@@ -72,6 +72,7 @@ describe('TasksService', () => {
         title: 'Take out recycling',
         description: null,
         duration_minutes: 30,
+        points: 45,
         frequency: 'weekly',
         status: 'pending',
         category: 'cleaning',
@@ -79,6 +80,43 @@ describe('TasksService', () => {
       },
       include: { assignments: true },
     });
+  });
+
+  it('calcula los puntos por defecto con la duración y la prioridad media', async () => {
+    prisma.task.findFirst.mockResolvedValue(null);
+    prisma.task.create.mockResolvedValue({ id: 'task-1' });
+
+    await service.create({
+      apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      title: 'Limpiar el baño',
+      duration_minutes: 60,
+      frequency: 'weekly',
+    });
+
+    expect(prisma.task.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ duration_minutes: 60, points: 90 }),
+      }),
+    );
+  });
+
+  it('respeta los puntos enviados al crear la tarea', async () => {
+    prisma.task.findFirst.mockResolvedValue(null);
+    prisma.task.create.mockResolvedValue({ id: 'task-1' });
+
+    await service.create({
+      apartment_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      title: 'Limpiar el baño',
+      duration_minutes: 60,
+      points: 200,
+      frequency: 'weekly',
+    });
+
+    expect(prisma.task.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ points: 200 }),
+      }),
+    );
   });
 
   it('rechaza un título compuesto solo por espacios antes de acceder a la base de datos', async () => {
