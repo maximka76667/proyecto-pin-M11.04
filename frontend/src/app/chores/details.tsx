@@ -122,11 +122,7 @@ function parseAssignmentDay(value: string) {
   const month = Number(monthText);
   const year = Number(yearText);
   const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
     return null;
   }
 
@@ -167,8 +163,7 @@ export default function ChoreDetailsScreen() {
   const [assignmentToDelete, setAssignmentToDelete] = useState<
     TaskDetails['assignments'][number] | null
   >(null);
-  const [assignmentDeleteDialogVisible, setAssignmentDeleteDialogVisible] =
-    useState(false);
+  const [assignmentDeleteDialogVisible, setAssignmentDeleteDialogVisible] = useState(false);
   const [assignmentDeleting, setAssignmentDeleting] = useState(false);
   const [assignmentDeleteError, setAssignmentDeleteError] = useState('');
 
@@ -193,9 +188,7 @@ export default function ChoreDetailsScreen() {
     }
   };
 
-  const openAssignmentDeleteDialog = (
-    assignment: TaskDetails['assignments'][number],
-  ) => {
+  const openAssignmentDeleteDialog = (assignment: TaskDetails['assignments'][number]) => {
     setAssignmentToDelete(assignment);
     setAssignmentDeleteError('');
     setAssignmentDeleteDialogVisible(true);
@@ -207,18 +200,13 @@ export default function ChoreDetailsScreen() {
     setAssignmentDeleting(true);
     setAssignmentDeleteError('');
     try {
-      await api(
-        'DELETE',
-        `/tasks/assignments/${encodeURIComponent(assignmentToDelete.id)}`,
-      );
+      await api('DELETE', `/tasks/assignments/${encodeURIComponent(assignmentToDelete.id)}`);
       setTask((current) =>
         current
           ? {
-            ...current,
-            assignments: current.assignments.filter(
-              ({ id }) => id !== assignmentToDelete.id,
-            ),
-          }
+              ...current,
+              assignments: current.assignments.filter(({ id }) => id !== assignmentToDelete.id),
+            }
           : current,
       );
       setAssignmentDeleteDialogVisible(false);
@@ -237,10 +225,7 @@ export default function ChoreDetailsScreen() {
     void (async () => {
       let loadedTask: TaskDetails;
       try {
-        loadedTask = await api(
-          'GET',
-          `/tasks/${encodeURIComponent(taskId)}`,
-        ) as TaskDetails;
+        loadedTask = (await api('GET', `/tasks/${encodeURIComponent(taskId)}`)) as TaskDetails;
         if (cancelled) return;
         setTask(loadedTask);
         setLoading(false);
@@ -251,10 +236,10 @@ export default function ChoreDetailsScreen() {
 
       setMembersLoading(true);
       try {
-        const householdMembers = await api(
+        const householdMembers = (await api(
           'GET',
           `/apartments/${encodeURIComponent(loadedTask.apartment_id)}/members`,
-        ) as HouseMember[];
+        )) as HouseMember[];
         if (cancelled) return;
         setMembers(householdMembers);
       } catch (e) {
@@ -297,15 +282,18 @@ export default function ChoreDetailsScreen() {
     const [day, time] = availabilityKey.split('|');
     let cancelled = false;
     const timer = setTimeout(() => {
-      void (api(
-        'GET',
-        `/tasks/${encodeURIComponent(taskId)}/availability?due_date=${day}&due_time=${encodeURIComponent(time)}`,
-      ) as Promise<SlotAvailability>)
+      void (
+        api(
+          'GET',
+          `/tasks/${encodeURIComponent(taskId)}/availability?due_date=${day}&due_time=${encodeURIComponent(time)}`,
+        ) as Promise<SlotAvailability>
+      )
         .then((data) => {
           if (!cancelled) setAvailability({ key: availabilityKey, data, error: '' });
         })
         .catch((e) => {
-          if (!cancelled) setAvailability({ key: availabilityKey, data: null, error: errorMessage(e) });
+          if (!cancelled)
+            setAvailability({ key: availabilityKey, data: null, error: errorMessage(e) });
         });
     }, 400);
     return () => {
@@ -372,25 +360,30 @@ export default function ChoreDetailsScreen() {
       return;
     }
     if (selectedBusy.length > 0) {
-      setAssignmentError(unavailableMessage(selectedBusy[0].full_name, busyById.get(selectedBusy[0].id) ?? null));
+      setAssignmentError(
+        unavailableMessage(selectedBusy[0].full_name, busyById.get(selectedBusy[0].id) ?? null),
+      );
       return;
     }
 
     setAssignmentSaving(true);
     setAssignmentError('');
     try {
-      const newAssignments = await api(
+      const newAssignments = (await api(
         'POST',
         `/tasks/${encodeURIComponent(taskId)}/assignments`,
         { user_ids: selectedUserIds, due_date: assignmentDay, due_time: assignmentTime },
-      ) as TaskDetails['assignments'];
-      setTask((current) => current && ({
-        ...current,
-        status: current.status === 'pending' ? 'assigned' : current.status,
-        assignments: [...current.assignments, ...newAssignments].sort(
-          (a, b) => a.due_date.localeCompare(b.due_date),
-        ),
-      }));
+      )) as TaskDetails['assignments'];
+      setTask(
+        (current) =>
+          current && {
+            ...current,
+            status: current.status === 'pending' ? 'assigned' : current.status,
+            assignments: [...current.assignments, ...newAssignments].sort((a, b) =>
+              a.due_date.localeCompare(b.due_date),
+            ),
+          },
+      );
       setAssignDialogVisible(false);
       setAssignmentNotice(
         `Tarea asignada a ${newAssignments.length} ${
@@ -411,10 +404,11 @@ export default function ChoreDetailsScreen() {
   const myAssignmentId = myAssignment?.id;
   // La que se puede marcar como hecha: una asignación mía que aún no está completada
   const myOpenAssignment = task?.assignments.find(
-    (item) =>
-      item.user_id === USER_ID && item.status !== 'completed' && item.status !== 'rejected',
+    (item) => item.user_id === USER_ID && item.status !== 'completed' && item.status !== 'rejected',
   );
-  const iCompletedIt = !myOpenAssignment && Boolean(myAssignment) &&
+  const iCompletedIt =
+    !myOpenAssignment &&
+    Boolean(myAssignment) &&
     task?.assignments.some((item) => item.user_id === USER_ID && item.status === 'completed');
 
   // Marca la tarea como hecha en el backend, que es quien registra los puntos
@@ -423,22 +417,24 @@ export default function ChoreDetailsScreen() {
     setCompleting(true);
     setCompleteError('');
     try {
-      const result = await api(
+      const result = (await api(
         'PATCH',
         `/points/assignments/${encodeURIComponent(myOpenAssignment.id)}/complete`,
-      ) as { points: number };
+      )) as { points: number };
       setTask((current) =>
         current
           ? {
-            ...current,
-            assignments: current.assignments.map((item) =>
-              item.id === myOpenAssignment.id ? { ...item, status: 'completed' } : item,
-            ),
-          }
+              ...current,
+              assignments: current.assignments.map((item) =>
+                item.id === myOpenAssignment.id ? { ...item, status: 'completed' } : item,
+              ),
+            }
           : current,
       );
       setAssignmentNotice(
-        result.points > 0 ? `¡Hecho! Has ganado ${result.points} puntos.` : 'La tarea ya estaba hecha.',
+        result.points > 0
+          ? `¡Hecho! Has ganado ${result.points} puntos.`
+          : 'La tarea ya estaba hecha.',
       );
     } catch (e) {
       setCompleteError(errorMessage(e));
@@ -456,10 +452,12 @@ export default function ChoreDetailsScreen() {
     useCallback(() => {
       if (!apartmentId || !myAssignmentId) return;
       let active = true;
-      void (api(
-        'GET',
-        `/tasks/swap-requests?apartment_id=${encodeURIComponent(apartmentId)}`,
-      ) as Promise<SwapRequestSummary[]>)
+      void (
+        api(
+          'GET',
+          `/tasks/swap-requests?apartment_id=${encodeURIComponent(apartmentId)}`,
+        ) as Promise<SwapRequestSummary[]>
+      )
         .then((requests) => {
           if (!active) return;
           const sent = requests.find(
@@ -495,9 +493,9 @@ export default function ChoreDetailsScreen() {
 
   const assignmentDate = assignment
     ? formatAssignmentDay(assignment.due_date, {
-      month: 'short',
-      day: 'numeric',
-    })
+        month: 'short',
+        day: 'numeric',
+      })
     : null;
 
   return (
@@ -505,140 +503,167 @@ export default function ChoreDetailsScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.topBar}>
           <Text style={styles.title}>Detalles de la tarea</Text>
-          <Pressable onPress={() => router.dismissTo('/chores')} hitSlop={12} accessibilityLabel="Cerrar">
+          <Pressable
+            onPress={() => router.dismissTo('/chores')}
+            hitSlop={12}
+            accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={23} color={Palette.text} />
           </Pressable>
         </View>
 
         {loading ? <ActivityIndicator color={Palette.primary} /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {task ? <View style={styles.hero}>
-          <View style={styles.iconCircle}>
-            <MaterialCommunityIcons name="format-list-checks" size={24} color={Palette.primary} />
+        {task ? (
+          <View style={styles.hero}>
+            <View style={styles.iconCircle}>
+              <MaterialCommunityIcons name="format-list-checks" size={24} color={Palette.primary} />
+            </View>
+            <Text style={styles.choreTitle}>{task.title}</Text>
+            <Text style={styles.meta}>
+              {frequencyLabels[task.frequency] ?? task.frequency} ·{' '}
+              {assignmentDate ?? 'En cualquier momento'} · {task.points} pts
+            </Text>
+            {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
           </View>
-          <Text style={styles.choreTitle}>{task.title}</Text>
-          <Text style={styles.meta}>
-            {frequencyLabels[task.frequency] ?? task.frequency} · {assignmentDate ?? 'En cualquier momento'} · {task.points} pts
-          </Text>
-          {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
-        </View> : null}
+        ) : null}
 
-        {task ? <View style={styles.assignmentCard}>
-          <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
-          <View style={styles.assignmentList}>
-            <Text style={styles.assignmentLabel}>ASIGNACIONES</Text>
-            {task.assignments.length > 0 ? (
-              task.assignments.map((item) => (
-                <View key={item.id} style={styles.assignmentRow}>
-                  <Text style={styles.assignment}>
-                    {item.user.full_name} · {formatAssignmentDay(item.due_date, {
-                      month: 'short',
-                      day: 'numeric',
-                    })} · {formatSlot(item.due_time, task.duration_minutes)} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Eliminar asignación de ${item.user.full_name}`}
-                    hitSlop={8}
-                    onPress={() => openAssignmentDeleteDialog(item)}
-                    style={styles.assignmentDeleteButton}>
-                    <MaterialCommunityIcons
-                      name="trash-can-outline"
-                      size={20}
-                      color={Palette.error}
-                    />
-                  </Pressable>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.assignment}>Esta tarea todavía no tiene asignaciones.</Text>
-            )}
+        {task ? (
+          <View style={styles.assignmentCard}>
+            <MaterialCommunityIcons name="star-outline" size={18} color={Palette.primary} />
+            <View style={styles.assignmentList}>
+              <Text style={styles.assignmentLabel}>ASIGNACIONES</Text>
+              {task.assignments.length > 0 ? (
+                task.assignments.map((item) => (
+                  <View key={item.id} style={styles.assignmentRow}>
+                    <Text style={styles.assignment}>
+                      {item.user.full_name} ·{' '}
+                      {formatAssignmentDay(item.due_date, {
+                        month: 'short',
+                        day: 'numeric',
+                      })}{' '}
+                      · {formatSlot(item.due_time, task.duration_minutes)} ·{' '}
+                      {item.status === 'completed'
+                        ? 'completada'
+                        : item.status === 'pending'
+                          ? 'pendiente'
+                          : item.status}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Eliminar asignación de ${item.user.full_name}`}
+                      hitSlop={8}
+                      onPress={() => openAssignmentDeleteDialog(item)}
+                      style={styles.assignmentDeleteButton}>
+                      <MaterialCommunityIcons
+                        name="trash-can-outline"
+                        size={20}
+                        color={Palette.error}
+                      />
+                    </Pressable>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.assignment}>Esta tarea todavía no tiene asignaciones.</Text>
+              )}
+            </View>
           </View>
-        </View> : null}
+        ) : null}
         {assignmentNotice ? <Text style={styles.success}>{assignmentNotice}</Text> : null}
 
-        {task ? <>
-          <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
-          <Pressable
-            disabled={!myOpenAssignment || completing}
-            onPress={() => void completeAssignment()}
-            style={[
-              styles.actionButton,
-              iCompletedIt && styles.completedButton,
-              !myOpenAssignment && !iCompletedIt && styles.disabledButton,
-            ]}>
-            {completing ? (
-              <ActivityIndicator color={Palette.onPrimary} />
-            ) : (
-              <MaterialCommunityIcons name="check-circle-outline" size={18} color={Palette.onPrimary} />
-            )}
-            <Text style={styles.actionText}>
-              {iCompletedIt
-                ? 'Marcada como hecha'
-                : myOpenAssignment
-                  ? `Marcar como hecha (+${task.points} pts)`
-                  : 'Solo quien la tiene asignada puede marcarla'}
-            </Text>
-          </Pressable>
-          {completeError ? <Text style={styles.error}>{completeError}</Text> : null}
-          <Pressable
-            disabled={membersLoading}
-            onPress={openAssignmentDialog}
-            style={styles.secondaryButton}>
-            <MaterialCommunityIcons name="account-plus-outline" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Asignar tarea manualmente</Text>
-          </Pressable>
-          {sentSwapId && myAssignment ? (
+        {task ? (
+          <>
+            <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
             <Pressable
-              disabled={swapCancelling}
-              onPress={() => void cancelSwapRequest()}
-              style={[styles.secondaryButton, styles.deleteButton]}>
-              {swapCancelling ? (
-                <ActivityIndicator color={Palette.error} />
+              disabled={!myOpenAssignment || completing}
+              onPress={() => void completeAssignment()}
+              style={[
+                styles.actionButton,
+                iCompletedIt && styles.completedButton,
+                !myOpenAssignment && !iCompletedIt && styles.disabledButton,
+              ]}>
+              {completing ? (
+                <ActivityIndicator color={Palette.onPrimary} />
               ) : (
-                <MaterialCommunityIcons name="close-circle-outline" size={18} color={Palette.error} />
+                <MaterialCommunityIcons
+                  name="check-circle-outline"
+                  size={18}
+                  color={Palette.onPrimary}
+                />
               )}
-              <Text style={[styles.secondaryText, styles.deleteText]}>
-                Cancelar solicitud de intercambio
+              <Text style={styles.actionText}>
+                {iCompletedIt
+                  ? 'Marcada como hecha'
+                  : myOpenAssignment
+                    ? `Marcar como hecha (+${task.points} pts)`
+                    : 'Solo quien la tiene asignada puede marcarla'}
               </Text>
             </Pressable>
-          ) : (
+            {completeError ? <Text style={styles.error}>{completeError}</Text> : null}
             <Pressable
-              disabled={!myAssignment}
-              onPress={() =>
-                myAssignment &&
-                router.push({
-                  pathname: '/chores/swap',
-                  params: { assignmentId: myAssignment.id, taskId },
-                })
-              }
-              style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
-              <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
-              <Text style={styles.secondaryText}>
-                {myAssignment
-                  ? 'Solicitar un cambio'
-                  : 'Solo puedes cambiar una tarea tuya'}
-              </Text>
+              disabled={membersLoading}
+              onPress={openAssignmentDialog}
+              style={styles.secondaryButton}>
+              <MaterialCommunityIcons
+                name="account-plus-outline"
+                size={18}
+                color={Palette.primary}
+              />
+              <Text style={styles.secondaryText}>Asignar tarea manualmente</Text>
             </Pressable>
-          )}
-          {swapError ? <Text style={styles.error}>{swapError}</Text> : null}
-          <Pressable
-            onPress={() => router.push('/chores/swaps')}
-            style={styles.secondaryButton}>
-            <MaterialCommunityIcons name="swap-vertical-bold" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Ver intercambios</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push({ pathname: '/chores/edit', params: { taskId } })}
-            style={styles.secondaryButton}>
-            <MaterialCommunityIcons name="pencil-outline" size={18} color={Palette.primary} />
-            <Text style={styles.secondaryText}>Editar tarea</Text>
-          </Pressable>
-          <Pressable onPress={openDeleteDialog} style={[styles.secondaryButton, styles.deleteButton]}>
-            <MaterialCommunityIcons name="trash-can-outline" size={18} color={Palette.error} />
-            <Text style={[styles.secondaryText, styles.deleteText]}>Eliminar tarea</Text>
-          </Pressable>
-        </> : null}
+            {sentSwapId && myAssignment ? (
+              <Pressable
+                disabled={swapCancelling}
+                onPress={() => void cancelSwapRequest()}
+                style={[styles.secondaryButton, styles.deleteButton]}>
+                {swapCancelling ? (
+                  <ActivityIndicator color={Palette.error} />
+                ) : (
+                  <MaterialCommunityIcons
+                    name="close-circle-outline"
+                    size={18}
+                    color={Palette.error}
+                  />
+                )}
+                <Text style={[styles.secondaryText, styles.deleteText]}>
+                  Cancelar solicitud de intercambio
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                disabled={!myAssignment}
+                onPress={() =>
+                  myAssignment &&
+                  router.push({
+                    pathname: '/chores/swap',
+                    params: { assignmentId: myAssignment.id, taskId },
+                  })
+                }
+                style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
+                <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
+                <Text style={styles.secondaryText}>
+                  {myAssignment ? 'Solicitar un cambio' : 'Solo puedes cambiar una tarea tuya'}
+                </Text>
+              </Pressable>
+            )}
+            {swapError ? <Text style={styles.error}>{swapError}</Text> : null}
+            <Pressable onPress={() => router.push('/chores/swaps')} style={styles.secondaryButton}>
+              <MaterialCommunityIcons name="swap-vertical-bold" size={18} color={Palette.primary} />
+              <Text style={styles.secondaryText}>Ver intercambios</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push({ pathname: '/chores/edit', params: { taskId } })}
+              style={styles.secondaryButton}>
+              <MaterialCommunityIcons name="pencil-outline" size={18} color={Palette.primary} />
+              <Text style={styles.secondaryText}>Editar tarea</Text>
+            </Pressable>
+            <Pressable
+              onPress={openDeleteDialog}
+              style={[styles.secondaryButton, styles.deleteButton]}>
+              <MaterialCommunityIcons name="trash-can-outline" size={18} color={Palette.error} />
+              <Text style={[styles.secondaryText, styles.deleteText]}>Eliminar tarea</Text>
+            </Pressable>
+          </>
+        ) : null}
       </ScrollView>
       <DeleteChoreDialog
         visible={deleteDialogVisible}
@@ -653,10 +678,13 @@ export default function ChoreDetailsScreen() {
         chore={task}
         assignmentDescription={
           assignmentToDelete
-            ? `${assignmentToDelete.user.full_name} · ${formatAssignmentDay(assignmentToDelete.due_date, {
-              month: 'short',
-              day: 'numeric',
-            })} · ${assignmentToDelete.due_time ?? 'hora sin definir'}`
+            ? `${assignmentToDelete.user.full_name} · ${formatAssignmentDay(
+                assignmentToDelete.due_date,
+                {
+                  month: 'short',
+                  day: 'numeric',
+                },
+              )} · ${assignmentToDelete.due_time ?? 'hora sin definir'}`
             : undefined
         }
         deleting={assignmentDeleting}
@@ -681,7 +709,8 @@ export default function ChoreDetailsScreen() {
               </Pressable>
             </View>
             <Text style={styles.modalDescription}>
-              Elige el día y la hora: quien tenga esa franja ocupada en su calendario no se podrá elegir.
+              Elige el día y la hora: quien tenga esa franja ocupada en su calendario no se podrá
+              elegir.
             </Text>
             <View style={styles.scheduleFields}>
               <View style={styles.scheduleField}>
@@ -731,7 +760,9 @@ export default function ChoreDetailsScreen() {
                 ) : currentAvailability?.error ? (
                   <Text style={styles.error}>{currentAvailability.error}</Text>
                 ) : !availabilityKey ? (
-                  <Text style={styles.memberHint}>Indica el día y la hora para ver quién está libre.</Text>
+                  <Text style={styles.memberHint}>
+                    Indica el día y la hora para ver quién está libre.
+                  </Text>
                 ) : null}
                 {members.map((member) => {
                   const selected = selectedUserIds.includes(member.id);
@@ -750,9 +781,21 @@ export default function ChoreDetailsScreen() {
                         unavailable && styles.memberOptionBusy,
                       ]}>
                       <MaterialCommunityIcons
-                        name={unavailable ? 'calendar-remove-outline' : selected ? 'check-circle' : 'circle-outline'}
+                        name={
+                          unavailable
+                            ? 'calendar-remove-outline'
+                            : selected
+                              ? 'check-circle'
+                              : 'circle-outline'
+                        }
                         size={21}
-                        color={unavailable ? Palette.error : selected ? Palette.primary : Palette.textSecondary}
+                        color={
+                          unavailable
+                            ? Palette.error
+                            : selected
+                              ? Palette.primary
+                              : Palette.textSecondary
+                        }
                       />
                       {member.avatar_url ? (
                         <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
@@ -768,7 +811,9 @@ export default function ChoreDetailsScreen() {
                         </Text>
                         {unavailable ? (
                           <Text style={styles.memberBusy}>
-                            {busy ? `No disponible · ocupado de ${busy.start} a ${busy.end}` : 'No disponible en esa franja'}
+                            {busy
+                              ? `No disponible · ocupado de ${busy.start} a ${busy.end}`
+                              : 'No disponible en esa franja'}
                           </Text>
                         ) : null}
                       </View>
@@ -778,10 +823,16 @@ export default function ChoreDetailsScreen() {
               </ScrollView>
             )}
             {availabilityWarning ? (
-              <Text style={styles.error} accessibilityLiveRegion="polite">{availabilityWarning}</Text>
+              <Text style={styles.error} accessibilityLiveRegion="polite">
+                {availabilityWarning}
+              </Text>
             ) : selectedBusy.length > 0 ? (
               <Text style={styles.error} accessibilityLiveRegion="polite">
-                {unavailableMessage(selectedBusy[0].full_name, busyById.get(selectedBusy[0].id) ?? null)} Quítalo de la selección o cambia la hora.
+                {unavailableMessage(
+                  selectedBusy[0].full_name,
+                  busyById.get(selectedBusy[0].id) ?? null,
+                )}{' '}
+                Quítalo de la selección o cambia la hora.
               </Text>
             ) : null}
             {assignmentError ? <Text style={styles.error}>{assignmentError}</Text> : null}
@@ -853,7 +904,13 @@ const styles = StyleSheet.create({
   },
   choreTitle: { marginTop: 4, fontSize: 20, fontWeight: '800', color: Palette.text },
   meta: { fontSize: 12, color: Palette.textSecondary },
-  description: { marginTop: 8, maxWidth: '90%', fontSize: 13, textAlign: 'center', color: Palette.textSecondary },
+  description: {
+    marginTop: 8,
+    maxWidth: '90%',
+    fontSize: 13,
+    textAlign: 'center',
+    color: Palette.textSecondary,
+  },
   error: { fontSize: 14, textAlign: 'center', color: Palette.error },
   success: { fontSize: 14, textAlign: 'center', color: '#4C8B6F' },
   assignmentCard: {
@@ -870,15 +927,40 @@ const styles = StyleSheet.create({
   assignmentDeleteButton: { padding: 4 },
   assignmentList: { flex: 1, gap: 4 },
   assignmentLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: Palette.primary },
-  scheduleCard: { gap: 12, padding: 16, borderRadius: Radius.input, backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border },
+  scheduleCard: {
+    gap: 12,
+    padding: 16,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.border,
+  },
   memberChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  memberChoice: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: Palette.border },
+  memberChoice: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.border,
+  },
   memberChoiceSelected: { backgroundColor: Palette.primary, borderColor: Palette.primary },
   memberChoiceText: { fontSize: 12, color: Palette.text },
   memberChoiceTextSelected: { color: Palette.onPrimary, fontWeight: '700' },
   scheduleFields: { flexDirection: 'row', gap: 10 },
-  scheduleInput: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: Palette.border, color: Palette.text },
-  scheduleButton: { alignItems: 'center', padding: 12, borderRadius: 12, backgroundColor: Palette.primary },
+  scheduleInput: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    color: Palette.text,
+  },
+  scheduleButton: {
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Palette.primary,
+  },
   scheduleButtonText: { color: Palette.onPrimary, fontWeight: '700' },
   sectionLabel: {
     marginTop: 6,

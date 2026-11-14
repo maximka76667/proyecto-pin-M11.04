@@ -32,7 +32,9 @@ export function toReceiptItems(input: ReceiptItemInput[]): ReceiptItem[] {
     quantity: Number.isInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity! : 1,
     // Not 0.00: an invented price would be split without anyone noticing
     unit_price:
-      item.unit_price != null && Number.isFinite(Number(item.unit_price)) && Number(item.unit_price) > 0
+      item.unit_price != null &&
+      Number.isFinite(Number(item.unit_price)) &&
+      Number(item.unit_price) > 0
         ? Number(item.unit_price).toFixed(2)
         : null,
     // Everything is shared by default; the user unticks what is only theirs
@@ -51,9 +53,7 @@ export function receiptTotals(items: ReceiptItem[]) {
   return {
     sharedItems,
     total: sharedItems.reduce((sum, item) => sum + lineTotal(item), 0),
-    ownTotal: items
-      .filter((item) => !item.shared)
-      .reduce((sum, item) => sum + lineTotal(item), 0),
+    ownTotal: items.filter((item) => !item.shared).reduce((sum, item) => sum + lineTotal(item), 0),
     missingPrices: sharedItems.filter((item) => item.unit_price === null).length,
   };
 }
@@ -93,7 +93,11 @@ export function ReceiptEditor({
   const saveItem = () => {
     const normalizedPrice = price.trim().replace(',', '.');
     const parsedQuantity = Number(quantity);
-    if (!name.trim() || !/^\d+(\.\d{1,2})?$/.test(normalizedPrice) || Number(normalizedPrice) <= 0) {
+    if (
+      !name.trim() ||
+      !/^\d+(\.\d{1,2})?$/.test(normalizedPrice) ||
+      Number(normalizedPrice) <= 0
+    ) {
       setError('Introduce un nombre y un precio válido.');
       return;
     }
@@ -147,7 +151,11 @@ export function ReceiptEditor({
             </Text>
           ) : null}
         </View>
-        <MaterialCommunityIcons name="receipt-text-check-outline" size={34} color={Palette.primary} />
+        <MaterialCommunityIcons
+          name="receipt-text-check-outline"
+          size={34}
+          color={Palette.primary}
+        />
       </View>
 
       <View style={styles.listHeader}>
@@ -205,15 +213,33 @@ export function ReceiptEditor({
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>{editing ? 'Editar producto' : 'Nuevo producto'}</Text>
             <Text style={styles.label}>Nombre</Text>
-            <TextInput value={name} onChangeText={setName} placeholder="Ej. Leche" placeholderTextColor={Palette.textSecondary} style={styles.input} />
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Ej. Leche"
+              placeholderTextColor={Palette.textSecondary}
+              style={styles.input}
+            />
             <View style={styles.formRow}>
               <View style={styles.formHalf}>
                 <Text style={styles.label}>Cantidad</Text>
-                <TextInput value={quantity} onChangeText={setQuantity} keyboardType="number-pad" style={styles.input} />
+                <TextInput
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  keyboardType="number-pad"
+                  style={styles.input}
+                />
               </View>
               <View style={styles.formHalf}>
                 <Text style={styles.label}>Precio unidad</Text>
-                <TextInput value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={Palette.textSecondary} style={styles.input} />
+                <TextInput
+                  value={price}
+                  onChangeText={setPrice}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={Palette.textSecondary}
+                  style={styles.input}
+                />
               </View>
             </View>
             {/* Inside the modal: an error on the page behind it would be hidden */}
@@ -232,16 +258,43 @@ export function ReceiptEditor({
 }
 
 const styles = StyleSheet.create({
-  totalCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderRadius: 18, backgroundColor: Palette.mint },
+  totalCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 18,
+    borderRadius: 18,
+    backgroundColor: Palette.mint,
+  },
   totalLabel: { fontSize: 11, fontWeight: '800', color: Palette.textSecondary },
   total: { marginTop: 4, fontSize: 30, fontWeight: '800', color: Palette.text },
   ownTotal: { marginTop: 2, fontSize: 12, fontWeight: '700', color: Palette.textSecondary },
-  listHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
   sectionTitle: { fontSize: 19, fontWeight: '800', color: Palette.text },
   hint: { fontSize: 11, color: Palette.textSecondary },
-  itemCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13, borderWidth: 1, borderColor: Palette.border, borderRadius: 14, backgroundColor: Palette.surface },
+  itemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: 14,
+    backgroundColor: Palette.surface,
+  },
   itemNotShared: { backgroundColor: Palette.background },
-  quantity: { minWidth: 32, paddingVertical: 6, borderRadius: 8, backgroundColor: Palette.segment, alignItems: 'center' },
+  quantity: {
+    minWidth: 32,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: Palette.segment,
+    alignItems: 'center',
+  },
   quantityText: { fontSize: 12, fontWeight: '800', color: Palette.primary },
   itemName: { flex: 1, fontSize: 14, fontWeight: '700', color: Palette.text },
   itemPrice: { fontSize: 14, fontWeight: '800', color: Palette.text },
@@ -249,17 +302,50 @@ const styles = StyleSheet.create({
   itemMissingPrice: { borderColor: Palette.error },
   missingPrice: { fontSize: 13, fontWeight: '800', color: Palette.error },
   missingPriceSummary: { marginTop: 2, fontSize: 12, fontWeight: '700', color: Palette.error },
-  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: Palette.primary, borderRadius: 14 },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    padding: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: Palette.primary,
+    borderRadius: 14,
+  },
   addButtonText: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' },
-  modal: { gap: 10, padding: 24, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: Palette.background },
+  modal: {
+    gap: 10,
+    padding: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: Palette.background,
+  },
   modalTitle: { marginBottom: 6, fontSize: 21, fontWeight: '800', color: Palette.text },
   label: { marginTop: 5, fontSize: 13, fontWeight: '800', color: Palette.text },
-  input: { minHeight: 48, paddingHorizontal: 13, borderWidth: 1, borderColor: Palette.border, borderRadius: 12, backgroundColor: Palette.surface, color: Palette.text },
+  input: {
+    minHeight: 48,
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: 12,
+    backgroundColor: Palette.surface,
+    color: Palette.text,
+  },
   formRow: { flexDirection: 'row', gap: 10 },
   formHalf: { flex: 1, gap: 4 },
   error: { fontSize: 13, color: Palette.error },
-  primaryButton: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8, borderRadius: 16, backgroundColor: Palette.primary },
+  primaryButton: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 8,
+    borderRadius: 16,
+    backgroundColor: Palette.primary,
+  },
   primaryButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
   secondaryButton: { alignItems: 'center', padding: 12 },
   secondaryButtonText: { fontSize: 14, fontWeight: '800', color: Palette.primary },

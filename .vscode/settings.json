@@ -1,3 +1,13 @@
 {
     "material-icon-theme.activeIconPack": "nest",
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "explicit"
+    },
+    "eslint.workingDirectories": [
+        { "directory": "backend" },
+        { "directory": "frontend" }
+    ],
+    "prettier.requireConfig": true
 }

@@ -9,7 +9,12 @@ import { Palette, Radius } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
 
 export default function HouseholdCreated() {
-  const { id, name, address, inviteCode: initialInviteCode } = useLocalSearchParams<{
+  const {
+    id,
+    name,
+    address,
+    inviteCode: initialInviteCode,
+  } = useLocalSearchParams<{
     id?: string;
     name?: string;
     address?: string;

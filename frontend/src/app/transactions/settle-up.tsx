@@ -1,14 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Palette } from '@/constants/onboarding';
@@ -105,14 +98,24 @@ export default function SettleUpScreen() {
           const isCurrentUserCreditor = row.acreedorId === CURRENT_USER_ID;
 
           return (
-            <View key={`${row.deudorId}-${row.acreedorId}-${row.pagoPendienteId ?? 'pending'}`} style={styles.card}>
+            <View
+              key={`${row.deudorId}-${row.acreedorId}-${row.pagoPendienteId ?? 'pending'}`}
+              style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={styles.cardIcon}>
-                  <MaterialCommunityIcons name="hand-coin-outline" size={20} color={Palette.primary} />
+                  <MaterialCommunityIcons
+                    name="hand-coin-outline"
+                    size={20}
+                    color={Palette.primary}
+                  />
                 </View>
                 <View style={styles.cardText}>
                   <Text style={styles.cardRole}>
-                    {isCurrentUserDebtor ? 'Debes' : isCurrentUserCreditor ? 'Te deben' : 'Deuda del hogar'}
+                    {isCurrentUserDebtor
+                      ? 'Debes'
+                      : isCurrentUserCreditor
+                        ? 'Te deben'
+                        : 'Deuda del hogar'}
                   </Text>
                   <Text style={styles.cardPeople}>
                     {row.deudor} → {row.acreedor}
@@ -166,28 +169,82 @@ export default function SettleUpScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Palette.background },
-  container: { flexGrow: 1, width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: 24, paddingBottom: 32, gap: 18 },
+  container: {
+    flexGrow: 1,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 32,
+    gap: 18,
+  },
   back: { alignSelf: 'flex-start', paddingTop: 8 },
   header: { gap: 6 },
   eyebrow: { fontSize: 12, fontWeight: '800', letterSpacing: 1.5, color: Palette.primary },
   title: { fontSize: 30, fontWeight: '800', color: Palette.text },
-  card: { gap: 12, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+  card: {
+    gap: 12,
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+  },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  cardIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: Palette.mint },
+  cardIcon: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: Palette.mint,
+  },
   cardText: { flex: 1 },
   cardRole: { fontSize: 11, fontWeight: '800', letterSpacing: 1.1, color: Palette.textSecondary },
   cardPeople: { fontSize: 15, fontWeight: '700', color: Palette.text },
   amount: { fontSize: 16, fontWeight: '800', color: Palette.primary },
   status: { fontSize: 13, color: Palette.textSecondary },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  primaryButton: { flex: 1, minHeight: 42, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: Palette.primary },
+  primaryButton: {
+    flex: 1,
+    minHeight: 42,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: Palette.primary,
+  },
   primaryButtonText: { fontSize: 14, fontWeight: '800', color: Palette.onPrimary },
-  confirmButton: { flex: 1, minHeight: 42, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#2a9d8f' },
+  confirmButton: {
+    flex: 1,
+    minHeight: 42,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#2a9d8f',
+  },
   confirmButtonText: { fontSize: 14, fontWeight: '800', color: '#fff' },
-  rejectButton: { flex: 1, minHeight: 42, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#f1f1f1' },
+  rejectButton: {
+    flex: 1,
+    minHeight: 42,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#f1f1f1',
+  },
   rejectButtonText: { fontSize: 14, fontWeight: '800', color: Palette.error },
   noActions: { fontSize: 13, color: Palette.textSecondary },
-  emptyState: { gap: 8, padding: 22, borderRadius: 16, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface, alignItems: 'center' },
+  emptyState: {
+    gap: 8,
+    padding: 22,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+    alignItems: 'center',
+  },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: Palette.text },
   emptyText: { fontSize: 14, color: Palette.textSecondary, textAlign: 'center' },
   error: { fontSize: 14, color: Palette.error },

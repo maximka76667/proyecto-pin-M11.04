@@ -1,14 +1,10 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import {
-  LIMIT_MESSAGE,
-  ReceiptItem,
-  receiptTotals,
-} from "@/components/receipt-editor";
-import { Palette } from "@/constants/onboarding";
-import { api, ApiError, errorMessage, Member } from "@/lib/api";
+import { LIMIT_MESSAGE, ReceiptItem, receiptTotals } from '@/components/receipt-editor';
+import { Palette } from '@/constants/onboarding';
+import { api, ApiError, errorMessage, Member } from '@/lib/api';
 
 // What POST /transactions/from-receipt returns
 export type ReceiptExpense = {
@@ -19,22 +15,18 @@ export type ReceiptExpense = {
 
 // The items sent to POST /transactions/from-receipt: only the shared products
 export function receiptRequestItems(items: ReceiptItem[]) {
-  return receiptTotals(items).sharedItems.map(
-    ({ name, quantity, unit_price }) => ({
-      name,
-      quantity,
-      unit_price,
-    }),
-  );
+  return receiptTotals(items).sharedItems.map(({ name, quantity, unit_price }) => ({
+    name,
+    quantity,
+    unit_price,
+  }));
 }
 
 // Friendly message for the user. The backend rejects prices/quantities/products over the
 // limit with a 400 that names the field (e.g. "items.0.quantity must not be greater than 999")
 export function receiptErrorMessage(e: unknown) {
   const isLimitError =
-    e instanceof ApiError &&
-    e.status === 400 &&
-    /\b(unit_price|quantity|items)\b/.test(e.message);
+    e instanceof ApiError && e.status === 400 && /\b(unit_price|quantity|items)\b/.test(e.message);
   return isLimitError ? LIMIT_MESSAGE : errorMessage(e);
 }
 
@@ -64,13 +56,11 @@ export function ReceiptSplit({
     void (async () => {
       try {
         const loaded = (await api(
-          "GET",
+          'GET',
           `/apartments/${encodeURIComponent(apartmentId)}/members`,
         )) as Member[];
         if (cancelled) return;
-        const otherMembers = loaded.filter(
-          ({ isCurrentUser }) => !isCurrentUser,
-        );
+        const otherMembers = loaded.filter(({ isCurrentUser }) => !isCurrentUser);
         setMembers(otherMembers);
         setSelectedMembers(otherMembers.map(({ id }) => id));
       } catch (e) {
@@ -87,29 +77,25 @@ export function ReceiptSplit({
 
   const toggleMember = (id: string) =>
     setSelectedMembers((current) =>
-      current.includes(id)
-        ? current.filter((memberId) => memberId !== id)
-        : [...current, id],
+      current.includes(id) ? current.filter((memberId) => memberId !== id) : [...current, id],
     );
 
   const createExpense = async () => {
     if (selectedMembers.length === 0) {
-      onError(
-        new Error("Selecciona al menos una persona para repartir el gasto."),
-      );
+      onError(new Error('Selecciona al menos una persona para repartir el gasto.'));
       return;
     }
     if (Math.round(total * 100) > 1_000_000) {
-      onError(new Error("El gasto no puede superar los 10.000,00 €."));
+      onError(new Error('El gasto no puede superar los 10.000,00 €.'));
       return;
     }
     setSaving(true);
     try {
-      const expense = (await api("POST", "/transactions/from-receipt", {
+      const expense = (await api('POST', '/transactions/from-receipt', {
         apartment_id: apartmentId,
         participant_ids: selectedMembers,
         items: receiptRequestItems(items),
-        category: "supplies",
+        category: 'supplies',
       })) as ReceiptExpense;
       onCreated(expense);
     } catch (e) {
@@ -120,8 +106,7 @@ export function ReceiptSplit({
   };
 
   // Same rounding as the backend: up, in cents
-  const perPerson =
-    Math.ceil(Math.round(total * 100) / (selectedMembers.length + 1)) / 100;
+  const perPerson = Math.ceil(Math.round(total * 100) / (selectedMembers.length + 1)) / 100;
 
   return (
     <>
@@ -129,9 +114,7 @@ export function ReceiptSplit({
       {loadingMembers ? (
         <ActivityIndicator color={Palette.primary} />
       ) : members.length === 0 ? (
-        <Text style={styles.empty}>
-          No hay más miembros en este piso para repartir el gasto.
-        </Text>
+        <Text style={styles.empty}>No hay más miembros en este piso para repartir el gasto.</Text>
       ) : (
         members.map((member) => {
           const selected = selectedMembers.includes(member.id);
@@ -140,10 +123,9 @@ export function ReceiptSplit({
             <Pressable
               key={member.id}
               onPress={() => toggleMember(member.id)}
-              style={[styles.memberCard, selected && styles.memberSelected]}
-            >
+              style={[styles.memberCard, selected && styles.memberSelected]}>
               <MaterialCommunityIcons
-                name={selected ? "check-circle" : "circle-outline"}
+                name={selected ? 'check-circle' : 'circle-outline'}
                 size={22}
                 color={selected ? Palette.primary : Palette.textSecondary}
               />
@@ -160,24 +142,19 @@ export function ReceiptSplit({
         })
       )}
       <Text style={styles.splitSummary}>
-        Tú pagas el ticket. Se reparte entre tú y las {selectedMembers.length}{" "}
-        personas seleccionadas: {perPerson.toFixed(2)} € por persona
+        Tú pagas el ticket. Se reparte entre tú y las {selectedMembers.length} personas
+        seleccionadas: {perPerson.toFixed(2)} € por persona
       </Text>
       <Pressable
         onPress={createExpense}
         disabled={saving || loadingMembers}
-        style={styles.primaryButton}
-      >
+        style={styles.primaryButton}>
         {saving ? (
           <ActivityIndicator color={Palette.onPrimary} />
         ) : (
           <>
             <Text style={styles.primaryButtonText}>Crear gasto compartido</Text>
-            <MaterialCommunityIcons
-              name="check"
-              size={20}
-              color={Palette.onPrimary}
-            />
+            <MaterialCommunityIcons name="check" size={20} color={Palette.onPrimary} />
           </>
         )}
       </Pressable>
@@ -186,11 +163,11 @@ export function ReceiptSplit({
 }
 
 const styles = StyleSheet.create({
-  label: { marginTop: 5, fontSize: 13, fontWeight: "800", color: Palette.text },
+  label: { marginTop: 5, fontSize: 13, fontWeight: '800', color: Palette.text },
   empty: { fontSize: 14, color: Palette.textSecondary },
   memberCard: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 11,
     padding: 15,
     borderWidth: 1,
@@ -202,7 +179,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.primary,
     backgroundColor: Palette.mint,
   },
-  memberName: { fontSize: 15, fontWeight: "700", color: Palette.text },
+  memberName: { fontSize: 15, fontWeight: '700', color: Palette.text },
   memberAvatar: {
     width: 24,
     height: 24,
@@ -213,12 +190,12 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     backgroundColor: Palette.peach,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   memberAvatarText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: '700',
     color: Palette.text,
   },
   splitSummary: {
@@ -226,14 +203,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: Palette.mint,
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: '700',
     color: Palette.text,
   },
   primaryButton: {
     minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
     marginTop: 8,
     borderRadius: 16,
@@ -241,7 +218,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: '800',
     color: Palette.onPrimary,
   },
 });

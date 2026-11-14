@@ -30,7 +30,14 @@ export default function RootLayout() {
     // Sin sesión solo se puede estar en el login o recuperando la contraseña
     const signedOutPaths = ['/auth', '/forgot-password'];
     // Con sesión pero sin hogar. Mi cuenta y cambiar la contraseña también, para poder cerrar sesión
-    const publicPaths = ['/auth', '/', '/household', '/household-created', '/profile', '/change-password'];
+    const publicPaths = [
+      '/auth',
+      '/',
+      '/household',
+      '/household-created',
+      '/profile',
+      '/change-password',
+    ];
 
     if (!hasAuthToken()) {
       if (!signedOutPaths.includes(pathname)) {
@@ -41,7 +48,9 @@ export default function RootLayout() {
           if (active) setRouteChecked(true);
         });
       }
-      return () => { active = false; };
+      return () => {
+        active = false;
+      };
     }
 
     void getCurrentUser()
@@ -62,7 +71,9 @@ export default function RootLayout() {
         setRouteChecked(true);
       });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [pathname, tokenLoaded]);
 
   return (

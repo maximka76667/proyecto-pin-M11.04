@@ -21,10 +21,7 @@ type BaseProps = {
 // Campo de contraseña de la pantalla "Cambiar contraseña": oculto por defecto,
 // con el ojo para ver lo escrito. "kind" indica al gestor de contraseñas del
 // sistema si debe rellenar la guardada (current) o proponer una nueva (new)
-export function PasswordField({
-  kind,
-  ...props
-}: BaseProps & { kind: 'current' | 'new' }) {
+export function PasswordField({ kind, ...props }: BaseProps & { kind: 'current' | 'new' }) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -68,7 +65,9 @@ export function CodeField(props: BaseProps) {
     <FieldShell {...props}>
       <TextInput
         value={props.value}
-        onChangeText={(text) => props.onChangeText(text.replace(/\D/g, '').slice(0, RESET_CODE_DIGITS))}
+        onChangeText={(text) =>
+          props.onChangeText(text.replace(/\D/g, '').slice(0, RESET_CODE_DIGITS))
+        }
         placeholder={props.placeholder}
         placeholderTextColor={Palette.textSecondary}
         editable={props.editable}
@@ -109,12 +108,7 @@ export function EmailField(props: BaseProps) {
   );
 }
 
-function FieldShell({
-  label,
-  error,
-  hint,
-  children,
-}: BaseProps & { children: ReactNode }) {
+function FieldShell({ label, error, hint, children }: BaseProps & { children: ReactNode }) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>

@@ -1,14 +1,11 @@
-import { ActivityIndicator, Text, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Text, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, errorMessage, TransactionCategory } from "@/lib/api";
-import { Palette } from "@/constants/onboarding";
-import {
-  TransactionForm,
-  TransactionFormValues,
-} from "@/components/transaction-form";
+import { api, errorMessage, TransactionCategory } from '@/lib/api';
+import { Palette } from '@/constants/onboarding';
+import { TransactionForm, TransactionFormValues } from '@/components/transaction-form';
 
 type Transaction = {
   id: string;
@@ -23,9 +20,8 @@ type Transaction = {
 export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [transaction, setTransaction] = useState<Transaction | null>(null);
-  const [initialValues, setInitialValues] =
-    useState<Partial<TransactionFormValues>>();
-  const [error, setError] = useState("");
+  const [initialValues, setInitialValues] = useState<Partial<TransactionFormValues>>();
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!id) {
@@ -34,17 +30,14 @@ export default function EditExpenseScreen() {
 
     void (async () => {
       try {
-        const loaded = (await api("GET", `/transactions/${id}`)) as Transaction;
+        const loaded = (await api('GET', `/transactions/${id}`)) as Transaction;
         setTransaction(loaded);
         setInitialValues({
           amount: String(loaded.amount),
-          concept: loaded.concept ?? "",
+          concept: loaded.concept ?? '',
           category: loaded.category,
           date: loaded.date.slice(0, 10),
-          debtorIds:
-            loaded.to_user_id === loaded.from_user_id
-              ? []
-              : [loaded.to_user_id],
+          debtorIds: loaded.to_user_id === loaded.from_user_id ? [] : [loaded.to_user_id],
         });
       } catch (e) {
         setError(errorMessage(e));
@@ -52,7 +45,7 @@ export default function EditExpenseScreen() {
     })();
   }, [id]);
 
-  const loadError = error || (!id ? "No se encontró el gasto." : "");
+  const loadError = error || (!id ? 'No se encontró el gasto.' : '');
 
   if (loadError) {
     return (
@@ -82,15 +75,15 @@ export default function EditExpenseScreen() {
       allowDebtorChange={false}
       onCancel={() => router.back()}
       onSubmit={async ({ amount, concept, category, date }) => {
-        await api("PATCH", `/transactions/${transaction.id}`, {
+        await api('PATCH', `/transactions/${transaction.id}`, {
           amount,
           concept,
           category,
           date,
         });
         router.dismissTo({
-          pathname: "/transactions",
-          params: { notice: "updated" },
+          pathname: '/transactions',
+          params: { notice: 'updated' },
         });
       }}
     />
