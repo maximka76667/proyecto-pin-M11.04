@@ -1,5 +1,6 @@
-import { BadRequestException, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/current-user.decorator';
+import { CompleteAssignmentDto } from './dto/complete-assignment.dto';
 import { PointsService } from './points.service';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13,6 +14,7 @@ export class PointsController {
   completeAssignment(
     @Param('id') assignmentId: string,
     @CurrentUser() userId: string,
+    @Body() _body: CompleteAssignmentDto,
   ) {
     if (!UUID_PATTERN.test(assignmentId)) {
       throw new BadRequestException('Validation failed (uuid is expected)');
