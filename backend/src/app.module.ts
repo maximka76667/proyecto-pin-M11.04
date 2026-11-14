@@ -8,6 +8,7 @@ import { ScannerModule } from './scanner/scanner.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
+import { PointsModule } from './points/points.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthMiddleware } from './auth/auth.middleware';
@@ -24,6 +25,7 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
     TransactionsModule,
     ApartmentsModule,
     TasksModule,
+    PointsModule,
     ScannerModule,
     AvailabilityModule,
     AuthModule,
