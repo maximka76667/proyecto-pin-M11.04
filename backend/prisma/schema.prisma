@@ -31,6 +31,7 @@ model User {
   swaps_sent                 TaskSwapRequest[]         @relation("SwapFromUser")
   swaps_received             TaskSwapRequest[]         @relation("SwapToUser")
   task_points                TaskPoints[]
+  task_preferences           TaskPreference[]
 }
 
 model AuthSession {
@@ -126,6 +127,7 @@ model Task {
   frequency        TaskFrequency
   apartment        Apartment        @relation(fields: [apartment_id], references: [id])
   assignments      TaskAssignment[]
+  preferences      TaskPreference[]
 
   @@unique([apartment_id, title])
 }
@@ -285,3 +287,25 @@ model AvailabilityBlock {
 
   @@index([user_id, day_of_week])
 }
+
+enum TaskPreferenceType {
+  prefer
+  indifferent
+  avoid
+}
+
+model TaskPreference {
+  id         String             @id @default(uuid()) @db.Uuid
+  user_id    String             @db.Uuid
+  task_id    String             @db.Uuid
+  preference TaskPreferenceType @default(indifferent)
+  created_at DateTime           @default(now())
+  updated_at DateTime           @updatedAt
+  user       User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  task       Task               @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, task_id])
+  @@index([user_id])
+  @@index([task_id])
+}
+

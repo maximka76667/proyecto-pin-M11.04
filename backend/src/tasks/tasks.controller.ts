@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Patch, Delete } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { TasksService } from './tasks.service';
 import { TaskSwapsService } from './task-swaps.service';
@@ -7,9 +18,9 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { CreateSwapRequestDto } from './dto/create-swap-request.dto';
 import { TaskAvailabilityQueryDto } from './dto/task-availability-query.dto';
+import { SetTaskPreferencesDto } from './dto/set-task-preferences.dto';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 
 @Controller('tasks')
 export class TasksController {
@@ -66,6 +77,39 @@ export class TasksController {
   @Post()
   create(@Body() createTaskDto: CreateTaskDto) {
     return this.tasksService.create(createTaskDto);
+  }
+
+  // Rutas de preferencias de tareas (UT1020). Deben ir antes de las rutas con :id
+  @Get('preferences')
+  getPreferences(
+    @CurrentUser() userId: string,
+    @Query('apartment_id') apartmentId?: string,
+  ) {
+    return this.tasksService.getUserPreferences(apartmentId, userId);
+  }
+
+  @Put('preferences')
+  setPreferences(
+    @Body() dto: SetTaskPreferencesDto,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.setUserPreferences(dto, userId);
+  }
+
+  @Post('preferences')
+  createPreferences(
+    @Body() dto: SetTaskPreferencesDto,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.setUserPreferences(dto, userId);
+  }
+
+  @Delete('preferences/:taskId')
+  removePreference(
+    @Param('taskId') taskId: string,
+    @CurrentUser() userId: string,
+  ) {
+    return this.tasksService.removeUserPreference(taskId, userId);
   }
 
   @Post(':id/assignments')

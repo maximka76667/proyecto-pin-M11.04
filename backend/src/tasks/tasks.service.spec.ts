@@ -35,12 +35,23 @@ describe('TasksService', () => {
     },
     userApartment: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    taskPreference: {
+      upsert: jest.fn(),
+      delete: jest.fn(),
+    },
+    user: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
     },
     $transaction: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.user.findUnique.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -486,5 +497,138 @@ describe('TasksService', () => {
       'database unavailable',
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  describe('UT1020: Preferencias de tareas', () => {
+    const apartmentId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const userId = '11111111-1111-1111-1111-111111111111';
+
+    it('PA 2: Guarda las preferencias de tareas (preferida o a evitar) para un miembro del hogar', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue({ user_id: userId });
+      prisma.task.findUnique
+        .mockResolvedValueOnce({ id: 'task-1', apartment_id: apartmentId })
+        .mockResolvedValueOnce({ id: 'task-2', apartment_id: apartmentId });
+
+      prisma.taskPreference.upsert.mockResolvedValue({});
+      prisma.$transaction.mockResolvedValue([
+        { id: 'pref-1', user_id: userId, task_id: 'task-1', preference: 'prefer' },
+        { id: 'pref-2', user_id: userId, task_id: 'task-2', preference: 'avoid' },
+      ]);
+
+      const res = await service.setUserPreferences(
+        {
+          apartment_id: apartmentId,
+          preferences: [
+            { task_id: 'task-1', preference: 'prefer' as any },
+            { task_id: 'task-2', preference: 'avoid' as any },
+          ],
+        },
+        userId,
+      );
+
+      expect(res.message).toBe('Preferencias guardadas correctamente');
+      expect(res.count).toBe(2);
+      expect(prisma.userApartment.findUnique).toHaveBeenCalledWith({
+        where: {
+          user_id_apartment_id: { user_id: userId, apartment_id: apartmentId },
+        },
+        select: { user_id: true },
+      });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('PA 3: Rechaza guardar preferencia para una tarea inexistente', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue({ user_id: userId });
+      prisma.task.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.setUserPreferences(
+          {
+            apartment_id: apartmentId,
+            preferences: [{ task_id: 'task-inexistente', preference: 'prefer' as any }],
+          },
+          userId,
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('PA 3: Rechaza guardar preferencia para una tarea que pertenece a otro hogar', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue({ user_id: userId });
+      prisma.task.findUnique.mockResolvedValue({
+        id: 'task-otro-hogar',
+        apartment_id: 'otro-hogar-id',
+      });
+
+      await expect(
+        service.setUserPreferences(
+          {
+            apartment_id: apartmentId,
+            preferences: [{ task_id: 'task-otro-hogar', preference: 'avoid' as any }],
+          },
+          userId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('PA 4: Consulta y modifica preferencias existentes persistidas en la base de datos', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue({ user_id: userId });
+      prisma.task.findMany.mockResolvedValue([
+        {
+          id: 'task-1',
+          apartment_id: apartmentId,
+          title: 'Cocinar',
+          description: null,
+          duration_minutes: 30,
+          category: 'other',
+          priority: 'medium',
+          frequency: 'daily',
+          preferences: [{ preference: 'prefer' }],
+        },
+        {
+          id: 'task-2',
+          apartment_id: apartmentId,
+          title: 'Lavar los platos',
+          description: null,
+          duration_minutes: 15,
+          category: 'cleaning',
+          priority: 'medium',
+          frequency: 'daily',
+          preferences: [],
+        },
+      ]);
+
+      const prefs = await service.getUserPreferences(apartmentId, userId);
+
+      expect(prefs).toHaveLength(2);
+      expect(prefs[0]).toEqual(
+        expect.objectContaining({
+          id: 'task-1',
+          title: 'Cocinar',
+          preference: 'prefer',
+        }),
+      );
+      // Sin preferencia previa devuelve 'indifferent' por defecto
+      expect(prefs[1]).toEqual(
+        expect.objectContaining({
+          id: 'task-2',
+          title: 'Lavar los platos',
+          preference: 'indifferent',
+        }),
+      );
+    });
+
+    it('Rechaza la consulta si el usuario no pertenece al hogar', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.getUserPreferences(apartmentId, 'outsider'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(prisma.task.findMany).not.toHaveBeenCalled();
+    });
   });
 });
