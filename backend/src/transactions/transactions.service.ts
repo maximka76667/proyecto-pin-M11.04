@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Prisma, TransactionCategory } from '@prisma/client';
+import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
@@ -584,15 +584,19 @@ export class TransactionsService {
             );
           }
 
-          return tx.transaction.create({
-            data: {
-              apartment_id: apartmentId,
-              from_user_id: deudorId,
-              to_user_id: deuda.acreedorId,
-              amount: deuda.monto.toFixed(2),
-              category: TransactionCategory.pending,
-            },
+          // La liquidación es un gasto (SETTLEMENT) que paga el deudor y debe entero el acreedor:
+          // así entra en el balance como cualquier otro gasto y sale en la lista de gastos
+          const { expense, transactions } = buildExpenseRows({
+            apartmentId,
+            payerId: deudorId,
+            type: ExpenseType.SETTLEMENT,
+            totalCents: Math.round(deuda.monto * 100),
+            category: TransactionCategory.pending,
+            participantIds: [deuda.acreedorId],
           });
+          await tx.expense.create({ data: expense });
+          await tx.transaction.createMany({ data: transactions });
+          return transactions[0];
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -614,15 +618,27 @@ export class TransactionsService {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
     try {
-      return await this.prisma.transaction.update({
-        // Las condiciones van también en la escritura para que sea atómica: si otra petición
-        // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025)
-        where: {
-          id: transactionId,
-          category: TransactionCategory.pending,
-          to_user_id: userId,
-        },
-        data: { category: TransactionCategory.payment },
+      return await this.prisma.$transaction(async (tx) => {
+        const confirmado = await tx.transaction.update({
+          // Las condiciones van también en la escritura para que sea atómica: si otra petición
+          // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025) y no se
+          // toca nada más. Esta escritura va siempre la primera
+          where: {
+            id: transactionId,
+            category: TransactionCategory.pending,
+            to_user_id: userId,
+          },
+          data: { category: TransactionCategory.payment },
+        });
+        // La liquidación (Expense) cambia a la vez que su deuda. Los avisos anteriores a los
+        // gastos no tienen expense_id y solo tienen la fila de la deuda
+        if (confirmado.expense_id) {
+          await tx.expense.update({
+            where: { id: confirmado.expense_id },
+            data: { category: TransactionCategory.payment },
+          });
+        }
+        return confirmado;
       });
     } catch (error) {
       if (
@@ -642,13 +658,20 @@ export class TransactionsService {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
     try {
-      return await this.prisma.transaction.delete({
-        // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente
-        where: {
-          id: transactionId,
-          category: TransactionCategory.pending,
-          to_user_id: userId,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const descartado = await tx.transaction.delete({
+          // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente, y
+          // esta escritura va la primera. Solo si se ha borrado el aviso se borra su liquidación
+          where: {
+            id: transactionId,
+            category: TransactionCategory.pending,
+            to_user_id: userId,
+          },
+        });
+        if (descartado.expense_id) {
+          await tx.expense.delete({ where: { id: descartado.expense_id } });
+        }
+        return descartado;
       });
     } catch (error) {
       if (

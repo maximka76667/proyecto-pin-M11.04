@@ -434,9 +434,12 @@ describe('Servicio de transacciones', () => {
     transaction: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
-      create: jest.fn(),
+      createMany: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    },
+    expense: {
+      create: jest.fn(),
     },
     userApartment: {
       findUnique: jest.fn(),
@@ -605,23 +608,33 @@ describe('Servicio de transacciones', () => {
         category: TransactionCategory.pending,
       };
       jest.spyOn(service, 'getPagoMinimo').mockResolvedValue([pendingDebt]);
-      prisma.transaction.create.mockResolvedValue(notice);
+      prisma.expense.create.mockResolvedValue({});
+      prisma.transaction.createMany.mockResolvedValue({ count: 1 });
 
-      await expect(
-        service.markAsPaid(apartmentId, deudorId, {
-          acreedor_id: acreedorId,
-          amount: '25.50',
-        }),
-      ).resolves.toEqual(notice);
+      // El aviso lleva un id generado por el servidor
+      const { id: _id, ...avisoSinId } = notice;
+      const aviso = await service.markAsPaid(apartmentId, deudorId, {
+        acreedor_id: acreedorId,
+        amount: '25.50',
+      });
 
-      expect(prisma.transaction.create).toHaveBeenCalledWith({
-        data: {
+      expect(aviso).toEqual(
+        expect.objectContaining({ ...avisoSinId, id: expect.any(String) }),
+      );
+      // La liquidación es un gasto que paga el deudor y debe entero el acreedor
+      const { data: gasto } = prisma.expense.create.mock.calls[0][0];
+      expect(gasto).toEqual(
+        expect.objectContaining({
           apartment_id: apartmentId,
-          from_user_id: deudorId,
-          to_user_id: acreedorId,
-          amount: '25.50',
+          payer_id: deudorId,
+          type: 'SETTLEMENT',
+          total_amount: '25.50',
           category: TransactionCategory.pending,
-        },
+          payer_participates: false,
+        }),
+      );
+      expect(prisma.transaction.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ ...avisoSinId, expense_id: gasto.id })],
       });
     });
 
@@ -650,7 +663,8 @@ describe('Servicio de transacciones', () => {
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
 
-      expect(prisma.transaction.create).not.toHaveBeenCalled();
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     });
 
     it('rechaza la operación cuando el importe de la deuda ha cambiado', async () => {
@@ -665,7 +679,8 @@ describe('Servicio de transacciones', () => {
         }),
       ).rejects.toBeInstanceOf(ConflictException);
 
-      expect(prisma.transaction.create).not.toHaveBeenCalled();
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     });
   });
 });
