@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ExpenseType, Prisma } from '@prisma/client';
+import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MAX_RECEIPT_TOTAL_CENTS } from './expense-rows';
 import { centsToAmount, splitExpense } from './expense-split';
@@ -15,6 +15,50 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 const CAMBIADO =
   'Este gasto ha sido modificado por otra persona. Recarga la pantalla e inténtalo de nuevo';
 
+interface Persona {
+  id: string;
+  full_name: string;
+}
+
+// Lo que debe una persona de un gasto (una Transaction)
+export interface ParteDeGasto {
+  transaction_id: string;
+  user: Persona;
+  amount: Prisma.Decimal;
+}
+
+// Un gasto: manual, liquidación o un producto de un ticket
+export interface GastoItem {
+  id: string;
+  version: number;
+  type: ExpenseType;
+  concept: string | null;
+  category: TransactionCategory;
+  total_amount: Prisma.Decimal;
+  date: Date;
+  payer_participates: boolean;
+  payer: Persona;
+  paidByCurrentUser: boolean;
+  canEdit: boolean;
+  shares: ParteDeGasto[];
+}
+
+export type GastoDeLista = GastoItem & { kind: 'expense' };
+
+// Un ticket escaneado con sus productos. total_amount es la suma de todos sus productos aunque
+// quien lo mira solo vea los suyos
+export interface TicketDeLista {
+  kind: 'receipt';
+  id: string;
+  version: number;
+  total_amount: Prisma.Decimal;
+  date: Date;
+  payer: Persona;
+  paidByCurrentUser: boolean;
+  canEdit: boolean;
+  items: GastoItem[];
+}
+
 // Editar y borrar gastos y tickets. Toda escritura comprueba `version` en el propio where, así
 // que si dos personas editan a la vez una de las dos recibe 409 en lugar de pisar a la otra.
 // Los balances salen solo de las deudas (Transaction): aquí se reescriben en el sitio, sin
@@ -22,6 +66,95 @@ const CAMBIADO =
 @Injectable()
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  // Los gastos que ve una persona: los que pagó y aquellos de los que debe algo. Los avisos de
+  // pago pendientes no cuentan hasta que el acreedor los confirma. Los productos de un mismo
+  // ticket se agrupan bajo el ticket; el que paga ve todos y cada deudor solo los suyos
+  async list(
+    apartmentId: string | undefined,
+    userId: string,
+  ): Promise<(GastoDeLista | TicketDeLista)[]> {
+    const persona = { select: { id: true, full_name: true } };
+    const gastos = await this.prisma.expense.findMany({
+      where: {
+        ...(apartmentId ? { apartment_id: apartmentId } : {}),
+        category: { not: TransactionCategory.pending },
+        OR: [
+          { payer_id: userId },
+          { transactions: { some: { to_user_id: userId } } },
+        ],
+      },
+      select: {
+        id: true,
+        version: true,
+        type: true,
+        concept: true,
+        category: true,
+        total_amount: true,
+        date: true,
+        payer_participates: true,
+        payer_id: true,
+        payer: persona,
+        receipt: {
+          select: { id: true, version: true, total_amount: true, date: true },
+        },
+        transactions: {
+          select: { id: true, amount: true, toUser: persona },
+          orderBy: { created_at: 'asc' },
+        },
+      },
+      orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
+    });
+
+    const lista: (GastoDeLista | TicketDeLista)[] = [];
+    const tickets = new Map<string, TicketDeLista>();
+    for (const gasto of gastos) {
+      const paidByCurrentUser = gasto.payer_id === userId;
+      const item: GastoItem = {
+        id: gasto.id,
+        version: gasto.version,
+        type: gasto.type,
+        concept: gasto.concept,
+        category: gasto.category,
+        total_amount: gasto.total_amount,
+        date: gasto.date,
+        payer_participates: gasto.payer_participates,
+        payer: gasto.payer,
+        paidByCurrentUser,
+        // Las liquidaciones solo se gestionan desde el flujo de saldar deudas
+        canEdit: paidByCurrentUser && gasto.type !== ExpenseType.SETTLEMENT,
+        shares: gasto.transactions.map((deuda) => ({
+          transaction_id: deuda.id,
+          user: deuda.toUser,
+          amount: deuda.amount,
+        })),
+      };
+
+      if (!gasto.receipt) {
+        lista.push({ ...item, kind: 'expense' });
+        continue;
+      }
+      const existente = tickets.get(gasto.receipt.id);
+      if (existente) {
+        existente.items.push(item);
+        continue;
+      }
+      const ticket: TicketDeLista = {
+        kind: 'receipt',
+        id: gasto.receipt.id,
+        version: gasto.receipt.version,
+        total_amount: gasto.receipt.total_amount,
+        date: gasto.receipt.date,
+        payer: gasto.payer,
+        paidByCurrentUser,
+        canEdit: paidByCurrentUser,
+        items: [item],
+      };
+      tickets.set(gasto.receipt.id, ticket);
+      lista.push(ticket);
+    }
+    return lista;
+  }
 
   async update(id: string, dto: UpdateExpenseDto, userId: string) {
     const expense = await this.cargarEditable(id, userId);

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -15,6 +16,15 @@ import { ExpensesService } from './expenses.service';
 @Controller()
 export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}
+
+  // Lo más reciente primero, con los productos de cada ticket agrupados bajo él
+  @Get('expenses')
+  list(
+    @Query('apartment_id') apartmentId: string | undefined,
+    @CurrentUser() userId: string,
+  ) {
+    return this.expensesService.list(apartmentId, userId);
+  }
 
   @Patch('expenses/:id')
   update(

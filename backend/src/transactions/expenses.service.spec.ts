@@ -24,6 +24,7 @@ describe('ExpensesService', () => {
 
   const prisma = {
     expense: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
       updateMany: jest.fn(),
       deleteMany: jest.fn(),
@@ -446,4 +447,141 @@ describe('ExpensesService', () => {
       expect(prisma.expense.deleteMany).not.toHaveBeenCalled();
     });
   });
+
+  describe('list', () => {
+    const persona = (id: string) => ({ id, full_name: id.replace('user-', '') });
+
+    // Lo que devuelve la consulta de un gasto, con sus deudas
+    const fila = (id: string, cambios: object = {}) => ({
+      id,
+      version: 1,
+      type: 'EXPENSE',
+      concept: 'Pizza',
+      category: 'supplies',
+      total_amount: '9.00',
+      date: new Date('2026-11-01'),
+      payer_participates: true,
+      payer_id: PAGADOR,
+      payer: persona(PAGADOR),
+      receipt: null,
+      transactions: [
+        { id: `deuda-${id}-ana`, amount: '3.00', toUser: persona(ANA) },
+        { id: `deuda-${id}-bruno`, amount: '3.00', toUser: persona(BRUNO) },
+      ],
+      ...cambios,
+    });
+    const ticket = { id: 'ticket-1', version: 4, total_amount: '24.00', date: new Date('2026-11-01') };
+
+    beforeEach(() => {
+      prisma.expense.findMany.mockResolvedValue([]);
+    });
+
+    it('pide los gastos que pagó la persona o de los que debe algo, sin avisos de pago pendientes', async () => {
+      await service.list(PISO, ANA);
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            apartment_id: PISO,
+            category: { not: 'pending' },
+            OR: [{ payer_id: ANA }, { transactions: { some: { to_user_id: ANA } } }],
+          },
+          orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
+        }),
+      );
+    });
+
+    it('sin piso pide los gastos de todos los pisos de la persona', async () => {
+      await service.list(undefined, ANA);
+
+      const { where } = prisma.expense.findMany.mock.calls[0][0];
+      expect(where).not.toHaveProperty('apartment_id');
+    });
+
+    it('un gasto manual sale como gasto con sus partes y su versión', async () => {
+      prisma.expense.findMany.mockResolvedValue([fila('gasto-1', { version: 3 })]);
+
+      const [gasto] = await service.list(PISO, PAGADOR);
+
+      expect(gasto).toEqual(
+        expect.objectContaining({
+          kind: 'expense',
+          id: 'gasto-1',
+          version: 3,
+          concept: 'Pizza',
+          total_amount: '9.00',
+          payer: persona(PAGADOR),
+          paidByCurrentUser: true,
+          canEdit: true,
+          shares: [
+            { transaction_id: 'deuda-gasto-1-ana', user: persona(ANA), amount: '3.00' },
+            { transaction_id: 'deuda-gasto-1-bruno', user: persona(BRUNO), amount: '3.00' },
+          ],
+        }),
+      );
+    });
+
+    it('un deudor ve el gasto pero no puede editarlo', async () => {
+      prisma.expense.findMany.mockResolvedValue([fila('gasto-1')]);
+
+      const [gasto] = await service.list(PISO, ANA);
+
+      expect(gasto).toEqual(expect.objectContaining({ paidByCurrentUser: false, canEdit: false }));
+    });
+
+    it('una liquidación no se puede editar ni siquiera por quien la pagó', async () => {
+      prisma.expense.findMany.mockResolvedValue([fila('pago-1', { type: 'SETTLEMENT' })]);
+
+      const [pago] = await service.list(PISO, PAGADOR);
+
+      expect(pago).toEqual(
+        expect.objectContaining({ type: 'SETTLEMENT', paidByCurrentUser: true, canEdit: false }),
+      );
+    });
+
+    it('agrupa los productos de un ticket bajo el ticket, en la posición del primero', async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        fila('producto-1', { receipt: ticket }),
+        fila('gasto-2', { date: new Date('2026-10-30') }),
+        fila('producto-2', { receipt: ticket }),
+      ]);
+
+      const lista = await service.list(PISO, PAGADOR);
+
+      expect(lista.map((entrada) => [entrada.kind, entrada.id])).toEqual([
+        ['receipt', 'ticket-1'],
+        ['expense', 'gasto-2'],
+      ]);
+      const [primero] = lista;
+      expect(primero).toEqual(
+        expect.objectContaining({
+          version: 4,
+          total_amount: '24.00',
+          paidByCurrentUser: true,
+          canEdit: true,
+        }),
+      );
+      expect((primero as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([
+        'producto-1',
+        'producto-2',
+      ]);
+    });
+
+    it('un deudor ve el ticket solo con los productos que le tocan, pero con el total completo', async () => {
+      // La consulta ya solo trae los productos en los que la persona debe algo
+      prisma.expense.findMany.mockResolvedValue([fila('producto-2', { receipt: ticket })]);
+
+      const [entrada] = await service.list(PISO, BRUNO);
+
+      expect(entrada).toEqual(
+        expect.objectContaining({ kind: 'receipt', total_amount: '24.00', canEdit: false }),
+      );
+      expect((entrada as { items: unknown[] }).items).toHaveLength(1);
+    });
+
+    it('sin gastos devuelve una lista vacía', async () => {
+      await expect(service.list(PISO, ANA)).resolves.toEqual([]);
+    });
+  });
+
 });

@@ -12,6 +12,7 @@ describe('Expenses controller', () => {
   let app: INestApplication<App>;
 
   const expensesService = {
+    list: jest.fn(),
     update: jest.fn(),
     remove: jest.fn(),
     removeReceipt: jest.fn(),
@@ -36,9 +37,24 @@ describe('Expenses controller', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    expensesService.list.mockResolvedValue([]);
     expensesService.update.mockResolvedValue({ id: ID });
     expensesService.remove.mockResolvedValue({ id: ID });
     expensesService.removeReceipt.mockResolvedValue({ id: ID });
+  });
+
+  describe('GET /expenses', () => {
+    it('pide al servicio los gastos del piso para el usuario actual', async () => {
+      await request(app.getHttpServer()).get(`/expenses?apartment_id=${ID}`).expect(200);
+
+      expect(expensesService.list).toHaveBeenCalledWith(ID, expect.any(String));
+    });
+
+    it('sin piso pide los de todos los pisos', async () => {
+      await request(app.getHttpServer()).get('/expenses').expect(200);
+
+      expect(expensesService.list).toHaveBeenCalledWith(undefined, expect.any(String));
+    });
   });
 
   describe('PATCH /expenses/:id', () => {
