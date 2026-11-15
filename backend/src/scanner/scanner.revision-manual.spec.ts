@@ -147,10 +147,12 @@ function elegir(fila: Fila, select?: Select) {
 // las consultas del balance. registro = cada operación que ha llegado a la base de datos
 function crearBaseFalsa() {
   const filas: Fila[] = [];
+  const gastos: Fila[] = [];
+  const recibos: Fila[] = [];
   const registro: string[] = [];
   let siguienteId = 0;
 
-  const prisma = {
+  const tablas = {
     apartment: {
       findUnique: ({ where }: { where: { id: string } }) => {
         registro.push('apartment.findUnique');
@@ -161,12 +163,29 @@ function crearBaseFalsa() {
         );
       },
     },
+    receipt: {
+      create: ({ data }: { data: Fila }) => {
+        registro.push('receipt.create');
+        recibos.push({ ...data });
+        return Promise.resolve({ ...data });
+      },
+    },
+    expense: {
+      createMany: ({ data }: { data: Fila[] }) => {
+        registro.push('expense.createMany');
+        gastos.push(...data.map((gasto) => ({ ...gasto })));
+        return Promise.resolve({ count: data.length });
+      },
+    },
     transaction: {
-      create: ({ data }: { data: Omit<Fila, 'id'> }) => {
-        registro.push('transaction.create');
-        const fila = { id: `deuda-${++siguienteId}`, ...data } as Fila;
-        filas.push(fila);
-        return Promise.resolve({ ...fila });
+      createMany: ({ data }: { data: Omit<Fila, 'id'>[] }) => {
+        registro.push('transaction.createMany');
+        filas.push(
+          ...data.map(
+            (deuda) => ({ id: `deuda-${++siguienteId}`, ...deuda }) as Fila,
+          ),
+        );
+        return Promise.resolve({ count: data.length });
       },
       findMany: ({
         where,
@@ -202,13 +221,18 @@ function crearBaseFalsa() {
         return Promise.resolve({ _sum: { amount } });
       },
     },
-    $transaction: (operaciones: Promise<unknown>[]) => {
+  };
+
+  // La transacción interactiva recibe el cliente; aquí es la propia base falsa
+  const prisma = {
+    ...tablas,
+    $transaction: (operaciones: (tx: typeof tablas) => Promise<unknown>) => {
       registro.push('$transaction');
-      return Promise.all(operaciones);
+      return operaciones(tablas);
     },
   };
 
-  return { prisma, filas, registro };
+  return { prisma, filas, gastos, recibos, registro };
 }
 
 let app: INestApplication<App>;
@@ -329,17 +353,36 @@ describe('PA-1004.01: revisión manual y guardado de datos del escáner (UT1004)
   it('guarda el gasto en la base de datos y lo vincula a los compañeros elegidos', async () => {
     const response = await escanearRevisarYConfirmar();
 
-    // Una deuda por compañero elegido, de quien paga hacia él, con su parte de los 15,00 €.
-    // Ninguna para Carla, que no comparte el ticket, ni de quien paga consigo mismo
-    const deuda = (companero: string) =>
-      expect.objectContaining({
-        apartment_id: APARTMENT_ID,
-        from_user_id: USER_ID,
-        to_user_id: companero,
-        amount: '5.00',
-        category: 'supplies',
-      });
-    expect(base.filas).toEqual([deuda(ANA), deuda(BRUNO)]);
+    // Cada producto es un gasto del ticket, y cada gasto tiene una deuda por compañero elegido,
+    // de quien paga hacia él. Ninguna para Carla, que no comparte el ticket, ni de quien paga
+    // consigo mismo: 5 productos x 2 compañeros = 10 deudas
+    expect(base.recibos).toHaveLength(1);
+    expect(base.gastos).toHaveLength(5);
+    expect(base.filas).toHaveLength(10);
+    for (const deuda of base.filas) {
+      expect(deuda).toEqual(
+        expect.objectContaining({
+          apartment_id: APARTMENT_ID,
+          from_user_id: USER_ID,
+          category: 'supplies',
+        }),
+      );
+      expect([ANA, BRUNO]).toContain(deuda.to_user_id);
+    }
+
+    // El reparto es exacto producto a producto: los céntimos sobrantes van a las primeras
+    // personas por id (quien paga, Ana, Bruno). Ana debe 5,00 y Bruno 4,98; el resto, 5,02,
+    // es la parte de quien paga. Entre los tres suman los 15,00 € del ticket
+    const debe = (companero: string) =>
+      base.filas
+        .filter((deuda) => deuda.to_user_id === companero)
+        .reduce(
+          (centimos, deuda) => centimos + Math.round(Number(deuda.amount) * 100),
+          0,
+        );
+    expect(debe(ANA)).toBe(500);
+    expect(debe(BRUNO)).toBe(498);
+
     // La app recibe las deudas que se han guardado
     expect(response.body.transactions).toEqual(base.filas);
   });
@@ -350,14 +393,15 @@ describe('PA-1004.01: revisión manual y guardado de datos del escáner (UT1004)
     await escanearRevisarYConfirmar();
 
     const balance = await miBalance();
+    // 5,00 de Ana + 4,98 de Bruno
     expect(balance.mensaje).toBe(
-      'En total, tienes 10.00€ pendientes de cobro.',
+      'En total, tienes 9.98€ pendientes de cobro.',
     );
     expect(balance.miResumen.esDeudor).toBe(false);
-    expect(balance.miResumen.monto).toBe(10);
+    expect(balance.miResumen.monto).toBe(9.98);
     expect([...balance.miResumen.conceptos].sort()).toEqual([
       'Ana te debe 5€',
-      'Bruno te debe 5€',
+      'Bruno te debe 4.98€',
     ]);
 
     // También cambia el balance de los compañeros, pero solo el de los que comparten el ticket

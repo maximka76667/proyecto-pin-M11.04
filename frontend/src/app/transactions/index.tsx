@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -18,6 +18,11 @@ import { SettleUpCard } from "@/components/settle-up";
 import { APARTMENT_ID, USER_ID } from "@/constants/dev-session";
 import { Palette } from "@/constants/onboarding";
 import { api, errorMessage } from "@/lib/api";
+import {
+  ExpenseListEntry,
+  myBalanceCents,
+  myReceiptBalanceCents,
+} from "@/lib/expenses";
 
 // Aviso que se muestra al volver de guardar un gasto
 const notices: Record<string, string> = {
@@ -34,44 +39,15 @@ type PersonalSummary = {
   mensaje: string;
 };
 
-type Transaction = {
-  id: string;
-  apartment_id: string;
-  from_user_id: string;
-  to_user_id: string;
-  amount: number | string;
-  concept?: string | null;
-  category: string;
-  date: string;
-  paidByCurrentUser: boolean;
-  canEdit?: boolean;
-  fromUser: {
-    full_name: string;
-  };
-  toUser: {
-    full_name: string;
-  };
-};
-
+// What the options menu and the delete dialog need to know about the expense or receipt
 type DisplayTransaction = {
+  kind: "expense" | "receipt";
   id: string;
-  rawIds: string[];
-  apartment_id: string;
-  from_user_id: string;
-  to_user_ids: string[];
-  amount: number;
+  // the version the user loaded: the backend answers 409 if someone changed it since
+  version: number;
   concept?: string | null;
   category: string;
-  date: string;
-  paidByMe: boolean;
-  canEdit: boolean;
-  fromUser: {
-    full_name: string;
-  };
-  toUser: {
-    full_name: string;
-  };
-  debtorsCount: number;
+  amount: number;
 };
 
 const categoryLabels: Record<string, string> = {
@@ -84,31 +60,10 @@ const categoryLabels: Record<string, string> = {
   pending: "Pendiente",
 };
 
-function groupTransactions(list: Transaction[]): DisplayTransaction[] {
-  return list.map((first) => {
-    return {
-      id: first.id,
-      rawIds: [first.id],
-      apartment_id: first.apartment_id,
-      from_user_id: first.from_user_id,
-      to_user_ids: [first.to_user_id],
-      amount: Number(first.amount) || 0,
-      concept: first.concept,
-      category: first.category,
-      date: first.date,
-      paidByMe: first.paidByCurrentUser,
-      canEdit: first.canEdit ?? false,
-      fromUser: first.fromUser,
-      toUser: first.toUser,
-      debtorsCount: 1,
-    };
-  });
-}
-
 export default function Transactions() {
   const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<ExpenseListEntry[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
@@ -130,26 +85,18 @@ export default function Transactions() {
     router.setParams({ notice: undefined });
   };
 
-  const displayTransactions = useMemo(
-    () => groupTransactions(transactions),
-    [transactions],
-  );
-
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
 
     try {
-      await Promise.all(
-        transactionToDelete.rawIds.map((id) =>
-          api("DELETE", `/transactions/${id}`),
-        ),
+      const { kind, id, version } = transactionToDelete;
+      await api(
+        "DELETE",
+        `/${kind === "receipt" ? "receipts" : "expenses"}/${id}?version=${version}`,
       );
-      const deletedIds = new Set(transactionToDelete.rawIds);
       setTransactionToDelete(null);
       setSuccess("Gasto eliminado correctamente.");
-      setTransactions((current) =>
-        current.filter(({ id }) => !deletedIds.has(id)),
-      );
+      // the list is reloaded: deleting a product changes the total of its receipt
       setRefreshKey((key) => key + 1);
 
       try {
@@ -174,18 +121,12 @@ export default function Transactions() {
         setLoading(true);
         setError("");
         try {
-          const apartmentTransactions = (await api(
+          const loaded = (await api(
             "GET",
-            `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-          )) as Transaction[];
+            `/expenses?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+          )) as ExpenseListEntry[];
 
-          if (active) {
-            setTransactions(
-              apartmentTransactions.filter(
-                (transaction) => transaction.category !== "pending",
-              ),
-            );
-          }
+          if (active) setTransactions(loaded);
 
           try {
             const summaryData = (await api(
@@ -317,79 +258,144 @@ export default function Transactions() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Mis transacciones</Text>
           <Text style={styles.sectionCaption}>
-            {displayTransactions.length}
+            {transactions.length}
           </Text>
         </View>
 
-        {displayTransactions.length > 0 ? (
+        {transactions.length > 0 ? (
           <View style={styles.transactionList}>
-            {displayTransactions.map((transaction) => {
-              const paidByMe = transaction.paidByMe;
-              const pendiente = transaction.category === "pending";
-              // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
-              const editable =
-                transaction.canEdit === true &&
-                transaction.from_user_id === USER_ID &&
-                transaction.category !== "payment" &&
-                !pendiente &&
-                transaction.concept?.trim().toLowerCase() !== "payment";
+            {transactions.map((entry) => {
+              const isReceipt = entry.kind === "receipt";
+              const paidByMe = entry.paidByCurrentUser;
+              const settlement = !isReceipt && entry.type === "SETTLEMENT";
+              // what the user gets back (+) or owes (-) from this expense
+              const balanceCents = isReceipt
+                ? myReceiptBalanceCents(entry, USER_ID)
+                : myBalanceCents(entry, USER_ID);
+              const title = isReceipt
+                ? "Ticket"
+                : entry.concept ||
+                  categoryLabels[entry.category] ||
+                  entry.category;
+              const status = isReceipt
+                ? paidByMe
+                  ? `Pagaste tú · ${entry.items.length} productos`
+                  : `Pagó ${entry.payer.full_name}`
+                : settlement
+                  ? paidByMe
+                    ? `Pagaste a ${entry.shares[0]?.user.full_name ?? ""}`
+                    : `${entry.payer.full_name} te pagó`
+                  : paidByMe
+                    ? `Pagaste tú · ${entry.shares
+                        .map((share) => share.user.full_name)
+                        .join(", ")}`
+                    : `Pagó ${entry.payer.full_name}`;
+              // a receipt shows its total and what each product means for the user
+              const menuTarget: DisplayTransaction = {
+                kind: entry.kind,
+                id: entry.id,
+                version: entry.version,
+                concept: title,
+                category: isReceipt ? "other" : entry.category,
+                amount: Number(entry.total_amount) || 0,
+              };
 
               return (
-                <View key={transaction.id} style={styles.transaction}>
-                  <View
-                    style={[
-                      styles.categoryIcon,
-                      !paidByMe && styles.categoryIconOther,
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={paidByMe ? "cart-outline" : "home-outline"}
-                      size={20}
-                      color={Palette.primary}
-                    />
-                  </View>
-                  <View style={styles.transactionInfo}>
-                    <Text style={styles.transactionCategory}>
-                      {transaction.concept ||
-                        categoryLabels[transaction.category] ||
-                        transaction.category}
-                    </Text>
-                    <Text style={styles.transactionStatus}>
-                      {paidByMe
-                        ? `Pagaste tú a ${transaction.toUser.full_name}`
-                        : `Pagó ${transaction.fromUser.full_name}`}
-                      {pendiente ? " · pendiente de confirmar" : ""}
-                    </Text>
-                    <Text style={styles.transactionDate}>
-                      {new Date(transaction.date).toLocaleDateString("es-ES")}
-                    </Text>
-                  </View>
-                  <View style={styles.transactionActions}>
-                    <Text
+                <View key={entry.id} style={styles.entry}>
+                  <View style={styles.transaction}>
+                    <View
                       style={[
-                        styles.transactionAmount,
-                        !paidByMe && styles.negativeAmount,
-                        // todavía no cuenta en el balance
-                        pendiente && styles.pendingAmount,
+                        styles.categoryIcon,
+                        !paidByMe && styles.categoryIconOther,
                       ]}
                     >
-                      {paidByMe ? "+" : "-"}
-                      {transaction.amount.toFixed(2)} €
-                    </Text>
-                    {editable ? (
-                      <Pressable
-                        onPress={() => setTransactionMenu(transaction)}
-                        hitSlop={8}
-                        style={styles.menuButton}
+                      <MaterialCommunityIcons
+                        name={
+                          isReceipt
+                            ? "receipt-text-outline"
+                            : paidByMe
+                              ? "cart-outline"
+                              : "home-outline"
+                        }
+                        size={20}
+                        color={Palette.primary}
+                      />
+                    </View>
+                    <View style={styles.transactionInfo}>
+                      <Text style={styles.transactionCategory}>{title}</Text>
+                      <Text style={styles.transactionStatus}>{status}</Text>
+                      <Text style={styles.transactionDate}>
+                        {new Date(entry.date).toLocaleDateString("es-ES")}
+                      </Text>
+                    </View>
+                    <View style={styles.transactionActions}>
+                      <Text
+                        style={[
+                          styles.transactionAmount,
+                          balanceCents < 0 && styles.negativeAmount,
+                        ]}
                       >
-                        <MaterialCommunityIcons
-                          name="dots-horizontal"
-                          size={22}
-                          color={Palette.text}
-                        />
-                      </Pressable>
-                    ) : null}
+                        {balanceCents < 0 ? "-" : "+"}
+                        {(Math.abs(balanceCents) / 100).toFixed(2)} €
+                      </Text>
+                      {entry.canEdit ? (
+                        <Pressable
+                          onPress={() => setTransactionMenu(menuTarget)}
+                          hitSlop={8}
+                          style={styles.menuButton}
+                        >
+                          <MaterialCommunityIcons
+                            name="dots-horizontal"
+                            size={22}
+                            color={Palette.text}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
+                  {isReceipt
+                    ? entry.items.map((item) => {
+                        const itemCents = myBalanceCents(item, USER_ID);
+                        return (
+                          <View key={item.id} style={styles.receiptItem}>
+                            <Text
+                              style={styles.receiptItemName}
+                              numberOfLines={1}
+                            >
+                              {item.concept ||
+                                categoryLabels[item.category] ||
+                                item.category}
+                            </Text>
+                            <Text style={styles.receiptItemAmount}>
+                              {itemCents < 0 ? "-" : "+"}
+                              {(Math.abs(itemCents) / 100).toFixed(2)} €
+                            </Text>
+                            {item.canEdit ? (
+                              <Pressable
+                                onPress={() =>
+                                  setTransactionMenu({
+                                    kind: "expense",
+                                    id: item.id,
+                                    version: item.version,
+                                    concept: item.concept,
+                                    category: item.category,
+                                    amount: Number(item.total_amount) || 0,
+                                  })
+                                }
+                                hitSlop={8}
+                                style={styles.menuButton}
+                              >
+                                <MaterialCommunityIcons
+                                  name="dots-horizontal"
+                                  size={20}
+                                  color={Palette.text}
+                                />
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        );
+                      })
+                    : null}
                 </View>
               );
             })}
@@ -432,6 +438,7 @@ export default function Transactions() {
                   : ""}
               </Text>
             </View>
+            {transactionMenu?.kind === "expense" ? (
             <Pressable
               onPress={() => {
                 if (!transactionMenu) return;
@@ -458,6 +465,7 @@ export default function Transactions() {
                 color={Palette.textSecondary}
               />
             </Pressable>
+            ) : null}
             <Pressable
               onPress={() => {
                 setTransactionToDelete(transactionMenu);
@@ -556,6 +564,16 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     gap: 18,
   },
+  entry: { gap: 6 },
+  receiptItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingLeft: 56,
+    paddingRight: 8,
+  },
+  receiptItemName: { flex: 1, fontSize: 14, color: Palette.textSecondary },
+  receiptItemAmount: { fontSize: 14, color: Palette.text },
   back: { alignSelf: "flex-start", paddingTop: 8 },
   header: { gap: 6 },
   headerRow: {

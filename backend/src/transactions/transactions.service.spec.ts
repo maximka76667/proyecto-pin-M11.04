@@ -434,9 +434,12 @@ describe('Servicio de transacciones', () => {
     transaction: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
-      create: jest.fn(),
+      createMany: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    },
+    expense: {
+      create: jest.fn(),
     },
     userApartment: {
       findUnique: jest.fn(),
@@ -486,114 +489,6 @@ describe('Servicio de transacciones', () => {
     service = module.get(TransactionsService);
   });
 
-  describe('update (modificar gasto)', () => {
-    it('actualiza el gasto por identificador con los datos recibidos', async () => {
-      const updated = {
-        ...transaction,
-        amount: '55.50',
-        category: 'utilities',
-      };
-      prisma.transaction.update.mockResolvedValue(updated);
-
-      const result = await service.update(
-        'tx-1',
-        {
-          amount: '55.50',
-          category: 'utilities',
-        },
-        'user-1',
-      );
-
-      expect(prisma.transaction.update).toHaveBeenCalledWith({
-        where: { id: 'tx-1' },
-        data: { amount: '55.50', category: 'utilities' },
-      });
-      expect(result).toEqual(updated);
-    });
-
-    it('solo envía los campos que han cambiado', async () => {
-      prisma.transaction.update.mockResolvedValue({
-        ...transaction,
-        amount: '10.00',
-      });
-
-      await service.update('tx-1', { amount: '10.00' }, 'user-1');
-
-      expect(prisma.transaction.update).toHaveBeenCalledWith({
-        where: { id: 'tx-1' },
-        data: { amount: '10.00' },
-      });
-    });
-
-    it('devuelve 404 cuando el gasto no existe', async () => {
-      prisma.transaction.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.update('missing', { amount: '10.00' }, 'user-1'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('bloquea un gasto anterior a una pago confirmado de la misma relación', async () => {
-      prisma.transaction.findFirst.mockResolvedValue({ id: 'payment-1' });
-
-      await expect(
-        service.update('tx-1', { amount: '10.00' }, 'user-1'),
-      ).rejects.toThrow(
-        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
-      );
-      expect(prisma.transaction.update).not.toHaveBeenCalled();
-      expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
-        where: {
-          apartment_id: 'apt-1',
-          from_user_id: 'user-2',
-          to_user_id: 'user-1',
-          category: TransactionCategory.payment,
-          created_at: { gt: transaction.created_at },
-        },
-        select: { id: true },
-      });
-    });
-
-    it('propaga los errores inesperados', async () => {
-      const unexpected = new Error('Database down');
-      prisma.transaction.update.mockRejectedValue(unexpected);
-
-      await expect(
-        service.update('tx-1', { amount: '10.00' }, 'user-1'),
-      ).rejects.toBe(unexpected);
-    });
-  });
-
-  describe('remove (eliminar gasto)', () => {
-    it('elimina el gasto por identificador y lo devuelve', async () => {
-      prisma.transaction.delete.mockResolvedValue(transaction);
-
-      const result = await service.remove('tx-1', 'user-1');
-
-      expect(prisma.transaction.delete).toHaveBeenCalledWith({
-        where: { id: 'tx-1' },
-      });
-      expect(result).toEqual(transaction);
-    });
-
-    it('devuelve 404 cuando el gasto no existe', async () => {
-      prisma.transaction.findUnique.mockResolvedValue(null);
-
-      await expect(service.remove('missing', 'user-1')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('bloquea eliminar un gasto anterior a una pago confirmado', async () => {
-      prisma.transaction.findFirst.mockResolvedValue({ id: 'payment-1' });
-
-      await expect(service.remove('tx-1', 'user-1')).rejects.toThrow(
-        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
-      );
-      expect(prisma.transaction.delete).not.toHaveBeenCalled();
-    });
-  });
-
   describe('markAsPaid (marcar deuda como pagada)', () => {
     it('crea un aviso de pago pendiente para una deuda válida', async () => {
       const notice = {
@@ -605,23 +500,33 @@ describe('Servicio de transacciones', () => {
         category: TransactionCategory.pending,
       };
       jest.spyOn(service, 'getPagoMinimo').mockResolvedValue([pendingDebt]);
-      prisma.transaction.create.mockResolvedValue(notice);
+      prisma.expense.create.mockResolvedValue({});
+      prisma.transaction.createMany.mockResolvedValue({ count: 1 });
 
-      await expect(
-        service.markAsPaid(apartmentId, deudorId, {
-          acreedor_id: acreedorId,
-          amount: '25.50',
-        }),
-      ).resolves.toEqual(notice);
+      // El aviso lleva un id generado por el servidor
+      const { id: _id, ...avisoSinId } = notice;
+      const aviso = await service.markAsPaid(apartmentId, deudorId, {
+        acreedor_id: acreedorId,
+        amount: '25.50',
+      });
 
-      expect(prisma.transaction.create).toHaveBeenCalledWith({
-        data: {
+      expect(aviso).toEqual(
+        expect.objectContaining({ ...avisoSinId, id: expect.any(String) }),
+      );
+      // La liquidación es un gasto que paga el deudor y debe entero el acreedor
+      const { data: gasto } = prisma.expense.create.mock.calls[0][0];
+      expect(gasto).toEqual(
+        expect.objectContaining({
           apartment_id: apartmentId,
-          from_user_id: deudorId,
-          to_user_id: acreedorId,
-          amount: '25.50',
+          payer_id: deudorId,
+          type: 'SETTLEMENT',
+          total_amount: '25.50',
           category: TransactionCategory.pending,
-        },
+          payer_participates: false,
+        }),
+      );
+      expect(prisma.transaction.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ ...avisoSinId, expense_id: gasto.id })],
       });
     });
 
@@ -650,7 +555,8 @@ describe('Servicio de transacciones', () => {
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
 
-      expect(prisma.transaction.create).not.toHaveBeenCalled();
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     });
 
     it('rechaza la operación cuando el importe de la deuda ha cambiado', async () => {
@@ -665,7 +571,8 @@ describe('Servicio de transacciones', () => {
         }),
       ).rejects.toBeInstanceOf(ConflictException);
 
-      expect(prisma.transaction.create).not.toHaveBeenCalled();
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     });
   });
 });

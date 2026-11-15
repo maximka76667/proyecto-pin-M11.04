@@ -27,6 +27,9 @@ type Fila = {
   category: TransactionCategory;
 };
 
+// Una fila cualquiera: la base falsa guarda igual las deudas (Transaction) y los gastos (Expense)
+type Registro = { [campo: string]: unknown; id: string };
+
 type Miembro = { user_id: string; apartment_id: string };
 type Where = Record<string, unknown>;
 type Select = Record<string, boolean>;
@@ -63,7 +66,7 @@ function prismaError(code: string) {
 }
 
 // Igualdad y { not: valor }, que es lo que usa el balance para excluir los avisos pendientes
-function cumple(fila: Fila, where: Where = {}) {
+function cumple(fila: Registro, where: Where = {}) {
   return Object.entries(where).every(([campo, condicion]) => {
     if (condicion === undefined) return true;
     if (typeof condicion === 'object' && condicion !== null && 'not' in condicion) {
@@ -73,7 +76,7 @@ function cumple(fila: Fila, where: Where = {}) {
   });
 }
 
-function elegir(fila: Fila, select?: Select) {
+function elegir(fila: Registro, select?: Select) {
   if (!select) return { ...fila };
   return Object.fromEntries(
     Object.keys(select)
@@ -86,22 +89,25 @@ function elegir(fila: Fila, select?: Select) {
 // en que se llama, así que el orden en que se intercalan dos peticiones simultáneas es
 // determinista. update y delete exigen que la fila cumpla todo el where y, si no, lanzan
 // P2025 como Prisma: es lo que delata una escritura que no lleva sus condiciones.
-function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
+function crearBaseFalsa(filas: Fila[], miembros: Miembro[], gastos: Registro[] = []) {
   const registro: string[] = [];
   const opcionesTransacciones: unknown[] = [];
   let abortarSiguiente = false;
   let siguienteId = 0;
 
-  const indiceQueCumple = (where: Where) => {
-    const indice = filas.findIndex((fila) => cumple(fila, where));
-    if (indice === -1) throw prismaError('P2025');
+  const indiceQueCumple = (tabla: Registro[], where: Where) => {
+    const indice = tabla.findIndex((fila) => cumple(fila, where));
+    if (indice === -1) throw prismaError("P2025");
     return indice;
   };
 
-  const operaciones = (prefijo: string) => ({
+  type Nuevo = Omit<Registro, "id"> & { id?: string };
+
+  // Las operaciones de una tabla. prefijoId da el id a las filas que se crean sin id
+  const operaciones = (prefijo: string, tabla: Registro[], prefijoId: string) => ({
     findMany: ({ where, select, distinct }: { where?: Where; select?: Select; distinct?: string[] }) => {
       registro.push(`${prefijo}findMany`);
-      let resultado = filas.filter((fila) => cumple(fila, where));
+      let resultado = tabla.filter((fila) => cumple(fila, where));
       if (distinct) {
         const [campo] = distinct;
         const vistos = new Set<unknown>();
@@ -111,7 +117,7 @@ function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
     },
     aggregate: ({ where }: { where?: Where }) => {
       registro.push(`${prefijo}aggregate`);
-      const coinciden = filas.filter((fila) => cumple(fila, where));
+      const coinciden = tabla.filter((fila) => cumple(fila, where));
       // Prisma devuelve null, no 0, cuando no hay filas que sumar
       const amount = coinciden.length
         ? coinciden.reduce((centimos, fila) => centimos + Math.round(Number(fila.amount) * 100), 0) / 100
@@ -120,24 +126,31 @@ function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
     },
     findFirst: ({ where, select }: { where?: Where; select?: Select }) => {
       registro.push(`${prefijo}findFirst`);
-      const fila = filas.find((candidata) => cumple(candidata, where));
+      const fila = tabla.find((candidata) => cumple(candidata, where));
       return Promise.resolve(fila ? elegir(fila, select) : null);
     },
     findUnique: ({ where, select }: { where: Where; select?: Select }) => {
       registro.push(`${prefijo}findUnique`);
-      const fila = filas.find((candidata) => cumple(candidata, where));
+      const fila = tabla.find((candidata) => cumple(candidata, where));
       return Promise.resolve(fila ? elegir(fila, select) : null);
     },
-    create: ({ data }: { data: Omit<Fila, 'id'> }) => {
+    create: ({ data }: { data: Nuevo }) => {
       registro.push(`${prefijo}create`);
-      const fila = { id: `aviso-${++siguienteId}`, ...data } as Fila;
-      filas.push(fila);
+      const fila = { id: `${prefijoId}-${++siguienteId}`, ...data } as Registro;
+      tabla.push(fila);
       return Promise.resolve({ ...fila });
     },
-    update: ({ where, data }: { where: Where; data: Partial<Fila> }) => {
+    createMany: ({ data }: { data: Nuevo[] }) => {
+      registro.push(`${prefijo}createMany`);
+      for (const fila of data) {
+        tabla.push({ id: `${prefijoId}-${++siguienteId}`, ...fila } as Registro);
+      }
+      return Promise.resolve({ count: data.length });
+    },
+    update: ({ where, data }: { where: Where; data: Partial<Registro> }) => {
       registro.push(`${prefijo}update`);
       try {
-        const fila = filas[indiceQueCumple(where)];
+        const fila = tabla[indiceQueCumple(tabla, where)];
         Object.assign(fila, data);
         return Promise.resolve({ ...fila });
       } catch (error) {
@@ -147,7 +160,7 @@ function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
     delete: ({ where }: { where: Where }) => {
       registro.push(`${prefijo}delete`);
       try {
-        const [fila] = filas.splice(indiceQueCumple(where), 1);
+        const [fila] = tabla.splice(indiceQueCumple(tabla, where), 1);
         return Promise.resolve({ ...fila });
       } catch (error) {
         return Promise.reject(error as Error);
@@ -155,10 +168,13 @@ function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
     },
   });
 
-  const tx = { transaction: operaciones('tx.') };
+  const tx = {
+    transaction: operaciones("tx.", filas, "aviso"),
+    expense: operaciones("tx.expense.", gastos, "gasto"),
+  };
 
   const cliente = {
-    transaction: operaciones(''),
+    transaction: operaciones('', filas, 'aviso'),
     userApartment: {
       findUnique: ({ where }: { where: { user_id_apartment_id: Miembro } }) => {
         const { user_id, apartment_id } = where.user_id_apartment_id;
@@ -183,6 +199,7 @@ function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
   return {
     cliente,
     filas,
+    gastos,
     registro,
     opcionesTransacciones,
     abortarSiguienteTransaccion: () => {
@@ -193,8 +210,8 @@ function crearBaseFalsa(filas: Fila[], miembros: Miembro[]) {
   };
 }
 
-async function preparar(filasIniciales: Fila[]) {
-  const base = crearBaseFalsa(filasIniciales, MIEMBROS);
+async function preparar(filasIniciales: Fila[], gastosIniciales: Registro[] = []) {
+  const base = crearBaseFalsa(filasIniciales, MIEMBROS, gastosIniciales);
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       TransactionsService,
@@ -242,9 +259,12 @@ describe('Saldar deudas con peticiones simultáneas', () => {
       ]);
       // Si la comprobación o la creación se hicieran fuera de la transacción,
       // Postgres no podría detectar la otra petición simultánea
-      expect(base.registro).toEqual(expect.arrayContaining(['tx.findFirst', 'tx.create']));
+      expect(base.registro).toEqual(
+        expect.arrayContaining(['tx.findFirst', 'tx.expense.create', 'tx.createMany']),
+      );
       expect(base.registro).not.toContain('findFirst');
-      expect(base.registro).not.toContain('create');
+      expect(base.registro).not.toContain('expense.create');
+      expect(base.registro).not.toContain('createMany');
     });
 
     it('si Postgres aborta la transacción por otra petición simultánea (P2034), responde 409 y no crea el aviso', async () => {
@@ -311,4 +331,123 @@ describe('Saldar deudas con peticiones simultáneas', () => {
       ).toBe(false);
     });
   });
+
+  // Una liquidación es un gasto (SETTLEMENT) que paga el deudor y debe entero el acreedor. Su
+  // estado (pendiente, pagado) va a la vez en el gasto y en su deuda
+  describe('liquidaciones como gasto (Expense)', () => {
+    const LIQUIDACION = 'liquidacion-1';
+
+    const avisoConLiquidacion = (): Fila => ({ ...avisoDeVicente(), expense_id: LIQUIDACION });
+    const liquidacionPendiente = (): Registro => ({
+      id: LIQUIDACION,
+      type: 'SETTLEMENT',
+      payer_id: VICENTE,
+      category: TransactionCategory.pending,
+      total_amount: '42.95',
+    });
+    const categoriaDe = (tabla: Registro[], id: string) => tabla.find((fila) => fila.id === id)?.category;
+
+    it('markAsPaid crea la liquidación y su deuda juntas, dentro de la transacción', async () => {
+      const { service, base } = await preparar([gastoDeJoan()]);
+
+      await service.markAsPaid(PISO, VICENTE, pagoAJoan);
+
+      // Paga Vicente y lo debe entero Joan (el acreedor): Vicente no reparte el gasto
+      expect(base.gastos).toEqual([
+        expect.objectContaining({
+          type: 'SETTLEMENT',
+          apartment_id: PISO,
+          payer_id: VICENTE,
+          total_amount: '42.95',
+          category: TransactionCategory.pending,
+          payer_participates: false,
+        }),
+      ]);
+      expect(base.avisosPendientes()).toEqual([
+        expect.objectContaining({
+          from_user_id: VICENTE,
+          to_user_id: JOAN,
+          amount: '42.95',
+          expense_id: base.gastos[0].id,
+        }),
+      ]);
+    });
+
+    it('si Postgres aborta la transacción (P2034) no queda ni liquidación ni aviso', async () => {
+      const { service, base } = await preparar([gastoDeJoan()]);
+      base.abortarSiguienteTransaccion();
+
+      const [resultado] = await Promise.allSettled([service.markAsPaid(PISO, VICENTE, pagoAJoan)]);
+
+      esConflicto(resultado, YA_AVISADO);
+      expect(base.gastos).toEqual([]);
+      expect(base.avisosPendientes()).toEqual([]);
+    });
+
+    it('confirmar cambia a pago la deuda y su liquidación', async () => {
+      const { service, base } = await preparar(
+        [gastoDeJoan(), avisoConLiquidacion()],
+        [liquidacionPendiente()],
+      );
+
+      await service.confirmPayment('aviso-previo', JOAN);
+
+      expect(categoriaDe(base.filas, 'aviso-previo')).toBe(TransactionCategory.payment);
+      expect(categoriaDe(base.gastos, LIQUIDACION)).toBe(TransactionCategory.payment);
+      // La escritura con condiciones va la primera; la liquidación se toca después
+      expect(base.registro.filter((paso) => paso.startsWith('tx.'))).toEqual([
+        'tx.update',
+        'tx.expense.update',
+      ]);
+    });
+
+    it('rechazar borra el aviso y también su liquidación', async () => {
+      const { service, base } = await preparar(
+        [gastoDeJoan(), avisoConLiquidacion()],
+        [liquidacionPendiente()],
+      );
+
+      await service.rejectPayment('aviso-previo', JOAN);
+
+      expect(base.filas.find((fila) => fila.id === 'aviso-previo')).toBeUndefined();
+      // Sin esto quedaría un gasto sin ninguna deuda
+      expect(base.gastos).toEqual([]);
+    });
+
+    it('si confirmar escribe primero, rechazar da 409 y la liquidación sigue como pagada', async () => {
+      const { service, base } = await preparar(
+        [gastoDeJoan(), avisoConLiquidacion()],
+        [liquidacionPendiente()],
+      );
+
+      const [confirmar, rechazar] = await Promise.allSettled([
+        service.confirmPayment('aviso-previo', JOAN),
+        service.rejectPayment('aviso-previo', JOAN),
+      ]);
+
+      expect(confirmar.status).toBe('fulfilled');
+      esConflicto(rechazar, YA_NO_PENDIENTE);
+      expect(categoriaDe(base.filas, 'aviso-previo')).toBe(TransactionCategory.payment);
+      expect(categoriaDe(base.gastos, LIQUIDACION)).toBe(TransactionCategory.payment);
+    });
+
+    it('si rechazar escribe primero, confirmar da 409 y no queda ninguna liquidación huérfana', async () => {
+      const { service, base } = await preparar(
+        [gastoDeJoan(), avisoConLiquidacion()],
+        [liquidacionPendiente()],
+      );
+
+      const [rechazar, confirmar] = await Promise.allSettled([
+        service.rejectPayment('aviso-previo', JOAN),
+        service.confirmPayment('aviso-previo', JOAN),
+      ]);
+
+      expect(rechazar.status).toBe('fulfilled');
+      esConflicto(confirmar, YA_NO_PENDIENTE);
+      expect(base.filas.find((fila) => fila.id === 'aviso-previo')).toBeUndefined();
+      expect(base.gastos).toEqual([]);
+      expect(base.filas.some((fila) => fila.category === TransactionCategory.payment)).toBe(false);
+    });
+  });
+
 });
