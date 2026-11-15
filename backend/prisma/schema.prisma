@@ -21,6 +21,8 @@ model User {
   landlord_apartments        Apartment[]               @relation("LandlordApartments")
   createdTransactions        Transaction[]             @relation("CreatedTransactions")
   receivedTransactions       Transaction[]             @relation("ReceivedTransactions")
+  paidExpenses               Expense[]                 @relation("PaidExpenses")
+  paidReceipts               Receipt[]                 @relation("PaidReceipts")
   taskAssignments            TaskAssignment[]
   availability_blocks        AvailabilityBlock[]
   google_calendar_connection GoogleCalendarConnection?
@@ -78,6 +80,8 @@ model Apartment {
   landlord_id     String?           @db.Uuid
   landlord        User?             @relation("LandlordApartments", fields: [landlord_id], references: [id])
   transactions    Transaction[]
+  expenses        Expense[]
+  receipts        Receipt[]
   tasks           Task[]
   user_apartments UserApartment[]
   swap_requests   TaskSwapRequest[]
@@ -98,8 +102,55 @@ model UserApartment {
   @@index([apartment_id])
 }
 
+// Un ticket escaneado. `total_amount` es la suma de los totales de sus gastos (productos) y se
+// recalcula en la misma transacción cada vez que se edita uno. No se usa para los balances.
+// `version` sirve para bloqueo optimista: se incrementa en cada edición del ticket.
+model Receipt {
+  id           String    @id @default(uuid()) @db.Uuid
+  apartment_id String    @db.Uuid
+  payer_id     String    @db.Uuid
+  total_amount Decimal   @db.Decimal(12, 2)
+  date         DateTime  @default(now()) @db.Date
+  version      Int       @default(1)
+  created_at   DateTime  @default(now())
+  apartment    Apartment @relation(fields: [apartment_id], references: [id])
+  payer        User      @relation("PaidReceipts", fields: [payer_id], references: [id])
+  expenses     Expense[]
+
+  @@index([apartment_id, date])
+  @@index([payer_id])
+}
+
+// Un gasto (un producto de un ticket, un gasto manual o una liquidación). Cada `Transaction`
+// es la parte de un compañero que debe. El que paga no tiene fila: `payer_participates` dice
+// si también reparte el gasto. Los balances se calculan solo con las `Transaction`.
+// `receipt_id` es null para gastos manuales y liquidaciones. `version` es el bloqueo optimista.
+model Expense {
+  id                 String              @id @default(uuid()) @db.Uuid
+  apartment_id       String              @db.Uuid
+  payer_id           String              @db.Uuid
+  receipt_id         String?             @db.Uuid
+  type               ExpenseType         @default(EXPENSE)
+  total_amount       Decimal             @db.Decimal(12, 2)
+  concept            String?
+  category           TransactionCategory
+  date               DateTime            @default(now()) @db.Date
+  payer_participates Boolean             @default(true)
+  version            Int                 @default(1)
+  created_at         DateTime            @default(now())
+  apartment          Apartment           @relation(fields: [apartment_id], references: [id])
+  payer              User                @relation("PaidExpenses", fields: [payer_id], references: [id])
+  receipt            Receipt?            @relation(fields: [receipt_id], references: [id], onDelete: Cascade)
+  transactions       Transaction[]
+
+  @@index([apartment_id, date])
+  @@index([payer_id])
+  @@index([receipt_id])
+}
+
 model Transaction {
   id           String              @id @default(uuid()) @db.Uuid
+  expense_id   String?             @db.Uuid
   apartment_id String              @db.Uuid
   from_user_id String              @db.Uuid
   to_user_id   String              @db.Uuid
@@ -108,9 +159,12 @@ model Transaction {
   category     TransactionCategory
   date         DateTime            @default(now()) @db.Date
   created_at   DateTime            @default(now())
+  expense      Expense?            @relation(fields: [expense_id], references: [id], onDelete: Cascade)
   apartment    Apartment           @relation(fields: [apartment_id], references: [id])
   fromUser     User                @relation("CreatedTransactions", fields: [from_user_id], references: [id])
   toUser       User                @relation("ReceivedTransactions", fields: [to_user_id], references: [id])
+
+  @@index([expense_id])
 }
 
 model Task {
@@ -214,6 +268,11 @@ model GoogleBusyBlock {
   user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, event_date])
+}
+
+enum ExpenseType {
+  EXPENSE
+  SETTLEMENT
 }
 
 enum TransactionCategory {
