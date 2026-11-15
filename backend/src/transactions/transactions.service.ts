@@ -10,7 +10,7 @@ import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
-import { buildExpenseRows } from './expense-rows';
+import { buildExpenseRows, MAX_RECEIPT_TOTAL_CENTS } from './expense-rows';
 import { centsToAmount } from './expense-split';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
@@ -20,7 +20,6 @@ import {
   ReceiptItemDto,
 } from './dto/create-receipt-transaction.dto';
 
-const MAX_RECEIPT_TOTAL_CENTS = 1_000_000;
 import {
   BalanceUsuario,
   calcularMinimosPagos,

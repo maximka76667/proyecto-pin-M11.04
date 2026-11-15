@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
 import { centsToAmount, ExpenseSplit, splitExpense } from './expense-split';
 
+// Un ticket no puede sumar más de 10.000,00 € (en céntimos)
+export const MAX_RECEIPT_TOTAL_CENTS = 1_000_000;
+
 export interface ExpenseInput {
   apartmentId: string;
   payerId: string;
