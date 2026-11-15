@@ -34,7 +34,9 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
 
   const prisma = {
     apartment: { findUnique: jest.fn() },
-    transaction: { create: jest.fn() },
+    receipt: { create: jest.fn() },
+    expense: { createMany: jest.fn() },
+    transaction: { createMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -70,11 +72,13 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
     prisma.apartment.findUnique.mockResolvedValue({
       user_apartments: [{ user_id: USUARIO }, { user_id: COMPANERO }],
     });
-    prisma.transaction.create.mockImplementation(({ data }) =>
-      Promise.resolve({ id: 'transaction-id', ...data }),
+    prisma.receipt.create.mockImplementation(({ data }) =>
+      Promise.resolve(data),
     );
-    prisma.$transaction.mockImplementation((operations: Promise<unknown>[]) =>
-      Promise.all(operations),
+    prisma.expense.createMany.mockResolvedValue({ count: 1 });
+    prisma.transaction.createMany.mockResolvedValue({ count: 1 });
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn(prisma),
     );
   });
 
@@ -90,7 +94,7 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
       'Ticket no legible. Introduce el gasto manualmente.',
     );
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.createMany).not.toHaveBeenCalled();
   });
 
   it('devuelve los productos reconocidos de un ticket válido sin registrar el gasto', async () => {
@@ -117,7 +121,7 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
 
     expect(response.body).toEqual({ comercio: 'Consum', items: productos });
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.createMany).not.toHaveBeenCalled();
   });
 
   it('permite corregir un precio OCR antes de guardar el gasto del ticket dañado', async () => {
@@ -154,15 +158,18 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
       .expect(201);
 
     expect(saveResponse.body.transactions).toHaveLength(1);
-    expect(saveResponse.body.transactions[0].amount).toBe('5.00');
-    expect(prisma.transaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        apartment_id: PISO,
-        from_user_id: USUARIO,
-        to_user_id: COMPANERO,
-        amount: '5.00',
-        category: 'supplies',
-      }),
+    // 9,99 € entre 2 personas: el céntimo sobrante es de quien pagó (su id es el primero)
+    expect(saveResponse.body.transactions[0].amount).toBe('4.99');
+    expect(prisma.transaction.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          apartment_id: PISO,
+          from_user_id: USUARIO,
+          to_user_id: COMPANERO,
+          amount: '4.99',
+          category: 'supplies',
+        }),
+      ],
     });
   });
 
@@ -199,7 +206,7 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
 
     expect(response.body.message.join(' ')).toMatch(/unit_price|quantity/);
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

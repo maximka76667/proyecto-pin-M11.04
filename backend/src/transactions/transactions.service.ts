@@ -5,10 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
+import { centsToAmount, splitExpense } from './expense-split';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
@@ -139,13 +141,12 @@ export class TransactionsService {
   async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {
     const legacyIds = [...new Set(dto.participant_ids ?? [])];
 
-    // Cada producto se reparte entre las personas que lo comparten (assigned_to). Los productos
-    // con las mismas personas se suman antes de dividir, para redondear una sola vez por grupo.
-    // Sin personas, el producto queda a cuenta del que paga: suma en el total pero no genera deuda
+    // Cada producto es un gasto (Expense) con su propio reparto entre las personas que lo
+    // comparten (assigned_to). Sin personas, el producto queda a cuenta del que paga: suma en
+    // el total del ticket pero no genera deuda
     let totalCents = 0;
     let unassignedCents = 0;
-    const groups = new Map<string, { ids: string[]; cents: number }>();
-    for (const item of dto.items) {
+    const lines = dto.items.map((item) => {
       const cents = this.itemCents(item) * item.quantity;
       totalCents += cents;
 
@@ -156,13 +157,9 @@ export class TransactionsService {
           : [];
       if (ids.length === 0) {
         unassignedCents += cents;
-        continue;
       }
-      const key = [...ids].sort().join(',');
-      const group = groups.get(key) ?? { ids, cents: 0 };
-      group.cents += cents;
-      groups.set(key, group);
-    }
+      return { item, cents, ids, split: splitExpense(cents, payerId, ids) };
+    });
 
     if (totalCents <= 0) {
       throw new BadRequestException('Receipt total must be positive');
@@ -189,49 +186,75 @@ export class TransactionsService {
         'The current user must belong to the apartment',
       );
     }
-    const assignedIds = [...groups.values()].flatMap(({ ids }) => ids);
+    const assignedIds = lines.flatMap(({ ids }) => ids);
     if (assignedIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException(
         'All participants must belong to the apartment',
       );
     }
 
-    // Lo que debe cada uno sale solo de los productos que tiene asignados.
-    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
-    const debts = new Map<string, number>();
-    for (const { ids, cents } of groups.values()) {
-      const shareCents = Math.ceil(cents / ids.length);
-      for (const id of ids) {
-        if (id === payerId) continue;
-        debts.set(id, (debts.get(id) ?? 0) + shareCents);
-      }
-    }
-    if (debts.size === 0) {
+    const debtorIds = new Set(
+      lines.flatMap(({ split }) => [...split.debts.keys()]),
+    );
+    if (debtorIds.size === 0) {
       throw new BadRequestException(
         'Select at least one person to share the receipt with',
       );
     }
 
-    const transactions = await this.prisma.$transaction(
-      [...debts].map(([debtorId, debtCents]) => {
-        return this.prisma.transaction.create({
-          data: {
-            apartment_id: dto.apartment_id,
-            from_user_id: payerId,
-            to_user_id: debtorId,
-            amount: (debtCents / 100).toFixed(2),
-            category: dto.category,
-            date: dto.date ? new Date(dto.date) : undefined,
-          },
+    const date = dto.date ? new Date(dto.date) : undefined;
+    const receiptId = randomUUID();
+    const expenses: Prisma.ExpenseCreateManyInput[] = [];
+    const transactions: Prisma.TransactionCreateManyInput[] = [];
+    for (const { item, cents, split } of lines) {
+      const expenseId = randomUUID();
+      expenses.push({
+        id: expenseId,
+        apartment_id: dto.apartment_id,
+        payer_id: payerId,
+        receipt_id: receiptId,
+        total_amount: centsToAmount(cents),
+        concept: item.name,
+        category: dto.category,
+        date,
+        payer_participates: split.payerParticipates,
+      });
+      for (const [debtorId, debtCents] of split.debts) {
+        transactions.push({
+          id: randomUUID(),
+          expense_id: expenseId,
+          apartment_id: dto.apartment_id,
+          from_user_id: payerId,
+          to_user_id: debtorId,
+          amount: centsToAmount(debtCents),
+          concept: item.name,
+          category: dto.category,
+          date,
         });
-      }),
-    );
+      }
+    }
+
+    // El ticket, sus productos y las deudas se guardan juntos o no se guarda nada
+    await this.prisma.$transaction(async (tx) => {
+      await tx.receipt.create({
+        data: {
+          id: receiptId,
+          apartment_id: dto.apartment_id,
+          payer_id: payerId,
+          total_amount: centsToAmount(totalCents),
+          date,
+        },
+      });
+      await tx.expense.createMany({ data: expenses });
+      await tx.transaction.createMany({ data: transactions });
+    });
 
     return {
+      receipt_id: receiptId,
       // Total completo del ticket, también lo que queda a cuenta del que paga
-      total: (totalCents / 100).toFixed(2),
-      unassigned_total: (unassignedCents / 100).toFixed(2),
-      participant_count: debts.size + 1,
+      total: centsToAmount(totalCents),
+      unassigned_total: centsToAmount(unassignedCents),
+      participant_count: debtorIds.size + 1,
       transactions,
     };
   }
