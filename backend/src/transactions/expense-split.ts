@@ -1,3 +1,6 @@
+// Este archivo tiene una copia idéntica en frontend/src/lib/expense-split.ts: la vista previa de la
+// app debe cobrar exactamente lo que crea el servidor. Si cambias uno, copia el cambio al otro
+// (expense-split.sync.spec.ts falla si difieren). Cuando haya workspace, será un solo paquete.
 export interface ExpenseSplit {
   // Lo que debe cada persona al que paga, en céntimos. El que paga nunca aparece aquí
   debts: Map<string, number>;
