@@ -184,7 +184,7 @@ export default function Transactions() {
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
+              <Text style={styles.eyebrow}>MIS GASTOS</Text>
               <Text style={styles.title}>Dinero</Text>
             </View>
             <Pressable
@@ -256,7 +256,7 @@ export default function Transactions() {
         />
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Mis transacciones</Text>
+          <Text style={styles.sectionTitle}>Mis gastos</Text>
           <Text style={styles.sectionCaption}>
             {transactions.length}
           </Text>
@@ -302,7 +302,18 @@ export default function Transactions() {
 
               return (
                 <View key={entry.id} style={styles.entry}>
-                  <View style={styles.transaction}>
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/transactions/detail",
+                        params: { id: entry.id },
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.transaction,
+                      pressed && styles.pressed,
+                    ]}
+                  >
                     <View
                       style={[
                         styles.categoryIcon,
@@ -352,12 +363,21 @@ export default function Transactions() {
                         </Pressable>
                       ) : null}
                     </View>
-                  </View>
+                  </Pressable>
                   {isReceipt
                     ? entry.items.map((item) => {
                         const itemCents = myBalanceCents(item, USER_ID);
                         return (
-                          <View key={item.id} style={styles.receiptItem}>
+                          <Pressable
+                            key={item.id}
+                            onPress={() =>
+                              router.push({
+                                pathname: "/transactions/detail",
+                                params: { id: item.id },
+                              })
+                            }
+                            style={styles.receiptItem}
+                          >
                             <Text
                               style={styles.receiptItemName}
                               numberOfLines={1}
@@ -392,7 +412,7 @@ export default function Transactions() {
                                 />
                               </Pressable>
                             ) : null}
-                          </View>
+                          </Pressable>
                         );
                       })
                     : null}
@@ -401,7 +421,7 @@ export default function Transactions() {
             })}
           </View>
         ) : !loading ? (
-          <Text style={styles.muted}>No hay transacciones para mostrar.</Text>
+          <Text style={styles.muted}>No hay gastos para mostrar.</Text>
         ) : null}
       </ScrollView>
       <Modal

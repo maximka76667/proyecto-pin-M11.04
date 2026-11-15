@@ -1,9 +1,14 @@
 import {
+  categoryLabel,
+  describePayerShare,
+  describeShare,
   ExpenseItem,
   ExpenseListEntry,
+  findEntry,
   findExpense,
   myBalanceCents,
   myReceiptBalanceCents,
+  payerShareCents,
   ReceiptEntry,
   sharingIds,
 } from './expenses';
@@ -96,6 +101,99 @@ describe('sharingIds', () => {
       'ana',
       'bruno',
     ]);
+  });
+});
+
+describe('payerShareCents', () => {
+  it('is what is left after every debt when the payer also shares', () => {
+    expect(payerShareCents(item())).toBe(300);
+  });
+
+  it('is zero when the payer does not take part', () => {
+    expect(payerShareCents(item({ payer_participates: false }))).toBe(0);
+  });
+
+  it('is the whole amount for a product kept by the payer', () => {
+    expect(payerShareCents(item({ shares: [] }))).toBe(900);
+  });
+});
+
+describe('describeShare', () => {
+  const [ana] = item().shares;
+
+  it('tells the payer who owes them', () => {
+    expect(describeShare(item(), ana, 'me')).toBe('Ana te debe 3.00 €');
+  });
+
+  it('tells a debtor what they owe and to whom', () => {
+    expect(describeShare(item(), ana, 'ana')).toBe('Debes 3.00 € a Yo');
+  });
+
+  it('tells a third person who owes whom', () => {
+    expect(describeShare(item(), ana, 'bruno')).toBe('Ana debe 3.00 € a Yo');
+  });
+
+  describe('a settlement', () => {
+    const pago = item({
+      type: 'SETTLEMENT',
+      payer_participates: false,
+      shares: [{ transaction_id: 't', user: ANA, amount: '42.95' }],
+    });
+
+    it('says you paid when you are the payer', () => {
+      expect(describeShare(pago, pago.shares[0], 'me')).toBe('Pagaste 42.95 € a Ana');
+    });
+
+    it('says they paid you when you are the one receiving', () => {
+      expect(describeShare(pago, pago.shares[0], 'ana')).toBe('Yo te pagó 42.95 €');
+    });
+  });
+});
+
+describe('describePayerShare', () => {
+  it('shows the payer their own part', () => {
+    expect(describePayerShare(item(), 'me')).toBe('Tu parte: 3.00 €');
+  });
+
+  it('shows others the part of the payer', () => {
+    expect(describePayerShare(item(), 'ana')).toBe('Parte de Yo: 3.00 €');
+  });
+
+  it('shows nothing when the payer does not take part', () => {
+    expect(describePayerShare(item({ payer_participates: false }), 'me')).toBeNull();
+  });
+});
+
+describe('findEntry', () => {
+  const list: ExpenseListEntry[] = [
+    { ...item({ id: 'manual' }), kind: 'expense' },
+    {
+      kind: 'receipt',
+      id: 'ticket-1',
+      version: 1,
+      total_amount: '9.00',
+      date: '2026-11-01',
+      payer: ME,
+      paidByCurrentUser: true,
+      canEdit: true,
+      items: [item({ id: 'producto' })],
+    },
+  ];
+
+  it('finds a manual expense and a whole receipt', () => {
+    expect(findEntry(list, 'manual')?.kind).toBe('expense');
+    expect(findEntry(list, 'ticket-1')?.kind).toBe('receipt');
+  });
+
+  it('does not look inside receipts', () => {
+    expect(findEntry(list, 'producto')).toBeNull();
+  });
+});
+
+describe('categoryLabel', () => {
+  it('translates known categories and keeps unknown ones', () => {
+    expect(categoryLabel('supplies')).toBe('Compra');
+    expect(categoryLabel('otra')).toBe('otra');
   });
 });
 

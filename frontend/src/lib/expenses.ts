@@ -90,3 +90,66 @@ export function findExpense(
   }
   return null;
 }
+
+// Finds a top-level entry (a manual expense, a settlement or a whole receipt) by id
+export function findEntry(
+  list: ExpenseListEntry[],
+  id: string,
+): ExpenseListEntry | null {
+  return list.find((entry) => entry.id === id) ?? null;
+}
+
+const euros = (cents: number) => `${(cents / 100).toFixed(2)} €`;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  supplies: 'Compra',
+  utilities: 'Suministros',
+  maintenance: 'Hogar',
+  entertainment: 'Ocio',
+  other: 'Otro',
+  payment: 'Pago',
+  pending: 'Pendiente',
+};
+
+export function categoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category;
+}
+
+// What the payer keeps for themselves when they also share the expense: the total minus every
+// debt. Zero when they do not take part (and always zero for a settlement)
+export function payerShareCents(item: ExpenseItem): number {
+  if (!item.payer_participates) return 0;
+  const debts = item.shares.reduce((sum, share) => sum + toCents(share.amount), 0);
+  return Math.max(0, toCents(item.total_amount) - debts);
+}
+
+// One line of the detail screen: who owes what in this expense, from the point of view of the
+// user looking at it
+export function describeShare(
+  item: ExpenseItem,
+  share: ExpenseShare,
+  userId: string,
+): string {
+  const amount = euros(toCents(share.amount));
+  const debtor = share.user.full_name;
+  const payer = item.payer.full_name;
+
+  if (item.type === 'SETTLEMENT') {
+    if (item.payer.id === userId) return `Pagaste ${amount} a ${debtor}`;
+    if (share.user.id === userId) return `${payer} te pagó ${amount}`;
+    return `${payer} pagó ${amount} a ${debtor}`;
+  }
+  if (item.payer.id === userId) return `${debtor} te debe ${amount}`;
+  if (share.user.id === userId) return `Debes ${amount} a ${payer}`;
+  return `${debtor} debe ${amount} a ${payer}`;
+}
+
+// The payer's own part, when there is one ("Tu parte: 3.00 €")
+export function describePayerShare(item: ExpenseItem, userId: string): string | null {
+  const cents = payerShareCents(item);
+  if (cents <= 0) return null;
+  return item.payer.id === userId
+    ? `Tu parte: ${euros(cents)}`
+    : `Parte de ${item.payer.full_name}: ${euros(cents)}`;
+}
+
