@@ -91,14 +91,6 @@ export function findExpense(
   return null;
 }
 
-// Finds a top-level entry (a manual expense, a settlement or a whole receipt) by id
-export function findEntry(
-  list: ExpenseListEntry[],
-  id: string,
-): ExpenseListEntry | null {
-  return list.find((entry) => entry.id === id) ?? null;
-}
-
 const euros = (cents: number) => `${(cents / 100).toFixed(2)} €`;
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -113,6 +105,21 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category;
+}
+
+// The same balance as a signed amount for the list rows: "+6.00 €", "-3.00 €" or "0.00 €"
+export function signedAmount(cents: number): string {
+  if (cents > 0) return `+${euros(cents)}`;
+  if (cents < 0) return `-${euros(Math.abs(cents))}`;
+  return euros(0);
+}
+
+// What an expense means for the user, as a short phrase: what they get back or what they owe
+// (the result of myBalanceCents)
+export function balanceText(cents: number): string {
+  if (cents > 0) return `Te deben ${euros(cents)}`;
+  if (cents < 0) return `Debes ${euros(Math.abs(cents))}`;
+  return 'Sin deudas contigo';
 }
 
 // What the payer keeps for themselves when they also share the expense: the total minus every

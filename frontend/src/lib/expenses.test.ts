@@ -1,16 +1,17 @@
 import {
+  balanceText,
   categoryLabel,
   describePayerShare,
   describeShare,
   ExpenseItem,
   ExpenseListEntry,
-  findEntry,
   findExpense,
   myBalanceCents,
   myReceiptBalanceCents,
   payerShareCents,
   ReceiptEntry,
   sharingIds,
+  signedAmount,
 } from './expenses';
 
 const ME = { id: 'me', full_name: 'Yo' };
@@ -164,29 +165,35 @@ describe('describePayerShare', () => {
   });
 });
 
-describe('findEntry', () => {
-  const list: ExpenseListEntry[] = [
-    { ...item({ id: 'manual' }), kind: 'expense' },
-    {
-      kind: 'receipt',
-      id: 'ticket-1',
-      version: 1,
-      total_amount: '9.00',
-      date: '2026-11-01',
-      payer: ME,
-      paidByCurrentUser: true,
-      canEdit: true,
-      items: [item({ id: 'producto' })],
-    },
-  ];
-
-  it('finds a manual expense and a whole receipt', () => {
-    expect(findEntry(list, 'manual')?.kind).toBe('expense');
-    expect(findEntry(list, 'ticket-1')?.kind).toBe('receipt');
+describe('signedAmount', () => {
+  it('puts a plus sign on what the user gets back', () => {
+    expect(signedAmount(600)).toBe('+6.00 €');
   });
 
-  it('does not look inside receipts', () => {
-    expect(findEntry(list, 'producto')).toBeNull();
+  it('puts a minus sign on what the user owes', () => {
+    expect(signedAmount(-300)).toBe('-3.00 €');
+  });
+
+  it('shows zero without a sign', () => {
+    expect(signedAmount(0)).toBe('0.00 €');
+  });
+
+  it('keeps the cents', () => {
+    expect(signedAmount(-1)).toBe('-0.01 €');
+  });
+});
+
+describe('balanceText', () => {
+  it('says what the user gets back', () => {
+    expect(balanceText(600)).toBe('Te deben 6.00 €');
+  });
+
+  it('says what the user owes, without a minus sign', () => {
+    expect(balanceText(-300)).toBe('Debes 3.00 €');
+  });
+
+  it('says there is nothing when the balance is zero', () => {
+    expect(balanceText(0)).toBe('Sin deudas contigo');
   });
 });
 

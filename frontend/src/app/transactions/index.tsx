@@ -14,6 +14,7 @@ import {
 import { Snackbar } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DeleteTarget, ExpenseSheet } from "@/components/expense-sheet";
 import { SettleUpCard } from "@/components/settle-up";
 import { APARTMENT_ID, USER_ID } from "@/constants/dev-session";
 import { Palette } from "@/constants/onboarding";
@@ -22,6 +23,7 @@ import {
   ExpenseListEntry,
   myBalanceCents,
   myReceiptBalanceCents,
+  signedAmount,
 } from "@/lib/expenses";
 
 // Aviso que se muestra al volver de guardar un gasto
@@ -39,16 +41,8 @@ type PersonalSummary = {
   mensaje: string;
 };
 
-// What the options menu and the delete dialog need to know about the expense or receipt
-type DisplayTransaction = {
-  kind: "expense" | "receipt";
-  id: string;
-  // the version the user loaded: the backend answers 409 if someone changed it since
-  version: number;
-  concept?: string | null;
-  category: string;
-  amount: number;
-};
+// What the delete dialog needs to know about the expense or receipt
+type DisplayTransaction = DeleteTarget;
 
 const categoryLabels: Record<string, string> = {
   supplies: "Compra",
@@ -71,8 +65,9 @@ export default function Transactions() {
 
   // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
   const [refreshKey, setRefreshKey] = useState(0);
-  const [transactionMenu, setTransactionMenu] =
-    useState<DisplayTransaction | null>(null);
+  // the expense or ticket whose sheet is open
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = transactions.find(({ id }) => id === selectedId) ?? null;
   const [transactionToDelete, setTransactionToDelete] =
     useState<DisplayTransaction | null>(null);
   // Al cerrarse el aviso se quita el parámetro, para que no vuelva a salir al recargar la página,
@@ -290,27 +285,17 @@ export default function Transactions() {
                         .map((share) => share.user.full_name)
                         .join(", ")}`
                     : `Pagó ${entry.payer.full_name}`;
-              // a receipt shows its total and what each product means for the user
-              const menuTarget: DisplayTransaction = {
-                kind: entry.kind,
-                id: entry.id,
-                version: entry.version,
-                concept: title,
-                category: isReceipt ? "other" : entry.category,
-                amount: Number(entry.total_amount) || 0,
-              };
 
               return (
-                <View key={entry.id} style={styles.entry}>
+                <View
+                  key={entry.id}
+                  style={[styles.entry, isReceipt && styles.entryCard]}
+                >
                   <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/transactions/detail",
-                        params: { id: entry.id },
-                      })
-                    }
+                    onPress={() => setSelectedId(entry.id)}
                     style={({ pressed }) => [
                       styles.transaction,
+                      isReceipt && styles.transactionInCard,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -340,44 +325,30 @@ export default function Transactions() {
                       </Text>
                     </View>
                     <View style={styles.transactionActions}>
+                      <Text style={styles.transactionAmount}>
+                        {Number(entry.total_amount).toFixed(2)} €
+                      </Text>
                       <Text
                         style={[
-                          styles.transactionAmount,
+                          styles.transactionBalance,
+                          balanceCents > 0 && styles.balancePositive,
                           balanceCents < 0 && styles.negativeAmount,
                         ]}
                       >
-                        {balanceCents < 0 ? "-" : "+"}
-                        {(Math.abs(balanceCents) / 100).toFixed(2)} €
+                        {signedAmount(balanceCents)}
                       </Text>
-                      {entry.canEdit ? (
-                        <Pressable
-                          onPress={() => setTransactionMenu(menuTarget)}
-                          hitSlop={8}
-                          style={styles.menuButton}
-                        >
-                          <MaterialCommunityIcons
-                            name="dots-horizontal"
-                            size={22}
-                            color={Palette.text}
-                          />
-                        </Pressable>
-                      ) : null}
                     </View>
                   </Pressable>
-                  {isReceipt
-                    ? entry.items.map((item) => {
+                  {isReceipt ? (
+                    <Pressable
+                      onPress={() => setSelectedId(entry.id)}
+                      style={styles.receiptItems}
+                    >
+                      {entry.items.map((item) => {
                         const itemCents = myBalanceCents(item, USER_ID);
                         return (
-                          <Pressable
-                            key={item.id}
-                            onPress={() =>
-                              router.push({
-                                pathname: "/transactions/detail",
-                                params: { id: item.id },
-                              })
-                            }
-                            style={styles.receiptItem}
-                          >
+                          <View key={item.id} style={styles.receiptItem}>
+                            <Text style={styles.receiptItemBullet}>-</Text>
                             <Text
                               style={styles.receiptItemName}
                               numberOfLines={1}
@@ -386,36 +357,25 @@ export default function Transactions() {
                                 categoryLabels[item.category] ||
                                 item.category}
                             </Text>
-                            <Text style={styles.receiptItemAmount}>
-                              {itemCents < 0 ? "-" : "+"}
-                              {(Math.abs(itemCents) / 100).toFixed(2)} €
-                            </Text>
-                            {item.canEdit ? (
-                              <Pressable
-                                onPress={() =>
-                                  setTransactionMenu({
-                                    kind: "expense",
-                                    id: item.id,
-                                    version: item.version,
-                                    concept: item.concept,
-                                    category: item.category,
-                                    amount: Number(item.total_amount) || 0,
-                                  })
-                                }
-                                hitSlop={8}
-                                style={styles.menuButton}
+                            <View style={styles.receiptItemAmounts}>
+                              <Text style={styles.receiptItemAmount}>
+                                {Number(item.total_amount).toFixed(2)} €
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.transactionBalance,
+                                  itemCents > 0 && styles.balancePositive,
+                                  itemCents < 0 && styles.negativeAmount,
+                                ]}
                               >
-                                <MaterialCommunityIcons
-                                  name="dots-horizontal"
-                                  size={20}
-                                  color={Palette.text}
-                                />
-                              </Pressable>
-                            ) : null}
-                          </Pressable>
+                                {signedAmount(itemCents)}
+                              </Text>
+                            </View>
+                          </View>
                         );
-                      })
-                    : null}
+                      })}
+                    </Pressable>
+                  ) : null}
                 </View>
               );
             })}
@@ -424,100 +384,19 @@ export default function Transactions() {
           <Text style={styles.muted}>No hay gastos para mostrar.</Text>
         ) : null}
       </ScrollView>
-      <Modal
-        visible={transactionMenu !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTransactionMenu(null)}
-      >
-        <Pressable
-          style={[styles.modalBackdrop, styles.actionMenuBackdrop]}
-          onPress={() => setTransactionMenu(null)}
-        >
-          <Pressable style={styles.actionMenu} onPress={() => undefined}>
-            <View style={styles.actionMenuHandle} />
-            <View style={styles.actionMenuHeader}>
-              <View style={styles.actionMenuIcon}>
-                <MaterialCommunityIcons
-                  name="receipt-text-outline"
-                  size={23}
-                  color={Palette.primary}
-                />
-              </View>
-              <View style={styles.actionMenuHeaderText}>
-                <Text style={styles.actionMenuEyebrow}>OPCIONES DEL GASTO</Text>
-                <Text style={styles.actionMenuTitle}>
-                  {transactionMenu?.concept ||
-                    transactionMenu?.category ||
-                    "Gasto"}
-                </Text>
-              </View>
-              <Text style={styles.actionMenuAmount}>
-                {transactionMenu
-                  ? `${transactionMenu.amount.toFixed(2)} €`
-                  : ""}
-              </Text>
-            </View>
-            {transactionMenu?.kind === "expense" ? (
-            <Pressable
-              onPress={() => {
-                if (!transactionMenu) return;
-                const id = transactionMenu.id;
-                setTransactionMenu(null);
-                router.push({
-                  pathname: "/transactions/edit",
-                  params: { id },
-                });
-              }}
-              style={styles.actionMenuItem}
-            >
-              <View style={styles.actionMenuItemIcon}>
-                <MaterialCommunityIcons
-                  name="pencil-outline"
-                  size={20}
-                  color={Palette.primary}
-                />
-              </View>
-              <Text style={styles.actionMenuItemText}>Editar gasto</Text>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={21}
-                color={Palette.textSecondary}
-              />
-            </Pressable>
-            ) : null}
-            <Pressable
-              onPress={() => {
-                setTransactionToDelete(transactionMenu);
-                setTransactionMenu(null);
-              }}
-              style={styles.actionMenuItem}
-            >
-              <View
-                style={[styles.actionMenuItemIcon, styles.actionMenuDeleteIcon]}
-              >
-                <MaterialCommunityIcons
-                  name="trash-can-outline"
-                  size={20}
-                  color={Palette.error}
-                />
-              </View>
-              <Text style={styles.actionMenuDeleteText}>Eliminar gasto</Text>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={21}
-                color={Palette.textSecondary}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => setTransactionMenu(null)}
-              style={styles.actionMenuCancel}
-            >
-              <Text style={styles.actionMenuCancelText}>Cancelar</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <ExpenseSheet
+        entry={selected}
+        userId={USER_ID}
+        onClose={() => setSelectedId(null)}
+        onEdit={(id) => {
+          setSelectedId(null);
+          router.push({ pathname: "/transactions/edit", params: { id } });
+        }}
+        onDelete={(target) => {
+          setSelectedId(null);
+          setTransactionToDelete(target);
+        }}
+      />
       <Modal
         visible={transactionToDelete !== null}
         transparent
@@ -585,15 +464,37 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   entry: { gap: 6 },
+  entryCard: {
+    gap: 0,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    overflow: "hidden",
+  },
+  transactionInCard: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  },
+  receiptItems: {
+    gap: 8,
+    marginHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: Palette.border,
+  },
   receiptItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingLeft: 56,
-    paddingRight: 8,
+    gap: 8,
+    paddingLeft: 4,
   },
+  receiptItemBullet: { fontSize: 14, color: Palette.textSecondary },
   receiptItemName: { flex: 1, fontSize: 14, color: Palette.textSecondary },
   receiptItemAmount: { fontSize: 14, color: Palette.text },
+  receiptItemAmounts: { alignItems: "flex-end" },
   back: { alignSelf: "flex-start", paddingTop: 8 },
   header: { gap: 6 },
   headerRow: {
@@ -686,104 +587,22 @@ const styles = StyleSheet.create({
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
   transactionDate: { fontSize: 11, color: Palette.textSecondary },
   transactionAmount: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "800",
-    color: Palette.primary,
+    color: Palette.text,
   },
+  transactionBalance: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Palette.textSecondary,
+  },
+  balancePositive: { color: Palette.primary },
   transactionActions: { alignItems: "flex-end", gap: 8 },
-  menuButton: {
-    padding: 4,
-    borderRadius: 12,
-    backgroundColor: Palette.segment,
-  },
   negativeAmount: { color: Palette.error },
   pendingAmount: { color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   success: { fontSize: 14, color: Palette.primary, fontWeight: "700" },
   muted: { fontSize: 14, color: Palette.textSecondary },
-  actionMenuBackdrop: {
-    alignItems: "center",
-    justifyContent: "flex-end",
-    padding: 0,
-  },
-  actionMenu: {
-    width: "100%",
-    maxWidth: 560,
-    gap: 6,
-    padding: 24,
-    paddingTop: 12,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: Palette.background,
-  },
-  actionMenuHandle: {
-    alignSelf: "center",
-    width: 42,
-    height: 5,
-    marginBottom: 20,
-    borderRadius: 999,
-    backgroundColor: Palette.border,
-  },
-  actionMenuHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-  },
-  actionMenuIcon: {
-    width: 46,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 15,
-    backgroundColor: Palette.mint,
-  },
-  actionMenuHeaderText: { flex: 1, gap: 3 },
-  actionMenuEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    color: Palette.textSecondary,
-  },
-  actionMenuTitle: { fontSize: 19, fontWeight: "800", color: Palette.text },
-  actionMenuAmount: { fontSize: 16, fontWeight: "800", color: Palette.primary },
-  actionMenuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 58,
-    paddingHorizontal: 10,
-    borderRadius: 15,
-    backgroundColor: Palette.surface,
-  },
-  actionMenuItemIcon: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 11,
-    backgroundColor: Palette.mint,
-  },
-  actionMenuDeleteIcon: { backgroundColor: "#F9E4E0" },
-  actionMenuItemText: { fontSize: 16, fontWeight: "700", color: Palette.text },
-  actionMenuDeleteText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Palette.error,
-  },
-  actionMenuCancel: {
-    alignItems: "center",
-    minHeight: 48,
-    justifyContent: "center",
-    marginTop: 6,
-    borderRadius: 15,
-    backgroundColor: Palette.segment,
-  },
-  actionMenuCancelText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: Palette.text,
-  },
   modalBackdrop: {
     flex: 1,
     alignItems: "center",
