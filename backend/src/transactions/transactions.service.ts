@@ -10,7 +10,8 @@ import { Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
-import { centsToAmount, splitExpense } from './expense-split';
+import { buildExpenseRows } from './expense-rows';
+import { centsToAmount } from './expense-split';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
@@ -91,55 +92,40 @@ export class TransactionsService {
     }
 
     const payerId = createTransactionDto.from_user_id;
-    const actualDebtorIds = debtorIds.filter((id) => id !== payerId);
-
-    if (actualDebtorIds.length === 0) {
+    if (debtorIds.every((id) => id === payerId)) {
       return [];
     }
 
-    const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
-    const baseCents = Math.floor(totalCents / debtorIds.length);
-    const remainder = totalCents % debtorIds.length;
-    const date = createTransactionDto.date
-      ? new Date(createTransactionDto.date)
-      : undefined;
+    // Un gasto manual es un Expense sin ticket (receipt_id vacío) con una deuda por persona.
+    // Si el que paga está entre los elegidos, también reparte el gasto pero no se debe a sí mismo
+    const { expense, transactions } = buildExpenseRows({
+      apartmentId: createTransactionDto.apartment_id,
+      payerId,
+      totalCents: Math.round(Number(createTransactionDto.amount) * 100),
+      concept: createTransactionDto.concept,
+      category: createTransactionDto.category,
+      date: createTransactionDto.date
+        ? new Date(createTransactionDto.date)
+        : undefined,
+      participantIds: debtorIds,
+    });
 
     try {
-      const creates = actualDebtorIds.map((debtorId, index) => {
-        const shareCents = baseCents + (index < remainder ? 1 : 0);
-
-        return this.prisma.transaction.create({
-          data: {
-            apartment_id: createTransactionDto.apartment_id,
-            from_user_id: payerId,
-            to_user_id: debtorId,
-            amount: (shareCents / 100).toFixed(2),
-            concept: createTransactionDto.concept,
-            category: createTransactionDto.category,
-            date,
-          },
-        });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.expense.create({ data: expense });
+        await tx.transaction.createMany({ data: transactions });
       });
-
-      if (creates.length === 1 && !hasMultipleDebtors) {
-        return await creates[0];
-      }
-
-      if (
-        typeof (this.prisma as unknown as { $transaction?: unknown })
-          .$transaction === 'function'
-      ) {
-        return await this.prisma.$transaction(creates);
-      }
-
-      return await Promise.all(creates);
     } catch (error) {
       this.handlePrismaError(error);
     }
+
+    return hasMultipleDebtors ? transactions : transactions[0];
   }
 
   async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {
     const legacyIds = [...new Set(dto.participant_ids ?? [])];
+    const receiptId = randomUUID();
+    const date = dto.date ? new Date(dto.date) : undefined;
 
     // Cada producto es un gasto (Expense) con su propio reparto entre las personas que lo
     // comparten (assigned_to). Sin personas, el producto queda a cuenta del que paga: suma en
@@ -158,7 +144,19 @@ export class TransactionsService {
       if (ids.length === 0) {
         unassignedCents += cents;
       }
-      return { item, cents, ids, split: splitExpense(cents, payerId, ids) };
+      return {
+        ids,
+        rows: buildExpenseRows({
+          apartmentId: dto.apartment_id,
+          payerId,
+          receiptId,
+          totalCents: cents,
+          concept: item.name,
+          category: dto.category,
+          date,
+          participantIds: ids,
+        }),
+      };
     });
 
     if (totalCents <= 0) {
@@ -193,45 +191,15 @@ export class TransactionsService {
       );
     }
 
+    const expenses = lines.map(({ rows }) => rows.expense);
+    const transactions = lines.flatMap(({ rows }) => rows.transactions);
     const debtorIds = new Set(
-      lines.flatMap(({ split }) => [...split.debts.keys()]),
+      transactions.map((transaction) => transaction.to_user_id),
     );
     if (debtorIds.size === 0) {
       throw new BadRequestException(
         'Select at least one person to share the receipt with',
       );
-    }
-
-    const date = dto.date ? new Date(dto.date) : undefined;
-    const receiptId = randomUUID();
-    const expenses: Prisma.ExpenseCreateManyInput[] = [];
-    const transactions: Prisma.TransactionCreateManyInput[] = [];
-    for (const { item, cents, split } of lines) {
-      const expenseId = randomUUID();
-      expenses.push({
-        id: expenseId,
-        apartment_id: dto.apartment_id,
-        payer_id: payerId,
-        receipt_id: receiptId,
-        total_amount: centsToAmount(cents),
-        concept: item.name,
-        category: dto.category,
-        date,
-        payer_participates: split.payerParticipates,
-      });
-      for (const [debtorId, debtCents] of split.debts) {
-        transactions.push({
-          id: randomUUID(),
-          expense_id: expenseId,
-          apartment_id: dto.apartment_id,
-          from_user_id: payerId,
-          to_user_id: debtorId,
-          amount: centsToAmount(debtCents),
-          concept: item.name,
-          category: dto.category,
-          date,
-        });
-      }
     }
 
     // El ticket, sus productos y las deudas se guardan juntos o no se guarda nada
