@@ -150,7 +150,7 @@ model Expense {
 
 model Transaction {
   id           String              @id @default(uuid()) @db.Uuid
-  expense_id   String?             @db.Uuid
+  expense_id   String              @db.Uuid
   apartment_id String              @db.Uuid
   from_user_id String              @db.Uuid
   to_user_id   String              @db.Uuid
@@ -159,7 +159,7 @@ model Transaction {
   category     TransactionCategory
   date         DateTime            @default(now()) @db.Date
   created_at   DateTime            @default(now())
-  expense      Expense?            @relation(fields: [expense_id], references: [id], onDelete: Cascade)
+  expense      Expense             @relation(fields: [expense_id], references: [id], onDelete: Cascade)
   apartment    Apartment           @relation(fields: [apartment_id], references: [id])
   fromUser     User                @relation("CreatedTransactions", fields: [from_user_id], references: [id])
   toUser       User                @relation("ReceivedTransactions", fields: [to_user_id], references: [id])
