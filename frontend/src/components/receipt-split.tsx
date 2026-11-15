@@ -9,6 +9,7 @@ import {
 } from "@/components/receipt-editor";
 import { Palette } from "@/constants/onboarding";
 import { api, ApiError, errorMessage, Member } from "@/lib/api";
+import { splitExpense } from "@/lib/expense-split";
 
 // What POST /transactions/from-receipt returns
 export type ReceiptExpense = {
@@ -45,14 +46,15 @@ export function receiptRequestItemsWithAssignees(
     }));
 }
 
-// Same rule as the backend (createFromReceipt): products shared by the same people are added up
-// and split once, rounding up in cents. Whoever pays never owes anything to themselves
+// Same rule as the backend (createFromReceipt): every product is its own expense, split exactly
+// between the people who share it (see splitExpense). Whoever pays never owes anything to
+// themselves. The debts are what each person owes in total, adding up all their products
 export function receiptDebts(
   items: ReceiptItem[],
   assignedOf: (item: ReceiptItem) => string[],
   payerId: string,
 ) {
-  const groups = new Map<string, { ids: string[]; cents: number }>();
+  const debts = new Map<string, number>();
   let unassignedCents = 0;
   let totalCents = 0;
   for (const item of items) {
@@ -60,20 +62,10 @@ export function receiptDebts(
     const cents = Math.round(Number(item.unit_price) * 100) * item.quantity;
     totalCents += cents;
     const ids = [...new Set(assignedOf(item))];
-    if (ids.length === 0) {
-      unassignedCents += cents;
-      continue;
-    }
-    const key = [...ids].sort().join(',');
-    const group = groups.get(key) ?? { ids, cents: 0 };
-    group.cents += cents;
-    groups.set(key, group);
-  }
-  const debts = new Map<string, number>();
-  for (const { ids, cents } of groups.values()) {
-    const share = Math.ceil(cents / ids.length);
-    for (const id of ids) {
-      if (id !== payerId) debts.set(id, (debts.get(id) ?? 0) + share);
+    if (ids.length === 0) unassignedCents += cents;
+
+    for (const [id, owed] of splitExpense(cents, payerId, ids).debts) {
+      debts.set(id, (debts.get(id) ?? 0) + owed);
     }
   }
   return { debts, totalCents, unassignedCents };
