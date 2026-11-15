@@ -17,6 +17,9 @@ const MIEMBROS: Miembro[] = [
 const YA_AVISADO = 'Ya has avisado de este pago; falta que lo confirme';
 const YA_NO_PENDIENTE = 'Este pago ya no está pendiente de confirmar';
 
+// Todo aviso de pago pertenece a una liquidación (un Expense de tipo SETTLEMENT)
+const LIQUIDACION = 'liquidacion-1';
+
 type Fila = {
   [campo: string]: unknown;
   id: string;
@@ -55,8 +58,23 @@ function avisoDeVicente(): Fila {
     to_user_id: JOAN,
     amount: '42.95',
     category: TransactionCategory.pending,
+    expense_id: LIQUIDACION,
   };
 }
+
+// La liquidación de ese aviso, todavía pendiente
+function liquidacionPendiente(): Registro {
+  return {
+    id: LIQUIDACION,
+    type: 'SETTLEMENT',
+    payer_id: VICENTE,
+    category: TransactionCategory.pending,
+    total_amount: '42.95',
+  };
+}
+
+const categoriaDe = (tabla: Registro[], id: string) =>
+  tabla.find((fila) => fila.id === id)?.category;
 
 function prismaError(code: string) {
   return new Prisma.PrismaClientKnownRequestError(`Error simulado ${code}`, {
@@ -299,7 +317,7 @@ describe('Saldar deudas con peticiones simultáneas', () => {
       expect(registro.slice(0, 2)).toEqual(['findUnique', 'findUnique']);
 
     it('si confirmar escribe primero, rechazar da 409 y el pago confirmado no se borra', async () => {
-      const { service, base } = await preparar([gastoDeJoan(), avisoDeVicente()]);
+      const { service, base } = await preparar([gastoDeJoan(), avisoDeVicente()], [liquidacionPendiente()]);
 
       const [confirmar, rechazar] = await Promise.allSettled([
         service.confirmPayment('aviso-previo', JOAN),
@@ -312,10 +330,12 @@ describe('Saldar deudas con peticiones simultáneas', () => {
       expect(base.filas.find((fila) => fila.id === 'aviso-previo')?.category).toBe(
         TransactionCategory.payment,
       );
+      // Ni el aviso ni su liquidación se borran: las dos pasan a pago
+      expect(categoriaDe(base.gastos, LIQUIDACION)).toBe(TransactionCategory.payment);
     });
 
     it('si rechazar escribe primero, confirmar da 409 y el aviso queda borrado', async () => {
-      const { service, base } = await preparar([gastoDeJoan(), avisoDeVicente()]);
+      const { service, base } = await preparar([gastoDeJoan(), avisoDeVicente()], [liquidacionPendiente()]);
 
       const [rechazar, confirmar] = await Promise.allSettled([
         service.rejectPayment('aviso-previo', JOAN),
@@ -329,24 +349,14 @@ describe('Saldar deudas con peticiones simultáneas', () => {
       expect(
         base.filas.some((fila) => fila.category === TransactionCategory.payment),
       ).toBe(false);
+      // Sin esto quedaría una liquidación sin ninguna deuda
+      expect(base.gastos).toEqual([]);
     });
   });
 
   // Una liquidación es un gasto (SETTLEMENT) que paga el deudor y debe entero el acreedor. Su
   // estado (pendiente, pagado) va a la vez en el gasto y en su deuda
   describe('liquidaciones como gasto (Expense)', () => {
-    const LIQUIDACION = 'liquidacion-1';
-
-    const avisoConLiquidacion = (): Fila => ({ ...avisoDeVicente(), expense_id: LIQUIDACION });
-    const liquidacionPendiente = (): Registro => ({
-      id: LIQUIDACION,
-      type: 'SETTLEMENT',
-      payer_id: VICENTE,
-      category: TransactionCategory.pending,
-      total_amount: '42.95',
-    });
-    const categoriaDe = (tabla: Registro[], id: string) => tabla.find((fila) => fila.id === id)?.category;
-
     it('markAsPaid crea la liquidación y su deuda juntas, dentro de la transacción', async () => {
       const { service, base } = await preparar([gastoDeJoan()]);
 
@@ -386,7 +396,7 @@ describe('Saldar deudas con peticiones simultáneas', () => {
 
     it('confirmar cambia a pago la deuda y su liquidación', async () => {
       const { service, base } = await preparar(
-        [gastoDeJoan(), avisoConLiquidacion()],
+        [gastoDeJoan(), avisoDeVicente()],
         [liquidacionPendiente()],
       );
 
@@ -403,7 +413,7 @@ describe('Saldar deudas con peticiones simultáneas', () => {
 
     it('rechazar borra el aviso y también su liquidación', async () => {
       const { service, base } = await preparar(
-        [gastoDeJoan(), avisoConLiquidacion()],
+        [gastoDeJoan(), avisoDeVicente()],
         [liquidacionPendiente()],
       );
 
@@ -412,41 +422,6 @@ describe('Saldar deudas con peticiones simultáneas', () => {
       expect(base.filas.find((fila) => fila.id === 'aviso-previo')).toBeUndefined();
       // Sin esto quedaría un gasto sin ninguna deuda
       expect(base.gastos).toEqual([]);
-    });
-
-    it('si confirmar escribe primero, rechazar da 409 y la liquidación sigue como pagada', async () => {
-      const { service, base } = await preparar(
-        [gastoDeJoan(), avisoConLiquidacion()],
-        [liquidacionPendiente()],
-      );
-
-      const [confirmar, rechazar] = await Promise.allSettled([
-        service.confirmPayment('aviso-previo', JOAN),
-        service.rejectPayment('aviso-previo', JOAN),
-      ]);
-
-      expect(confirmar.status).toBe('fulfilled');
-      esConflicto(rechazar, YA_NO_PENDIENTE);
-      expect(categoriaDe(base.filas, 'aviso-previo')).toBe(TransactionCategory.payment);
-      expect(categoriaDe(base.gastos, LIQUIDACION)).toBe(TransactionCategory.payment);
-    });
-
-    it('si rechazar escribe primero, confirmar da 409 y no queda ninguna liquidación huérfana', async () => {
-      const { service, base } = await preparar(
-        [gastoDeJoan(), avisoConLiquidacion()],
-        [liquidacionPendiente()],
-      );
-
-      const [rechazar, confirmar] = await Promise.allSettled([
-        service.rejectPayment('aviso-previo', JOAN),
-        service.confirmPayment('aviso-previo', JOAN),
-      ]);
-
-      expect(rechazar.status).toBe('fulfilled');
-      esConflicto(confirmar, YA_NO_PENDIENTE);
-      expect(base.filas.find((fila) => fila.id === 'aviso-previo')).toBeUndefined();
-      expect(base.gastos).toEqual([]);
-      expect(base.filas.some((fila) => fila.category === TransactionCategory.payment)).toBe(false);
     });
   });
 

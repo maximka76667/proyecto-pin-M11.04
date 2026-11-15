@@ -564,14 +564,11 @@ export class TransactionsService {
           },
           data: { category: TransactionCategory.payment },
         });
-        // La liquidación (Expense) cambia a la vez que su deuda. Los avisos anteriores a los
-        // gastos no tienen expense_id y solo tienen la fila de la deuda
-        if (confirmado.expense_id) {
-          await tx.expense.update({
-            where: { id: confirmado.expense_id },
-            data: { category: TransactionCategory.payment },
-          });
-        }
+        // La liquidación (Expense) cambia a la vez que su deuda
+        await tx.expense.update({
+          where: { id: confirmado.expense_id },
+          data: { category: TransactionCategory.payment },
+        });
         return confirmado;
       });
     } catch (error) {
@@ -602,9 +599,7 @@ export class TransactionsService {
             to_user_id: userId,
           },
         });
-        if (descartado.expense_id) {
-          await tx.expense.delete({ where: { id: descartado.expense_id } });
-        }
+        await tx.expense.delete({ where: { id: descartado.expense_id } });
         return descartado;
       });
     } catch (error) {
