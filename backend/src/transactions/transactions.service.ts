@@ -72,7 +72,7 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
-  ) {}
+  ) { }
 
   async create(createTransactionDto: CreateTransactionDto) {
     const hasMultipleDebtors = Boolean(
@@ -137,14 +137,33 @@ export class TransactionsService {
   }
 
   async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {
-    const participantIds = [...new Set(dto.participant_ids)].filter(
-      (participantId) => participantId !== payerId,
-    );
+    const legacyIds = [...new Set(dto.participant_ids ?? [])];
 
-    const totalCents = dto.items.reduce(
-      (total, item) => total + this.itemCents(item) * item.quantity,
-      0,
-    );
+    // Cada producto se reparte entre las personas que lo comparten (assigned_to). Los productos
+    // con las mismas personas se suman antes de dividir, para redondear una sola vez por grupo.
+    // Sin personas, el producto queda a cuenta del que paga: suma en el total pero no genera deuda
+    let totalCents = 0;
+    let unassignedCents = 0;
+    const groups = new Map<string, { ids: string[]; cents: number }>();
+    for (const item of dto.items) {
+      const cents = this.itemCents(item) * item.quantity;
+      totalCents += cents;
+
+      const ids = item.assigned_to
+        ? [...new Set(item.assigned_to)]
+        : legacyIds.length > 0
+          ? [...new Set([payerId, ...legacyIds])]
+          : [];
+      if (ids.length === 0) {
+        unassignedCents += cents;
+        continue;
+      }
+      const key = [...ids].sort().join(',');
+      const group = groups.get(key) ?? { ids, cents: 0 };
+      group.cents += cents;
+      groups.set(key, group);
+    }
+
     if (totalCents <= 0) {
       throw new BadRequestException('Receipt total must be positive');
     }
@@ -170,28 +189,37 @@ export class TransactionsService {
         'The current user must belong to the apartment',
       );
     }
-    if (participantIds.some((id) => !memberIds.has(id))) {
+    const assignedIds = [...groups.values()].flatMap(({ ids }) => ids);
+    if (assignedIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException(
         'All participants must belong to the apartment',
       );
     }
-    if (participantIds.length === 0) {
+
+    // Lo que debe cada uno sale solo de los productos que tiene asignados.
+    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
+    const debts = new Map<string, number>();
+    for (const { ids, cents } of groups.values()) {
+      const shareCents = Math.ceil(cents / ids.length);
+      for (const id of ids) {
+        if (id === payerId) continue;
+        debts.set(id, (debts.get(id) ?? 0) + shareCents);
+      }
+    }
+    if (debts.size === 0) {
       throw new BadRequestException(
         'Select at least one person to share the receipt with',
       );
     }
 
-    const participantCount = participantIds.length + 1;
-    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
-    const shareCents = Math.ceil(totalCents / participantCount);
     const transactions = await this.prisma.$transaction(
-      participantIds.map((debtorId) => {
+      [...debts].map(([debtorId, debtCents]) => {
         return this.prisma.transaction.create({
           data: {
             apartment_id: dto.apartment_id,
             from_user_id: payerId,
             to_user_id: debtorId,
-            amount: (shareCents / 100).toFixed(2),
+            amount: (debtCents / 100).toFixed(2),
             category: dto.category,
             date: dto.date ? new Date(dto.date) : undefined,
           },
@@ -200,8 +228,10 @@ export class TransactionsService {
     );
 
     return {
+      // Total completo del ticket, también lo que queda a cuenta del que paga
       total: (totalCents / 100).toFixed(2),
-      participant_count: participantCount,
+      unassigned_total: (unassignedCents / 100).toFixed(2),
+      participant_count: debts.size + 1,
       transactions,
     };
   }
@@ -425,8 +455,7 @@ export class TransactionsService {
           monto,
           conceptos: debtsAsDebtor.map(
             (payment) =>
-              `Debes ${payment.monto}€ a ${
-                userNames[payment.acreedorId] ?? payment.acreedorId
+              `Debes ${payment.monto}€ a ${userNames[payment.acreedorId] ?? payment.acreedorId
               }`,
           ),
         },
@@ -442,8 +471,7 @@ export class TransactionsService {
           monto,
           conceptos: debtsAsCreditor.map(
             (payment) =>
-              `${userNames[payment.deudorId] ?? payment.deudorId} te debe ${
-                payment.monto
+              `${userNames[payment.deudorId] ?? payment.deudorId} te debe ${payment.monto
               }€`,
           ),
         },

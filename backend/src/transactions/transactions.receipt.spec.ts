@@ -109,4 +109,77 @@ describe('TransactionsService.createFromReceipt', () => {
 
     expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
+
+  // Cada producto se asigna por separado: unos entre dos, otro entero a una persona y otro
+  // solo para quien pagó (sin marcar)
+  describe('asignación por producto', () => {
+    const porProducto = (
+      items: { unit_price: string; quantity: number; assigned_to?: string[] }[],
+    ): CreateReceiptTransactionDto => ({
+      apartment_id: PISO,
+      items: items.map((item, i) => ({ name: `Producto ${i}`, ...item })),
+      category: 'supplies',
+    });
+
+    it('cada uno debe solo lo de los productos que tiene asignados', async () => {
+      const resultado = await service.createFromReceipt(
+        porProducto([
+          { unit_price: '6.00', quantity: 1, assigned_to: [PAGADOR, ANA] }, // 3,00 cada uno
+          { unit_price: '4.00', quantity: 1, assigned_to: [BRUNO] }, // entero para Bruno
+          { unit_price: '5.00', quantity: 1, assigned_to: [] }, // a cuenta del pagador
+        ]),
+        PAGADOR,
+      );
+
+      expect(deudas()).toEqual({ [ANA]: '3.00', [BRUNO]: '4.00' });
+      // El ticket sigue sumando su total completo
+      expect(resultado.total).toBe('15.00');
+      expect(resultado.unassigned_total).toBe('5.00');
+    });
+
+    it('un producto sin marcar no genera deuda aunque sea el único con precio alto', async () => {
+      await service.createFromReceipt(
+        porProducto([
+          { unit_price: '100.00', quantity: 1 },
+          { unit_price: '2.00', quantity: 1, assigned_to: [ANA] },
+        ]),
+        PAGADOR,
+      );
+
+      expect(deudas()).toEqual({ [ANA]: '2.00' });
+    });
+
+    it('suma lo que una misma persona debe de varios productos', async () => {
+      await service.createFromReceipt(
+        porProducto([
+          { unit_price: '2.00', quantity: 1, assigned_to: [ANA, BRUNO] },
+          { unit_price: '3.00', quantity: 1, assigned_to: [ANA] },
+        ]),
+        PAGADOR,
+      );
+
+      expect(deudas()).toEqual({ [ANA]: '4.00', [BRUNO]: '1.00' });
+      expect(prisma.transaction.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('rechaza si ningún producto está asignado a otra persona', async () => {
+      await expect(
+        service.createFromReceipt(
+          porProducto([{ unit_price: '5.00', quantity: 1, assigned_to: [PAGADOR] }]),
+          PAGADOR,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza asignar un producto a alguien que no es del piso', async () => {
+      await expect(
+        service.createFromReceipt(
+          porProducto([{ unit_price: '5.00', quantity: 1, assigned_to: [AJENO] }]),
+          PAGADOR,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+  });
 });

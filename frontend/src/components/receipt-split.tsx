@@ -13,11 +13,12 @@ import { api, ApiError, errorMessage, Member } from "@/lib/api";
 // What POST /transactions/from-receipt returns
 export type ReceiptExpense = {
   total: string;
+  unassigned_total?: string;
   participant_count: number;
   transactions: unknown[];
 };
 
-// The items sent to POST /transactions/from-receipt: only the shared products
+// Products shown in the JSON preview of /dev: only the shared ones, without who shares them
 export function receiptRequestItems(items: ReceiptItem[]) {
   return receiptTotals(items).sharedItems.map(
     ({ name, quantity, unit_price }) => ({
@@ -27,6 +28,58 @@ export function receiptRequestItems(items: ReceiptItem[]) {
     }),
   );
 }
+
+// The items sent to POST /transactions/from-receipt: every product with a price and the people
+// who share it. assigned_to = [] means the product stays with whoever pays (no debt)
+export function receiptRequestItemsWithAssignees(
+  items: ReceiptItem[],
+  assignedOf: (item: ReceiptItem) => string[],
+) {
+  return items
+    .filter((item) => item.unit_price !== null)
+    .map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      assigned_to: assignedOf(item),
+    }));
+}
+
+// Same rule as the backend (createFromReceipt): products shared by the same people are added up
+// and split once, rounding up in cents. Whoever pays never owes anything to themselves
+export function receiptDebts(
+  items: ReceiptItem[],
+  assignedOf: (item: ReceiptItem) => string[],
+  payerId: string,
+) {
+  const groups = new Map<string, { ids: string[]; cents: number }>();
+  let unassignedCents = 0;
+  let totalCents = 0;
+  for (const item of items) {
+    if (item.unit_price === null) continue;
+    const cents = Math.round(Number(item.unit_price) * 100) * item.quantity;
+    totalCents += cents;
+    const ids = [...new Set(assignedOf(item))];
+    if (ids.length === 0) {
+      unassignedCents += cents;
+      continue;
+    }
+    const key = [...ids].sort().join(',');
+    const group = groups.get(key) ?? { ids, cents: 0 };
+    group.cents += cents;
+    groups.set(key, group);
+  }
+  const debts = new Map<string, number>();
+  for (const { ids, cents } of groups.values()) {
+    const share = Math.ceil(cents / ids.length);
+    for (const id of ids) {
+      if (id !== payerId) debts.set(id, (debts.get(id) ?? 0) + share);
+    }
+  }
+  return { debts, totalCents, unassignedCents };
+}
+
+const euros = (cents: number) => `${(cents / 100).toFixed(2)} €`;
 
 // Friendly message for the user. The backend rejects prices/quantities/products over the
 // limit with a 400 that names the field (e.g. "items.0.quantity must not be greater than 999")
@@ -38,8 +91,9 @@ export function receiptErrorMessage(e: unknown) {
   return isLimitError ? LIMIT_MESSAGE : errorMessage(e);
 }
 
-// Second step of a ticket: choose the flatmates to share it with and create the expense.
-// The current user pays; only the shared products are sent.
+// Second step of a ticket: choose, product by product, who shares it, and create the expense.
+// The current user pays. A product nobody is marked on stays with whoever pays: it counts in
+// the ticket total but generates no debt.
 // Used by escanearticket and by /dev?tab=scanner
 export function ReceiptSplit({
   apartmentId,
@@ -53,11 +107,16 @@ export function ReceiptSplit({
   onError: (e: unknown) => void;
 }) {
   const [members, setMembers] = useState<Member[]>([]);
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  // Explicit choices per product id; a product without an entry uses the default (see assignedOf)
+  const [assignments, setAssignments] = useState<Record<string, string[]>>({});
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const { total } = receiptTotals(items);
+  const payer = members.find(({ isCurrentUser }) => isCurrentUser);
+  const allIds = members.map(({ id }) => id);
+  // Default: products ticked as shared in the previous step go to everyone, the rest to the payer
+  const assignedOf = (item: ReceiptItem) =>
+    assignments[item.id] ?? (item.shared ? allIds : []);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,11 +127,7 @@ export function ReceiptSplit({
           `/apartments/${encodeURIComponent(apartmentId)}/members`,
         )) as Member[];
         if (cancelled) return;
-        const otherMembers = loaded.filter(
-          ({ isCurrentUser }) => !isCurrentUser,
-        );
-        setMembers(otherMembers);
-        setSelectedMembers(otherMembers.map(({ id }) => id));
+        setMembers(loaded);
       } catch (e) {
         if (!cancelled) onError(e);
       } finally {
@@ -85,21 +140,29 @@ export function ReceiptSplit({
     };
   }, [apartmentId, onError]);
 
-  const toggleMember = (id: string) =>
-    setSelectedMembers((current) =>
-      current.includes(id)
-        ? current.filter((memberId) => memberId !== id)
-        : [...current, id],
-    );
+  const toggleMember = (item: ReceiptItem, memberId: string) => {
+    const current = assignedOf(item);
+    setAssignments((previous) => ({
+      ...previous,
+      [item.id]: current.includes(memberId)
+        ? current.filter((id) => id !== memberId)
+        : [...current, memberId],
+    }));
+  };
+
+  const pricedItems = items.filter((item) => item.unit_price !== null);
+  const { debts, totalCents, unassignedCents } = payer
+    ? receiptDebts(pricedItems, assignedOf, payer.id)
+    : { debts: new Map<string, number>(), totalCents: 0, unassignedCents: 0 };
 
   const createExpense = async () => {
-    if (selectedMembers.length === 0) {
+    if (debts.size === 0) {
       onError(
-        new Error("Selecciona al menos una persona para repartir el gasto."),
+        new Error("Asigna al menos un producto a otra persona para repartir el gasto."),
       );
       return;
     }
-    if (Math.round(total * 100) > 1_000_000) {
+    if (totalCents > 1_000_000) {
       onError(new Error("El gasto no puede superar los 10.000,00 €."));
       return;
     }
@@ -107,8 +170,7 @@ export function ReceiptSplit({
     try {
       const expense = (await api("POST", "/transactions/from-receipt", {
         apartment_id: apartmentId,
-        participant_ids: selectedMembers,
-        items: receiptRequestItems(items),
+        items: receiptRequestItemsWithAssignees(items, assignedOf),
         category: "supplies",
       })) as ReceiptExpense;
       onCreated(expense);
@@ -119,50 +181,79 @@ export function ReceiptSplit({
     }
   };
 
-  // Same rounding as the backend: up, in cents
-  const perPerson =
-    Math.ceil(Math.round(total * 100) / (selectedMembers.length + 1)) / 100;
+  const memberLabel = (member: Member) =>
+    member.isCurrentUser ? "Yo" : member.full_name.trim().split(" ")[0];
 
   return (
     <>
-      <Text style={styles.label}>Compartir con</Text>
+      <Text style={styles.label}>¿Quién comparte cada producto?</Text>
       {loadingMembers ? (
         <ActivityIndicator color={Palette.primary} />
-      ) : members.length === 0 ? (
+      ) : members.length < 2 ? (
         <Text style={styles.empty}>
           No hay más miembros en este piso para repartir el gasto.
         </Text>
       ) : (
-        members.map((member) => {
-          const selected = selectedMembers.includes(member.id);
-          const initial = member.full_name.trim().charAt(0).toUpperCase() || '?';
+        pricedItems.map((item) => {
+          const assigned = assignedOf(item);
           return (
-            <Pressable
-              key={member.id}
-              onPress={() => toggleMember(member.id)}
-              style={[styles.memberCard, selected && styles.memberSelected]}
-            >
-              <MaterialCommunityIcons
-                name={selected ? "check-circle" : "circle-outline"}
-                size={22}
-                color={selected ? Palette.primary : Palette.textSecondary}
-              />
-              {member.avatar_url ? (
-                <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
-              ) : (
-                <View style={styles.memberAvatarPlaceholder}>
-                  <Text style={styles.memberAvatarText}>{initial}</Text>
-                </View>
-              )}
-              <Text style={styles.memberName}>{member.full_name}</Text>
-            </Pressable>
+            <View key={item.id} style={styles.itemCard}>
+              <View style={styles.itemHeader}>
+                <Text style={styles.itemName} numberOfLines={2}>
+                  {item.quantity > 1 ? `${item.quantity} × ` : ""}
+                  {item.name}
+                </Text>
+                <Text style={styles.itemPrice}>
+                  {euros(Math.round(Number(item.unit_price) * 100) * item.quantity)}
+                </Text>
+              </View>
+              <View style={styles.chips}>
+                {members.map((member) => {
+                  const selected = assigned.includes(member.id);
+                  return (
+                    <Pressable
+                      key={member.id}
+                      onPress={() => toggleMember(item, member.id)}
+                      accessibilityLabel={`${memberLabel(member)}: ${item.name}`}
+                      accessibilityState={{ checked: selected }}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                    >
+                      {member.avatar_url ? (
+                        <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+                      ) : (
+                        <View style={styles.memberAvatarPlaceholder}>
+                          <Text style={styles.memberAvatarText}>
+                            {member.full_name.trim().charAt(0).toUpperCase() || "?"}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                        {memberLabel(member)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {assigned.length === 0 ? (
+                <Text style={styles.itemHint}>Sin marcar: queda a cuenta de quien paga</Text>
+              ) : null}
+            </View>
           );
         })
       )}
-      <Text style={styles.splitSummary}>
-        Tú pagas el ticket. Se reparte entre tú y las {selectedMembers.length}{" "}
-        personas seleccionadas: {perPerson.toFixed(2)} € por persona
-      </Text>
+      <View style={styles.splitSummaryBox}>
+        <Text style={styles.splitSummary}>Tú pagas el ticket: {euros(totalCents)}</Text>
+        {members
+          .filter(({ id }) => debts.has(id))
+          .map((member) => (
+            <Text key={member.id} style={styles.splitLine}>
+              {member.full_name} te debe {euros(debts.get(member.id) ?? 0)}
+            </Text>
+          ))}
+        {unassignedCents > 0 ? (
+          <Text style={styles.splitLine}>Sin repartir (a tu cuenta): {euros(unassignedCents)}</Text>
+        ) : null}
+      </View>
       <Pressable
         onPress={createExpense}
         disabled={saving || loadingMembers}
@@ -188,21 +279,33 @@ export function ReceiptSplit({
 const styles = StyleSheet.create({
   label: { marginTop: 5, fontSize: 13, fontWeight: "800", color: Palette.text },
   empty: { fontSize: 14, color: Palette.textSecondary },
-  memberCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    padding: 15,
+  itemCard: {
+    gap: 10,
+    padding: 14,
     borderWidth: 1,
     borderColor: Palette.border,
     borderRadius: 14,
     backgroundColor: Palette.surface,
   },
-  memberSelected: {
-    borderColor: Palette.primary,
-    backgroundColor: Palette.mint,
+  itemHeader: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
+  itemName: { flex: 1, fontSize: 15, fontWeight: "700", color: Palette.text },
+  itemPrice: { fontSize: 15, fontWeight: "800", color: Palette.text },
+  itemHint: { fontSize: 12, color: Palette.textSecondary },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: 999,
+    backgroundColor: Palette.background,
   },
-  memberName: { fontSize: 15, fontWeight: "700", color: Palette.text },
+  chipSelected: { borderColor: Palette.primary, backgroundColor: Palette.mint },
+  chipText: { fontSize: 13, fontWeight: "600", color: Palette.textSecondary },
+  chipTextSelected: { color: Palette.text, fontWeight: "800" },
   memberAvatar: {
     width: 24,
     height: 24,
@@ -221,14 +324,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Palette.text,
   },
-  splitSummary: {
+  splitSummaryBox: {
+    gap: 4,
     padding: 14,
     borderRadius: 14,
     backgroundColor: Palette.mint,
-    fontSize: 14,
-    fontWeight: "700",
-    color: Palette.text,
   },
+  splitSummary: { fontSize: 14, fontWeight: "800", color: Palette.text },
+  splitLine: { fontSize: 13, color: Palette.text },
   primaryButton: {
     minHeight: 52,
     flexDirection: "row",
