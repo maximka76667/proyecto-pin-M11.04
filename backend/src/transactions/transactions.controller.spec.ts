@@ -10,8 +10,6 @@ describe('Controlador de transacciones', () => {
   let controller: TransactionsController;
 
   const transactionsService = {
-    update: jest.fn(),
-    remove: jest.fn(),
     getPersonalSummary: jest.fn(),
   };
 
@@ -26,29 +24,6 @@ describe('Controlador de transacciones', () => {
     }).compile();
 
     controller = module.get<TransactionsController>(TransactionsController);
-  });
-
-  it('PATCH /transactions/:id pasa el identificador y el cuerpo al servicio', async () => {
-    const updated = { id: 'tx-1', amount: '20.00', category: 'other' };
-    transactionsService.update.mockResolvedValue(updated);
-
-    const result = await controller.update('tx-1', { amount: '20.00', category: 'other' }, 'user-1');
-
-    expect(transactionsService.update).toHaveBeenCalledWith('tx-1', {
-      amount: '20.00',
-      category: 'other',
-    }, 'user-1');
-    expect(result).toEqual(updated);
-  });
-
-  it('DELETE /transactions/:id pasa el identificador al servicio', async () => {
-    const deleted = { id: 'tx-1' };
-    transactionsService.remove.mockResolvedValue(deleted);
-
-    const result = await controller.remove('tx-1', 'user-1');
-
-    expect(transactionsService.remove).toHaveBeenCalledWith('tx-1', 'user-1');
-    expect(result).toEqual(deleted);
   });
 
   // PA-1002.01 y PA-1002.02: "el usuario entra a la vista de saldos"

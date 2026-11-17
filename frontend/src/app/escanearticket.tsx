@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { APARTMENT_ID } from '@/constants/dev-session';
 
 import {
   ReceiptEditor,
@@ -16,7 +17,7 @@ import { TicketScanner } from '@/components/ticket-scanner';
 import { Palette } from '@/constants/onboarding';
 import { errorMessage, ScannedTicket } from '@/lib/api';
 
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+//const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 export default function ScanReceiptScreen() {
   const { items: encodedItems } = useLocalSearchParams<{ items?: string }>();
@@ -101,7 +102,7 @@ export default function ScanReceiptScreen() {
             <View style={styles.header}>
               <Text style={styles.eyebrow}>REPARTIR GASTO</Text>
               <Text style={styles.title}>{total.toFixed(2)} €</Text>
-              <Text style={styles.subtitle}>Selecciona las personas que comparten este ticket y quién lo ha pagado.</Text>
+              <Text style={styles.subtitle}>Marca, producto a producto, quién lo comparte. Lo que no marques queda a tu cuenta.</Text>
             </View>
             <ReceiptSplit
               apartmentId={APARTMENT_ID}

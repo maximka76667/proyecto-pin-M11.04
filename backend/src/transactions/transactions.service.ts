@@ -5,19 +5,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TransactionCategory } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
-import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
+import { buildExpenseRows, MAX_RECEIPT_TOTAL_CENTS } from './expense-rows';
+import { centsToAmount } from './expense-split';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
-import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import {
   CreateReceiptTransactionDto,
   ReceiptItemDto,
 } from './dto/create-receipt-transaction.dto';
 
-const MAX_RECEIPT_TOTAL_CENTS = 1_000_000;
 import {
   BalanceUsuario,
   calcularMinimosPagos,
@@ -72,7 +72,7 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
-  ) {}
+  ) { }
 
   async create(createTransactionDto: CreateTransactionDto) {
     const hasMultipleDebtors = Boolean(
@@ -89,62 +89,73 @@ export class TransactionsService {
     }
 
     const payerId = createTransactionDto.from_user_id;
-    const actualDebtorIds = debtorIds.filter((id) => id !== payerId);
-
-    if (actualDebtorIds.length === 0) {
+    if (debtorIds.every((id) => id === payerId)) {
       return [];
     }
 
-    const totalCents = Math.round(Number(createTransactionDto.amount) * 100);
-    const baseCents = Math.floor(totalCents / debtorIds.length);
-    const remainder = totalCents % debtorIds.length;
-    const date = createTransactionDto.date
-      ? new Date(createTransactionDto.date)
-      : undefined;
+    // Un gasto manual es un Expense sin ticket (receipt_id vacío) con una deuda por persona.
+    // Si el que paga está entre los elegidos, también reparte el gasto pero no se debe a sí mismo
+    const { expense, transactions } = buildExpenseRows({
+      apartmentId: createTransactionDto.apartment_id,
+      payerId,
+      totalCents: Math.round(Number(createTransactionDto.amount) * 100),
+      concept: createTransactionDto.concept,
+      category: createTransactionDto.category,
+      date: createTransactionDto.date
+        ? new Date(createTransactionDto.date)
+        : undefined,
+      participantIds: debtorIds,
+    });
 
     try {
-      const creates = actualDebtorIds.map((debtorId, index) => {
-        const shareCents = baseCents + (index < remainder ? 1 : 0);
-
-        return this.prisma.transaction.create({
-          data: {
-            apartment_id: createTransactionDto.apartment_id,
-            from_user_id: payerId,
-            to_user_id: debtorId,
-            amount: (shareCents / 100).toFixed(2),
-            concept: createTransactionDto.concept,
-            category: createTransactionDto.category,
-            date,
-          },
-        });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.expense.create({ data: expense });
+        await tx.transaction.createMany({ data: transactions });
       });
-
-      if (creates.length === 1 && !hasMultipleDebtors) {
-        return await creates[0];
-      }
-
-      if (
-        typeof (this.prisma as unknown as { $transaction?: unknown })
-          .$transaction === 'function'
-      ) {
-        return await this.prisma.$transaction(creates);
-      }
-
-      return await Promise.all(creates);
     } catch (error) {
       this.handlePrismaError(error);
     }
+
+    return hasMultipleDebtors ? transactions : transactions[0];
   }
 
   async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {
-    const participantIds = [...new Set(dto.participant_ids)].filter(
-      (participantId) => participantId !== payerId,
-    );
+    const legacyIds = [...new Set(dto.participant_ids ?? [])];
+    const receiptId = randomUUID();
+    const date = dto.date ? new Date(dto.date) : undefined;
 
-    const totalCents = dto.items.reduce(
-      (total, item) => total + this.itemCents(item) * item.quantity,
-      0,
-    );
+    // Cada producto es un gasto (Expense) con su propio reparto entre las personas que lo
+    // comparten (assigned_to). Sin personas, el producto queda a cuenta del que paga: suma en
+    // el total del ticket pero no genera deuda
+    let totalCents = 0;
+    let unassignedCents = 0;
+    const lines = dto.items.map((item) => {
+      const cents = this.itemCents(item) * item.quantity;
+      totalCents += cents;
+
+      const ids = item.assigned_to
+        ? [...new Set(item.assigned_to)]
+        : legacyIds.length > 0
+          ? [...new Set([payerId, ...legacyIds])]
+          : [];
+      if (ids.length === 0) {
+        unassignedCents += cents;
+      }
+      return {
+        ids,
+        rows: buildExpenseRows({
+          apartmentId: dto.apartment_id,
+          payerId,
+          receiptId,
+          totalCents: cents,
+          concept: item.name,
+          category: dto.category,
+          date,
+          participantIds: ids,
+        }),
+      };
+    });
+
     if (totalCents <= 0) {
       throw new BadRequestException('Receipt total must be positive');
     }
@@ -170,38 +181,45 @@ export class TransactionsService {
         'The current user must belong to the apartment',
       );
     }
-    if (participantIds.some((id) => !memberIds.has(id))) {
+    const assignedIds = lines.flatMap(({ ids }) => ids);
+    if (assignedIds.some((id) => !memberIds.has(id))) {
       throw new BadRequestException(
         'All participants must belong to the apartment',
       );
     }
-    if (participantIds.length === 0) {
+
+    const expenses = lines.map(({ rows }) => rows.expense);
+    const transactions = lines.flatMap(({ rows }) => rows.transactions);
+    const debtorIds = new Set(
+      transactions.map((transaction) => transaction.to_user_id),
+    );
+    if (debtorIds.size === 0) {
       throw new BadRequestException(
         'Select at least one person to share the receipt with',
       );
     }
 
-    const participantCount = participantIds.length + 1;
-    // Redondeo hacia arriba: si no es exacto, quien pagó no pierde los céntimos
-    const shareCents = Math.ceil(totalCents / participantCount);
-    const transactions = await this.prisma.$transaction(
-      participantIds.map((debtorId) => {
-        return this.prisma.transaction.create({
-          data: {
-            apartment_id: dto.apartment_id,
-            from_user_id: payerId,
-            to_user_id: debtorId,
-            amount: (shareCents / 100).toFixed(2),
-            category: dto.category,
-            date: dto.date ? new Date(dto.date) : undefined,
-          },
-        });
-      }),
-    );
+    // El ticket, sus productos y las deudas se guardan juntos o no se guarda nada
+    await this.prisma.$transaction(async (tx) => {
+      await tx.receipt.create({
+        data: {
+          id: receiptId,
+          apartment_id: dto.apartment_id,
+          payer_id: payerId,
+          total_amount: centsToAmount(totalCents),
+          date,
+        },
+      });
+      await tx.expense.createMany({ data: expenses });
+      await tx.transaction.createMany({ data: transactions });
+    });
 
     return {
-      total: (totalCents / 100).toFixed(2),
-      participant_count: participantCount,
+      receipt_id: receiptId,
+      // Total completo del ticket, también lo que queda a cuenta del que paga
+      total: centsToAmount(totalCents),
+      unassigned_total: centsToAmount(unassignedCents),
+      participant_count: debtorIds.size + 1,
       transactions,
     };
   }
@@ -223,73 +241,10 @@ export class TransactionsService {
       orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
     });
 
-    return await Promise.all(
-      transactions.map(async (transaction) => ({
-        ...transaction,
-        paidByCurrentUser: transaction.from_user_id === userId,
-        canEdit:
-          transaction.from_user_id === userId &&
-          !CATEGORIAS_DE_LIQUIDACION.includes(transaction.category) &&
-          transaction.concept?.trim().toLowerCase() !== 'payment' &&
-          !(await this.hasConfirmedPaymentAfter(transaction)),
-      })),
-    );
-  }
-
-  async findOne(id: string) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id },
-      include: {
-        apartment: true,
-        fromUser: true,
-        toUser: true,
-      },
-    });
-
-    if (!transaction) {
-      throw new NotFoundException('Transaction not found');
-    }
-
-    return transaction;
-  }
-
-  async update(
-    id: string,
-    updateTransactionDto: UpdateTransactionDto,
-    userId: string,
-  ) {
-    await this.asegurarEditable(id, userId);
-
-    try {
-      const { date, ...rest } = updateTransactionDto;
-      if (
-        'to_user_id' in updateTransactionDto ||
-        'to_user_ids' in updateTransactionDto
-      ) {
-        throw new BadRequestException(
-          'The debtor cannot be changed when editing an expense',
-        );
-      }
-
-      return await this.prisma.transaction.update({
-        where: { id },
-        data: date ? { ...rest, date: new Date(date) } : rest,
-      });
-    } catch (error) {
-      this.handlePrismaError(error);
-    }
-  }
-
-  async remove(id: string, userId: string) {
-    await this.asegurarEditable(id, userId);
-
-    try {
-      return await this.prisma.transaction.delete({
-        where: { id },
-      });
-    } catch (error) {
-      this.handlePrismaError(error);
-    }
+    return transactions.map((transaction) => ({
+      ...transaction,
+      paidByCurrentUser: transaction.from_user_id === userId,
+    }));
   }
 
   private handlePrismaError(error: unknown): never {
@@ -425,8 +380,7 @@ export class TransactionsService {
           monto,
           conceptos: debtsAsDebtor.map(
             (payment) =>
-              `Debes ${payment.monto}€ a ${
-                userNames[payment.acreedorId] ?? payment.acreedorId
+              `Debes ${payment.monto}€ a ${userNames[payment.acreedorId] ?? payment.acreedorId
               }`,
           ),
         },
@@ -442,8 +396,7 @@ export class TransactionsService {
           monto,
           conceptos: debtsAsCreditor.map(
             (payment) =>
-              `${userNames[payment.deudorId] ?? payment.deudorId} te debe ${
-                payment.monto
+              `${userNames[payment.deudorId] ?? payment.deudorId} te debe ${payment.monto
               }€`,
           ),
         },
@@ -565,15 +518,19 @@ export class TransactionsService {
             );
           }
 
-          return tx.transaction.create({
-            data: {
-              apartment_id: apartmentId,
-              from_user_id: deudorId,
-              to_user_id: deuda.acreedorId,
-              amount: deuda.monto.toFixed(2),
-              category: TransactionCategory.pending,
-            },
+          // La liquidación es un gasto (SETTLEMENT) que paga el deudor y debe entero el acreedor:
+          // así entra en el balance como cualquier otro gasto y sale en la lista de gastos
+          const { expense, transactions } = buildExpenseRows({
+            apartmentId,
+            payerId: deudorId,
+            type: ExpenseType.SETTLEMENT,
+            totalCents: Math.round(deuda.monto * 100),
+            category: TransactionCategory.pending,
+            participantIds: [deuda.acreedorId],
           });
+          await tx.expense.create({ data: expense });
+          await tx.transaction.createMany({ data: transactions });
+          return transactions[0];
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -595,15 +552,24 @@ export class TransactionsService {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
     try {
-      return await this.prisma.transaction.update({
-        // Las condiciones van también en la escritura para que sea atómica: si otra petición
-        // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025)
-        where: {
-          id: transactionId,
-          category: TransactionCategory.pending,
-          to_user_id: userId,
-        },
-        data: { category: TransactionCategory.payment },
+      return await this.prisma.$transaction(async (tx) => {
+        const confirmado = await tx.transaction.update({
+          // Las condiciones van también en la escritura para que sea atómica: si otra petición
+          // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025) y no se
+          // toca nada más. Esta escritura va siempre la primera
+          where: {
+            id: transactionId,
+            category: TransactionCategory.pending,
+            to_user_id: userId,
+          },
+          data: { category: TransactionCategory.payment },
+        });
+        // La liquidación (Expense) cambia a la vez que su deuda
+        await tx.expense.update({
+          where: { id: confirmado.expense_id },
+          data: { category: TransactionCategory.payment },
+        });
+        return confirmado;
       });
     } catch (error) {
       if (
@@ -623,13 +589,18 @@ export class TransactionsService {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
     try {
-      return await this.prisma.transaction.delete({
-        // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente
-        where: {
-          id: transactionId,
-          category: TransactionCategory.pending,
-          to_user_id: userId,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const descartado = await tx.transaction.delete({
+          // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente, y
+          // esta escritura va la primera. Solo si se ha borrado el aviso se borra su liquidación
+          where: {
+            id: transactionId,
+            category: TransactionCategory.pending,
+            to_user_id: userId,
+          },
+        });
+        await tx.expense.delete({ where: { id: descartado.expense_id } });
+        return descartado;
       });
     } catch (error) {
       if (
@@ -690,64 +661,6 @@ export class TransactionsService {
         'Solo quien recibe el dinero puede confirmar el pago',
       );
     }
-  }
-
-  // Los pagos y los avisos solo se gestionan desde el flujo de saldar deudas:
-  // editar o borrar un pago confirmado resucitaría la deuda.
-  private async asegurarEditable(id: string, userId: string) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { id },
-      select: {
-        apartment_id: true,
-        category: true,
-        concept: true,
-        from_user_id: true,
-        to_user_id: true,
-        created_at: true,
-      },
-    });
-
-    if (!transaction) {
-      throw new NotFoundException('Transaction not found');
-    }
-    if (
-      CATEGORIAS_DE_LIQUIDACION.includes(transaction.category) ||
-      transaction.concept?.trim().toLowerCase() === 'payment'
-    ) {
-      throw new ConflictException(
-        'Los pagos de deudas no se pueden editar ni borrar desde aquí',
-      );
-    }
-    if (transaction.from_user_id !== userId) {
-      throw new ForbiddenException(
-        'Solo quien creó el gasto puede editarlo o eliminarlo',
-      );
-    }
-    if (await this.hasConfirmedPaymentAfter(transaction)) {
-      throw new ConflictException(
-        'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
-      );
-    }
-  }
-
-  private async hasConfirmedPaymentAfter(transaction: {
-    apartment_id: string;
-    from_user_id: string;
-    to_user_id: string;
-    created_at: Date;
-  }) {
-    const payment = await this.prisma.transaction.findFirst({
-      where: {
-        apartment_id: transaction.apartment_id,
-        from_user_id: transaction.to_user_id,
-        to_user_id: transaction.from_user_id,
-        category: TransactionCategory.payment,
-        created_at: { gt: transaction.created_at },
-      },
-      select: { id: true },
-    });
-
-    return payment !== null;
   }
 
   private async calcularAllBalances(

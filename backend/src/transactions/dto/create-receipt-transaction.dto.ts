@@ -39,6 +39,18 @@ export class ReceiptItemDto {
 
   @Matches(/.*\S.*/)
   name: string;
+
+  // Quién comparte este producto (puede incluir al que paga). Si viene vacío, el producto
+  // queda a cuenta del que paga: suma en el total del ticket pero no genera deuda.
+  // Si no viene, se aplica participant_ids (formato anterior)
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @Matches(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    { each: true, message: 'each value in assigned_to must be a UUID-like identifier' },
+  )
+  assigned_to?: string[];
 }
 
 export class CreateReceiptTransactionDto {
@@ -48,6 +60,9 @@ export class CreateReceiptTransactionDto {
   )
   apartment_id: string;
 
+  // Formato anterior: reparte entre estas personas y el que paga los productos que no traen
+  // assigned_to. Opcional: la app nueva asigna cada producto con assigned_to
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(100)
@@ -55,7 +70,7 @@ export class CreateReceiptTransactionDto {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     { each: true, message: 'each value in participant_ids must be a UUID-like identifier' },
   )
-  participant_ids: string[];
+  participant_ids?: string[];
 
   @IsArray()
   @ArrayMinSize(1)

@@ -4,27 +4,22 @@ import { useEffect, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api, errorMessage, TransactionCategory } from "@/lib/api";
+import { APARTMENT_ID } from "@/constants/dev-session";
 import { Palette } from "@/constants/onboarding";
+import {
+  ExpenseItem,
+  ExpenseListEntry,
+  findExpense,
+  sharingIds,
+} from "@/lib/expenses";
 import {
   TransactionForm,
   TransactionFormValues,
 } from "@/components/transaction-form";
 
-type Transaction = {
-  id: string;
-  amount: string;
-  from_user_id: string;
-  concept: string | null;
-  date: string;
-  to_user_id: string;
-  category: TransactionCategory;
-};
-
 export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const [transaction, setTransaction] = useState<Transaction | null>(null);
-  const [initialValues, setInitialValues] =
-    useState<Partial<TransactionFormValues>>();
+  const [expense, setExpense] = useState<ExpenseItem | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -34,18 +29,17 @@ export default function EditExpenseScreen() {
 
     void (async () => {
       try {
-        const loaded = (await api("GET", `/transactions/${id}`)) as Transaction;
-        setTransaction(loaded);
-        setInitialValues({
-          amount: String(loaded.amount),
-          concept: loaded.concept ?? "",
-          category: loaded.category,
-          date: loaded.date.slice(0, 10),
-          debtorIds:
-            loaded.to_user_id === loaded.from_user_id
-              ? []
-              : [loaded.to_user_id],
-        });
+        // The list already carries every expense the user can see, with its version
+        const list = (await api(
+          "GET",
+          `/expenses?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+        )) as ExpenseListEntry[];
+        const found = findExpense(list, id);
+        if (!found) {
+          setError("No se encontró el gasto.");
+          return;
+        }
+        setExpense(found);
       } catch (e) {
         setError(errorMessage(e));
       }
@@ -64,7 +58,7 @@ export default function EditExpenseScreen() {
     );
   }
 
-  if (!transaction || !initialValues) {
+  if (!expense) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: Palette.background }}>
         <ActivityIndicator color={Palette.primary} />
@@ -72,21 +66,31 @@ export default function EditExpenseScreen() {
     );
   }
 
+  const initialValues: Partial<TransactionFormValues> = {
+    amount: String(expense.total_amount),
+    concept: expense.concept ?? "",
+    category: expense.category as TransactionCategory,
+    date: expense.date.slice(0, 10),
+    // The debtors and, if the payer also shares it, the payer
+    debtorIds: sharingIds(expense),
+  };
+
   return (
     <TransactionForm
       title="Editar gasto"
       submitLabel="Guardar cambios"
       initialValues={initialValues}
-      allowMultipleDebtors={false}
-      excludeCurrentUser
-      allowDebtorChange={false}
       onCancel={() => router.back()}
-      onSubmit={async ({ amount, concept, category, date }) => {
-        await api("PATCH", `/transactions/${transaction.id}`, {
+      onSubmit={async ({ amount, concept, category, date, debtorIds }) => {
+        // The version we loaded: if someone edited the expense meanwhile, the backend answers
+        // 409 and the form shows its message
+        await api("PATCH", `/expenses/${expense.id}`, {
+          version: expense.version,
           amount,
           concept,
           category,
           date,
+          participant_ids: debtorIds,
         });
         router.dismissTo({
           pathname: "/transactions",
