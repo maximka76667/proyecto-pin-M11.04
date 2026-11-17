@@ -4,13 +4,20 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { AssignmentStatus, NotificationType, Prisma } from '@prisma/client';
+import {
+  AssignmentStatus,
+  NotificationType,
+  Prisma,
+  TransactionCategory,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 // Lo que la app recibe de cada aviso. `reference_id` es lo que se abre al tocarlo (PA 2250-1):
 //   task_assigned, task_due_soon   → la tarea
 //   swap_requested, swap_accepted  → la petición de intercambio (pantalla de intercambios)
 //   swap_rejected                  → la tarea que ofrecía el emisor (la petición ya se borró)
+//   expense_*, payment_*           → el movimiento de dinero (Transaction); la app abre la lista
+//                                    de gastos o la de saldar deudas, según el tipo (UT1018)
 const AVISO_SELECT = {
   id: true,
   type: true,
@@ -23,6 +30,62 @@ const AVISO_SELECT = {
 
 // Como mucho se devuelven los avisos más recientes
 const MAX_AVISOS = 100;
+
+// Filtros del panel: «Tareas» (UT1019) y «Gastos» (UT1018). Sin filtro salen todos
+export type NotificationCategory = 'tasks' | 'finances';
+
+const TIPOS_POR_CATEGORIA: Record<NotificationCategory, NotificationType[]> = {
+  tasks: [
+    NotificationType.task_assigned,
+    NotificationType.task_due_soon,
+    NotificationType.swap_requested,
+    NotificationType.swap_accepted,
+    NotificationType.swap_rejected,
+  ],
+  finances: [
+    NotificationType.expense_added,
+    NotificationType.expense_updated,
+    NotificationType.expense_deleted,
+    NotificationType.payment_marked,
+    NotificationType.payment_confirmed,
+    NotificationType.payment_rejected,
+  ],
+};
+
+// Movimiento de dinero del que habla un aviso de gastos. En un gasto, `from_user_id` es quien
+// pagó y `to_user_id` quien le debe su parte; en un aviso de pago (`pending`), al revés:
+// `from_user_id` es el deudor que dice haber pagado y `to_user_id` el acreedor
+export type MoneyNotice = {
+  id: string;
+  apartment_id: string;
+  from_user_id: string;
+  to_user_id: string;
+  amount: Prisma.Decimal | string | number;
+  concept?: string | null;
+  category: TransactionCategory;
+};
+
+const FORMATO_EUROS = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+});
+const euros = (importe: MoneyNotice['amount']) =>
+  FORMATO_EUROS.format(Number(importe)); // "15,00 €"
+
+// Los mismos nombres de categoría que enseña la app, para cuando el gasto no tiene concepto
+const GASTO_POR_CATEGORIA: Partial<Record<TransactionCategory, string>> = {
+  supplies: 'la compra',
+  utilities: 'los suministros',
+  maintenance: 'el hogar',
+  entertainment: 'ocio',
+};
+
+// "«Cena del viernes»" si tiene concepto; si no, "la compra", "los suministros"…
+const queGasto = (movimiento: MoneyNotice) => {
+  const concepto = movimiento.concept?.trim();
+  if (concepto) return `«${concepto}»`;
+  return GASTO_POR_CATEGORIA[movimiento.category] ?? 'un gasto';
+};
 
 // Asignación implicada en un intercambio, con lo justo para redactar el aviso
 type SwapAssignment = {
@@ -79,13 +142,21 @@ export class NotificationsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // PA 2248-1: los avisos del usuario en su piso, del más reciente al más antiguo
-  async list(apartmentId: string, userId: string, withReminders = true) {
+  // PA 2248-1 y PA 2243-1: los avisos del usuario en su piso, del más reciente al más antiguo.
+  // `category` deja solo los de tareas o solo los de gastos
+  async list(
+    apartmentId: string,
+    userId: string,
+    withReminders = true,
+    category?: NotificationCategory,
+  ) {
     await this.asegurarMiembro(apartmentId, userId);
-    if (withReminders) await this.crearRecordatorios(apartmentId, userId);
+    if (withReminders && category !== 'finances') {
+      await this.crearRecordatorios(apartmentId, userId);
+    }
 
     return this.prisma.notification.findMany({
-      where: this.delUsuario(apartmentId, userId, withReminders),
+      where: this.delUsuario(apartmentId, userId, withReminders, category),
       select: AVISO_SELECT,
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
       take: MAX_AVISOS,
@@ -93,14 +164,23 @@ export class NotificationsService {
   }
 
   // Contador de avisos sin leer que se enseña en el perfil y en la barra de pestañas
-  async unreadCount(apartmentId: string, userId: string, withReminders = true) {
+  async unreadCount(
+    apartmentId: string,
+    userId: string,
+    withReminders = true,
+    category?: NotificationCategory,
+  ) {
     await this.asegurarMiembro(apartmentId, userId);
-    if (withReminders) await this.crearRecordatorios(apartmentId, userId);
+    if (withReminders && category !== 'finances') {
+      await this.crearRecordatorios(apartmentId, userId);
+    }
 
     const count = await this.prisma.notification.count({
       where: {
-        ...this.delUsuario(apartmentId, userId, withReminders),
-        is_read: false,
+        AND: [
+          this.delUsuario(apartmentId, userId, withReminders, category),
+          { is_read: false },
+        ],
       },
     });
     return { count };
@@ -255,7 +335,155 @@ export class NotificationsService {
     );
   }
 
+  // ─── Avisos que crean los gastos (UT1018) ───────────────────────────────────────────────
+
+  // Gasto nuevo, desde el formulario o desde el escáner de tickets: un «Aviso de cobro» a cada
+  // deudor con su parte. Cada fila es la parte de un deudor; todas son del mismo pagador.
+  // Nadie recibe aviso de un gasto que ha creado él mismo
+  async expenseAdded(movimientos: MoneyNotice[], actorId: string) {
+    const destinatarios = movimientos.filter(
+      (movimiento) => movimiento.to_user_id !== actorId,
+    );
+    if (destinatarios.length === 0) return;
+
+    await this.sinInterrumpir('avisar del gasto nuevo', async () => {
+      const nombre = await this.nombreDe(destinatarios[0].from_user_id);
+      await this.prisma.notification.createMany({
+        data: destinatarios.map((movimiento) => ({
+          user_id: movimiento.to_user_id,
+          apartment_id: movimiento.apartment_id,
+          type: NotificationType.expense_added,
+          title: 'Aviso de cobro',
+          body: `${nombre} solicita ${euros(movimiento.amount)} por ${queGasto(movimiento)}.`,
+          reference_id: movimiento.id,
+        })),
+      });
+    });
+  }
+
+  // El pagador edita el gasto: aviso al deudor de esa parte, solo si cambia algo que le
+  // importa (importe, concepto o categoría; la fecha sola no avisa)
+  async expenseUpdated(antes: MoneyNotice, despues: MoneyNotice) {
+    const cambia =
+      Number(antes.amount) !== Number(despues.amount) ||
+      (antes.concept ?? '') !== (despues.concept ?? '') ||
+      antes.category !== despues.category;
+    if (!cambia) return;
+
+    await this.sinInterrumpir('avisar del gasto modificado', async () => {
+      const nombre = await this.nombreDe(despues.from_user_id);
+      await this.prisma.notification.create({
+        data: {
+          user_id: despues.to_user_id,
+          apartment_id: despues.apartment_id,
+          type: NotificationType.expense_updated,
+          title: 'Gasto modificado',
+          body: `${nombre} ha cambiado ${queGasto(despues)}: ahora te toca pagar ${euros(despues.amount)}.`,
+          reference_id: despues.id,
+        },
+      });
+    });
+  }
+
+  // El pagador borra el gasto: aviso al deudor de esa parte
+  async expenseDeleted(borrado: MoneyNotice) {
+    await this.sinInterrumpir('avisar del gasto eliminado', async () => {
+      const nombre = await this.nombreDe(borrado.from_user_id);
+      await this.prisma.notification.create({
+        data: {
+          user_id: borrado.to_user_id,
+          apartment_id: borrado.apartment_id,
+          type: NotificationType.expense_deleted,
+          title: 'Gasto eliminado',
+          body: `${nombre} ha eliminado ${queGasto(borrado)} (${euros(borrado.amount)}). Ya no le debes ese importe.`,
+          reference_id: borrado.id,
+        },
+      });
+    });
+  }
+
+  // El deudor marca la deuda como pagada: aviso al acreedor, que tiene que confirmarlo
+  async paymentMarked(pago: MoneyNotice) {
+    await this.sinInterrumpir('avisar del pago marcado', async () => {
+      const nombre = await this.nombreDe(pago.from_user_id);
+      await this.prisma.notification.create({
+        data: {
+          user_id: pago.to_user_id,
+          apartment_id: pago.apartment_id,
+          type: NotificationType.payment_marked,
+          title: 'Pago pendiente de confirmar',
+          body: `${nombre} dice que te ha pagado ${euros(pago.amount)}. Confírmalo en Saldar deudas.`,
+          reference_id: pago.id,
+        },
+      });
+    });
+  }
+
+  // El acreedor confirma el pago: aviso al deudor, y el aviso que tenía el acreedor queda
+  // atendido aunque lo haya confirmado desde Saldar deudas y no desde el aviso
+  async paymentConfirmed(pago: MoneyNotice) {
+    await this.sinInterrumpir('avisar del pago confirmado', async () => {
+      const nombre = await this.nombreDe(pago.to_user_id);
+      await this.prisma.$transaction([
+        this.prisma.notification.create({
+          data: {
+            user_id: pago.from_user_id,
+            apartment_id: pago.apartment_id,
+            type: NotificationType.payment_confirmed,
+            title: 'Pago confirmado',
+            body: `${nombre} ha confirmado tu pago de ${euros(pago.amount)}.`,
+            reference_id: pago.id,
+          },
+        }),
+        this.pagoAtendido(pago),
+      ]);
+    });
+  }
+
+  // El acreedor dice que no le ha llegado: aviso al deudor. La deuda sigue en pie
+  async paymentRejected(pago: MoneyNotice) {
+    await this.sinInterrumpir('avisar del pago rechazado', async () => {
+      const nombre = await this.nombreDe(pago.to_user_id);
+      await this.prisma.$transaction([
+        this.prisma.notification.create({
+          data: {
+            user_id: pago.from_user_id,
+            apartment_id: pago.apartment_id,
+            type: NotificationType.payment_rejected,
+            title: 'Pago rechazado',
+            body: `${nombre} dice que no le ha llegado tu pago de ${euros(pago.amount)}. La deuda sigue pendiente.`,
+            reference_id: pago.id,
+          },
+        }),
+        this.pagoAtendido(pago),
+      ]);
+    });
+  }
+
   // ─── helpers ────────────────────────────────────────────────────────────────────────────
+
+  private async nombreDe(userId: string) {
+    const usuario = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { full_name: true },
+    });
+    return usuario?.full_name ?? 'Un compañero';
+  }
+
+  // El acreedor ya ha respondido al pago: su aviso de «pendiente de confirmar» no puede seguir
+  // como no leído
+  private pagoAtendido(pago: MoneyNotice) {
+    return this.prisma.notification.updateMany({
+      where: {
+        AND: [
+          { user_id: pago.to_user_id },
+          { type: NotificationType.payment_marked },
+          { reference_id: pago.id },
+        ],
+      },
+      data: { is_read: true },
+    });
+  }
 
   // El receptor ya ha respondido a la petición (aunque lo haya hecho desde la pantalla de
   // intercambios y no desde el aviso): su aviso de solicitud no puede seguir como pendiente
@@ -270,19 +498,25 @@ export class NotificationsService {
     });
   }
 
-  // Siempre por usuario y por piso: un aviso de otra persona o de otro hogar nunca sale
+  // Siempre por usuario Y por piso, con un AND explícito (PA 2243-1): un aviso de otra persona
+  // o de otro hogar nunca sale
   private delUsuario(
     apartmentId: string,
     userId: string,
     withReminders: boolean,
+    category?: NotificationCategory,
   ): Prisma.NotificationWhereInput {
-    return {
-      user_id: userId,
-      apartment_id: apartmentId,
-      ...(withReminders
-        ? {}
-        : { type: { not: NotificationType.task_due_soon } }),
-    };
+    const condiciones: Prisma.NotificationWhereInput[] = [
+      { user_id: userId },
+      { apartment_id: apartmentId },
+    ];
+    if (!withReminders) {
+      condiciones.push({ type: { not: NotificationType.task_due_soon } });
+    }
+    if (category) {
+      condiciones.push({ type: { in: TIPOS_POR_CATEGORIA[category] } });
+    }
+    return { AND: condiciones };
   }
 
   private async asegurarMiembro(apartmentId: string, userId: string) {

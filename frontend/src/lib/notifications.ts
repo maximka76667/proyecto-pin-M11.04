@@ -2,14 +2,23 @@ import { Platform } from 'react-native';
 
 import { api } from '@/lib/api';
 
-// Notificaciones de tareas (UT1019)
+// Notificaciones de tareas (UT1019) y de gastos (UT1018)
 
 export type NotificationType =
   | 'task_assigned'
   | 'task_due_soon'
   | 'swap_requested'
   | 'swap_accepted'
-  | 'swap_rejected';
+  | 'swap_rejected'
+  | 'expense_added'
+  | 'expense_updated'
+  | 'expense_deleted'
+  | 'payment_marked'
+  | 'payment_confirmed'
+  | 'payment_rejected';
+
+// Filtros del panel: todas, solo las de tareas o solo las de gastos
+export type NotificationCategory = 'all' | 'tasks' | 'finances';
 
 // Cada aviso de GET /notifications
 export type AppNotification = {
@@ -17,7 +26,8 @@ export type AppNotification = {
   type: NotificationType;
   title: string;
   body: string;
-  // Lo que se abre al tocar el aviso: la tarea o la petición de intercambio, según el tipo
+  // Lo que se abre al tocar el aviso: la tarea, la petición de intercambio o el gasto, según
+  // el tipo
   reference_id: string | null;
   is_read: boolean;
   created_at: string;
@@ -40,12 +50,25 @@ export function choreRemindersEnabled() {
 }
 
 // Con los recordatorios apagados, el backend ni crea ni devuelve los avisos de vencimiento
-function query(apartmentId: string, reminders: boolean) {
-  return `apartment_id=${encodeURIComponent(apartmentId)}${reminders ? '' : '&reminders=false'}`;
+function query(apartmentId: string, reminders: boolean, category: NotificationCategory = 'all') {
+  return (
+    `apartment_id=${encodeURIComponent(apartmentId)}` +
+    (reminders ? '' : '&reminders=false') +
+    (category === 'all' ? '' : `&category=${category}`)
+  );
 }
 
-export function fetchNotifications(apartmentId: string, reminders = choreRemindersEnabled()) {
-  return api('GET', `/notifications?${query(apartmentId, reminders)}`) as Promise<AppNotification[]>;
+export function fetchNotifications(
+  apartmentId: string,
+  {
+    category = 'all',
+    reminders = choreRemindersEnabled(),
+  }: { category?: NotificationCategory; reminders?: boolean } = {},
+) {
+  return api(
+    'GET',
+    `/notifications?${query(apartmentId, reminders, category)}`,
+  ) as Promise<AppNotification[]>;
 }
 
 export async function fetchUnreadCount(apartmentId: string, reminders = choreRemindersEnabled()) {

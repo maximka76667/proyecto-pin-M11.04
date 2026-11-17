@@ -95,6 +95,24 @@ vencimiento no usan ningún proceso programado: se crean al consultar los avisos
 La migración `20261113120000_task_notifications` crea la tabla `Notification`. Aplícala con
 `npx prisma migrate deploy`.
 
+### Notificaciones de gastos (UT1018)
+
+Los avisos de los gastos van en la misma tabla y salen por los mismos endpoints:
+
+- Gasto nuevo (formulario o escáner de tickets): «Aviso de cobro» a cada deudor con su parte.
+  Quien crea el gasto no recibe aviso.
+- Gasto editado (importe, concepto o categoría) o borrado: aviso al deudor de esa parte.
+- Deuda marcada como pagada: aviso al acreedor. Al confirmar o rechazar el pago, aviso al deudor,
+  y el aviso del acreedor pasa a leído.
+
+`GET /notifications` y `GET /notifications/unread-count` aceptan `category=tasks` o
+`category=finances` para quedarse con unos u otros (los filtros «Tareas» y «Gastos» del panel).
+El filtro de Prisma exige a la vez el usuario y el piso (`AND`).
+
+La migración `20261117120000_finance_notifications` añade los tipos nuevos al enum
+`NotificationType`. Va después de la de la UT1019; aplícalas en orden con
+`npx prisma migrate deploy`.
+
 ### Al desplegar
 
 ```env

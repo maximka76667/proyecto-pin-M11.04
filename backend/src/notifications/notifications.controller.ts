@@ -13,8 +13,8 @@ import { NotificationsService } from './notifications.service';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Notificaciones de tareas (UT1019). El usuario sale siempre del token (@CurrentUser), nunca
-// de lo que envíe la app
+// Notificaciones de tareas (UT1019) y de gastos (UT1018). El usuario sale siempre del token
+// (@CurrentUser), nunca de lo que envíe la app
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
@@ -28,6 +28,7 @@ export class NotificationsController {
       query.apartment_id,
       userId,
       query.reminders !== 'false',
+      query.category,
     );
   }
 
@@ -40,6 +41,7 @@ export class NotificationsController {
       query.apartment_id,
       userId,
       query.reminders !== 'false',
+      query.category,
     );
   }
 

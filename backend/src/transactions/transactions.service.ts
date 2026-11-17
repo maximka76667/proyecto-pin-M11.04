@@ -4,8 +4,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { Prisma, TransactionCategory } from '@prisma/client';
+import { Prisma, Transaction, TransactionCategory } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CATEGORIAS_DE_LIQUIDACION } from './categorias';
@@ -72,9 +74,12 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
+    // Opcional: sin él (p. ej. en los tests que no lo dan) no se crean avisos (UT1018)
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
-  async create(createTransactionDto: CreateTransactionDto) {
+  // `currentUserId` es quien crea el gasto: no recibe aviso de su propio gasto aunque sea deudor
+  async create(createTransactionDto: CreateTransactionDto, currentUserId?: string) {
     const hasMultipleDebtors = Boolean(
       createTransactionDto.to_user_ids?.length,
     );
@@ -102,6 +107,8 @@ export class TransactionsService {
       ? new Date(createTransactionDto.date)
       : undefined;
 
+    let created: Transaction[];
+    let result: Transaction | Transaction[];
     try {
       const creates = actualDebtorIds.map((debtorId, index) => {
         const shareCents = baseCents + (index < remainder ? 1 : 0);
@@ -120,20 +127,26 @@ export class TransactionsService {
       });
 
       if (creates.length === 1 && !hasMultipleDebtors) {
-        return await creates[0];
-      }
-
-      if (
+        const single = await creates[0];
+        created = [single];
+        result = single;
+      } else if (
         typeof (this.prisma as unknown as { $transaction?: unknown })
           .$transaction === 'function'
       ) {
-        return await this.prisma.$transaction(creates);
+        created = await this.prisma.$transaction(creates);
+        result = created;
+      } else {
+        created = await Promise.all(creates);
+        result = created;
       }
-
-      return await Promise.all(creates);
     } catch (error) {
       this.handlePrismaError(error);
     }
+
+    // UT1018: «Aviso de cobro» a cada deudor con su parte
+    await this.notifications?.expenseAdded(created, currentUserId ?? payerId);
+    return result;
   }
 
   async createFromReceipt(dto: CreateReceiptTransactionDto, payerId: string) {
@@ -199,6 +212,9 @@ export class TransactionsService {
       }),
     );
 
+    // UT1018: «Aviso de cobro» a cada persona con la que se reparte el ticket
+    await this.notifications?.expenseAdded(transactions, payerId);
+
     return {
       total: (totalCents / 100).toFixed(2),
       participant_count: participantCount,
@@ -258,8 +274,9 @@ export class TransactionsService {
     updateTransactionDto: UpdateTransactionDto,
     userId: string,
   ) {
-    await this.asegurarEditable(id, userId);
+    const antes = await this.asegurarEditable(id, userId);
 
+    let actualizado: Transaction;
     try {
       const { date, ...rest } = updateTransactionDto;
       if (
@@ -271,25 +288,34 @@ export class TransactionsService {
         );
       }
 
-      return await this.prisma.transaction.update({
+      actualizado = await this.prisma.transaction.update({
         where: { id },
         data: date ? { ...rest, date: new Date(date) } : rest,
       });
     } catch (error) {
       this.handlePrismaError(error);
     }
+
+    // UT1018: aviso al deudor si cambia lo que tiene que pagar
+    await this.notifications?.expenseUpdated(antes, actualizado);
+    return actualizado;
   }
 
   async remove(id: string, userId: string) {
     await this.asegurarEditable(id, userId);
 
+    let borrado: Transaction;
     try {
-      return await this.prisma.transaction.delete({
+      borrado = await this.prisma.transaction.delete({
         where: { id },
       });
     } catch (error) {
       this.handlePrismaError(error);
     }
+
+    // UT1018: aviso al deudor de que ya no debe ese gasto
+    await this.notifications?.expenseDeleted(borrado);
+    return borrado;
   }
 
   private handlePrismaError(error: unknown): never {
@@ -546,8 +572,9 @@ export class TransactionsService {
 
     // Comprobar que no hay aviso y crearlo van en una transacción Serializable: si llegan
     // dos peticiones a la vez, Postgres aborta una (P2034) en lugar de crear dos avisos
+    let pago: Transaction;
     try {
-      return await this.prisma.$transaction(
+      pago = await this.prisma.$transaction(
         async (tx) => {
           const avisoPrevio = await tx.transaction.findFirst({
             where: {
@@ -588,14 +615,19 @@ export class TransactionsService {
       }
       throw error;
     }
+
+    // UT1018: aviso al acreedor, fuera de la transacción Serializable para no alargarla
+    await this.notifications?.paymentMarked(pago);
+    return pago;
   }
 
   // El acreedor confirma que le ha llegado el dinero: el aviso pasa a ser un pago
   async confirmPayment(transactionId: string, userId: string) {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
+    let confirmado: Transaction;
     try {
-      return await this.prisma.transaction.update({
+      confirmado = await this.prisma.transaction.update({
         // Las condiciones van también en la escritura para que sea atómica: si otra petición
         // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025)
         where: {
@@ -616,14 +648,19 @@ export class TransactionsService {
       }
       this.handlePrismaError(error);
     }
+
+    // UT1018: aviso al deudor de que su pago ha llegado
+    await this.notifications?.paymentConfirmed(confirmado);
+    return confirmado;
   }
 
   // El acreedor dice que no le ha llegado: se descarta el aviso y la deuda sigue en pie
   async rejectPayment(transactionId: string, userId: string) {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
+    let rechazado: Transaction;
     try {
-      return await this.prisma.transaction.delete({
+      rechazado = await this.prisma.transaction.delete({
         // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente
         where: {
           id: transactionId,
@@ -642,6 +679,10 @@ export class TransactionsService {
       }
       this.handlePrismaError(error);
     }
+
+    // UT1018: aviso al deudor de que su pago no ha llegado
+    await this.notifications?.paymentRejected(rechazado);
+    return rechazado;
   }
 
   private accionesDisponibles(
@@ -698,7 +739,9 @@ export class TransactionsService {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
       select: {
+        id: true,
         apartment_id: true,
+        amount: true,
         category: true,
         concept: true,
         from_user_id: true,
@@ -728,6 +771,9 @@ export class TransactionsService {
         'No puedes modificar un gasto que ya ha sido saldado con tus compañeros',
       );
     }
+
+    // El gasto tal y como estaba: con él se decide si editarlo merece aviso (UT1018)
+    return transaction;
   }
 
   private async hasConfirmedPaymentAfter(transaction: {

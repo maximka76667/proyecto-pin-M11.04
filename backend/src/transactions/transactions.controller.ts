@@ -21,8 +21,12 @@ export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Post()
-  create(@Body() createTransactionDto: CreateTransactionDto) {
-    return this.transactionsService.create(createTransactionDto);
+  create(
+    @Body() createTransactionDto: CreateTransactionDto,
+    @CurrentUser() userId: string,
+  ) {
+    // El usuario de la sesión solo decide quién no recibe el aviso de cobro (UT1018)
+    return this.transactionsService.create(createTransactionDto, userId);
   }
 
   @Post('from-receipt')

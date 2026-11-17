@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { getCurrentUser, hasAuthToken } from '@/lib/api';
 import { fetchUnreadCount } from '@/lib/notifications';
@@ -28,7 +29,8 @@ export function BottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const [hasHousehold, setHasHousehold] = useState(false);
-  // Avisos de tareas sin leer: pintan un punto en la pestaña «Tú», desde donde se abren (UT1019)
+  // Avisos sin leer (tareas, UT1019, y gastos, UT1018): pintan un punto en la pestaña «Tú»,
+  // desde donde se abren
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
@@ -48,9 +50,11 @@ export function BottomNav() {
 
         // Solo en las páginas que enseñan la barra. Va aparte de la cadena de arriba: si el
         // contador falla, la barra sale igual, sin el punto
-        const apartmentId = user.user_apartments[0]?.apartment_id;
-        if (!apartmentId || !tabs.some(({ href }) => href === pathname)) return;
-        void fetchUnreadCount(apartmentId)
+        // Mismo piso que la lista de avisos: getCurrentUser acaba de fijar APARTMENT_ID
+        if (user.user_apartments.length === 0 || !tabs.some(({ href }) => href === pathname)) {
+          return;
+        }
+        void fetchUnreadCount(APARTMENT_ID)
           .then((count) => {
             if (active) setUnread(count);
           })

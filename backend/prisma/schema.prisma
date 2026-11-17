@@ -175,8 +175,9 @@ enum SwapStatus {
   completed
 }
 
-// Aviso de un usuario sobre las tareas de un piso (UT1019). Se guarda cuando ocurre el evento
-// (asignación, petición o respuesta de intercambio); el recordatorio de vencimiento se crea al
+// Aviso de un usuario sobre las tareas (UT1019) o los gastos (UT1018) de un piso. Se guarda
+// cuando ocurre el evento (asignación, petición o respuesta de intercambio, gasto nuevo, editado
+// o borrado, pago marcado, confirmado o rechazado); el recordatorio de vencimiento se crea al
 // consultar los avisos.
 model Notification {
   id            String           @id @default(uuid()) @db.Uuid
@@ -185,7 +186,9 @@ model Notification {
   type          NotificationType
   title         String
   body          String
-  // Lo que abre la app al tocar el aviso: la tarea o la petición de intercambio, según `type`
+  // Lo que abre la app al tocar el aviso: la tarea, la petición de intercambio o el movimiento
+  // de dinero (Transaction), según `type`. Sin FK: el aviso de un gasto borrado o de un pago
+  // rechazado sobrevive a la fila de la que habla
   reference_id  String?          @db.Uuid
   // Asignación de la que habla un aviso de tarea. Con la restricción única impide repetir el
   // mismo recordatorio; los avisos de intercambio no la llevan
@@ -207,6 +210,13 @@ enum NotificationType {
   swap_requested
   swap_accepted
   swap_rejected
+  // Gastos (UT1018)
+  expense_added
+  expense_updated
+  expense_deleted
+  payment_marked
+  payment_confirmed
+  payment_rejected
 }
 
 model GoogleCalendarConnection {

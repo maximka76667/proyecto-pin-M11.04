@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, type Href } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,11 +12,13 @@ import {
   fetchNotifications,
   markNotificationRead,
   type AppNotification,
+  type NotificationCategory,
   type NotificationType,
 } from '@/lib/notifications';
 
 // Notificaciones de tareas (UT1019): asignaciones nuevas, solicitudes de intercambio y sus
-// respuestas, y tareas que vencen pronto. Se llega desde «Mi cuenta»
+// respuestas, y tareas que vencen pronto. Y de gastos (UT1018): avisos de cobro, gastos
+// editados o borrados y pagos marcados, confirmados o rechazados. Se llega desde «Mi cuenta»
 
 type Look = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -30,15 +32,53 @@ const looks: Record<NotificationType, Look> = {
   swap_requested: { icon: 'swap-horizontal', tint: Palette.peach, color: Palette.text },
   swap_accepted: { icon: 'check-circle-outline', tint: Palette.mint, color: Palette.primary },
   swap_rejected: { icon: 'close-circle-outline', tint: '#FBE9E7', color: Palette.error },
+  expense_added: { icon: 'cash-plus', tint: Palette.peach, color: Palette.text },
+  expense_updated: { icon: 'pencil-outline', tint: Palette.lavender, color: Palette.text },
+  expense_deleted: { icon: 'trash-can-outline', tint: Palette.segment, color: Palette.text },
+  payment_marked: { icon: 'cash-clock', tint: '#FDF1DB', color: '#D97706' },
+  payment_confirmed: { icon: 'cash-check', tint: Palette.mint, color: Palette.primary },
+  payment_rejected: { icon: 'cash-remove', tint: '#FBE9E7', color: Palette.error },
+};
+
+// Filtros del panel (UT1018)
+const categories: { value: NotificationCategory; label: string }[] = [
+  { value: 'all', label: 'Todas' },
+  { value: 'tasks', label: 'Tareas' },
+  { value: 'finances', label: 'Gastos' },
+];
+
+// Estado vacío de cada filtro: un mensaje amable en vez de una pantalla en blanco
+const emptyStates: Record<
+  NotificationCategory,
+  { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; text: string }
+> = {
+  all: {
+    icon: 'bell-check-outline',
+    title: 'No tienes notificaciones nuevas',
+    text: 'Aquí verás las tareas que te asignen, los intercambios que te pidan, las tareas a punto de vencer y los gastos y pagos de tu piso.',
+  },
+  tasks: {
+    icon: 'clipboard-check-outline',
+    title: 'No tienes avisos de tareas',
+    text: 'Aquí verás las tareas que te asignen, los intercambios que te pidan y las que estén a punto de vencer.',
+  },
+  finances: {
+    icon: 'wallet-outline',
+    title: 'Todo al día con tus finanzas',
+    text: 'Aquí verás los gastos que te carguen tus compañeros y los pagos que tengas que confirmar.',
+  },
 };
 // Por si el backend añade un tipo que esta versión de la app todavía no conoce
 const defaultLook: Look = { icon: 'bell-outline', tint: Palette.segment, color: Palette.text };
 
 // A dónde lleva cada aviso al tocarlo. Los de intercambio abren la pantalla de intercambios,
 // donde se acepta o se rechaza; el de rechazo abre la tarea que se ofrecía, porque la petición
-// ya no existe. Los de tareas abren el detalle de la tarea
+// ya no existe. Los de tareas abren el detalle de la tarea. Los de gastos abren la lista de
+// gastos, y los de pagos, Saldar deudas, donde se confirma o se rechaza
 function destination(item: AppNotification): Href | null {
   if (item.type === 'swap_requested' || item.type === 'swap_accepted') return '/chores/swaps';
+  if (item.type.startsWith('expense_')) return '/transactions';
+  if (item.type.startsWith('payment_')) return '/transactions/settle-up';
   if (!item.reference_id) return null;
   return { pathname: '/chores/details', params: { taskId: item.reference_id } };
 }
@@ -69,19 +109,26 @@ export default function NotificationsScreen() {
   const [message, setMessage] = useState('');
   // Momento de la última carga: con él se calcula el «hace 5 min» de cada aviso
   const [loadedAt, setLoadedAt] = useState(0);
+  const [category, setCategory] = useState<NotificationCategory>('all');
+  // Solo cuenta la respuesta de la última petición: si se cambia de filtro antes de que llegue
+  // la anterior, la vieja no pisa la lista nueva
+  const lastRequest = useRef(0);
 
   const load = useCallback(async () => {
+    const request = ++lastRequest.current;
     setError('');
     try {
-      const data = await fetchNotifications(APARTMENT_ID);
+      const data = await fetchNotifications(APARTMENT_ID, { category });
+      if (request !== lastRequest.current) return;
       setItems(data);
       setLoadedAt(Date.now());
     } catch (e) {
+      if (request !== lastRequest.current) return;
       setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (request === lastRequest.current) setLoading(false);
     }
-  }, []);
+  }, [category]);
 
   // Se vuelve a cargar al volver de la tarea o del intercambio que abrió un aviso
   useFocusEffect(
@@ -93,6 +140,16 @@ export default function NotificationsScreen() {
   const retry = () => {
     setLoading(true);
     void load();
+  };
+
+  // Al cambiar de filtro la lista se vacía y se vuelve a pedir (useFocusEffect, porque `load`
+  // cambia con el filtro)
+  const changeCategory = (next: NotificationCategory) => {
+    if (next === category) return;
+    setItems([]);
+    setError('');
+    setLoading(true);
+    setCategory(next);
   };
 
   const setRead = (id: string, isRead: boolean) => {
@@ -131,6 +188,7 @@ export default function NotificationsScreen() {
   };
 
   const unread = items.filter((item) => !item.is_read).length;
+  const empty = emptyStates[category];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -146,6 +204,24 @@ export default function NotificationsScreen() {
             accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={23} color={Palette.text} />
           </Pressable>
+        </View>
+
+        <View style={styles.segmented} accessibilityRole="tablist">
+          {categories.map(({ value, label }) => {
+            const selected = value === category;
+            return (
+              <Pressable
+                key={value}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => changeCategory(value)}
+                style={[styles.segment, selected && styles.segmentSelected]}>
+                <Text style={selected ? styles.segmentSelectedText : styles.segmentText}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {loading ? <ActivityIndicator color={Palette.primary} /> : null}
@@ -164,12 +240,9 @@ export default function NotificationsScreen() {
 
         {!loading && !error && items.length === 0 ? (
           <View style={styles.empty}>
-            <MaterialCommunityIcons name="bell-check-outline" size={32} color={Palette.textSecondary} />
-            <Text style={styles.emptyTitle}>No tienes notificaciones</Text>
-            <Text style={styles.emptyText}>
-              Aquí verás las tareas que te asignen, los intercambios que te pidan y las que estén a
-              punto de vencer.
-            </Text>
+            <MaterialCommunityIcons name={empty.icon} size={32} color={Palette.textSecondary} />
+            <Text style={styles.emptyTitle}>{empty.title}</Text>
+            <Text style={styles.emptyText}>{empty.text}</Text>
           </View>
         ) : null}
 
@@ -266,6 +339,11 @@ const styles = StyleSheet.create({
   },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 18, fontWeight: '800', color: Palette.text },
+  segmented: { flexDirection: 'row', padding: 3, borderRadius: Radius.input, backgroundColor: Palette.segment },
+  segment: { flex: 1, alignItems: 'center', paddingVertical: 9 },
+  segmentSelected: { borderRadius: 9, backgroundColor: Palette.surface },
+  segmentText: { fontSize: 13, fontWeight: '600', color: Palette.textSecondary },
+  segmentSelectedText: { fontSize: 13, fontWeight: '700', color: Palette.text },
   summary: {
     fontSize: 11,
     fontWeight: '800',

@@ -21,6 +21,7 @@ import { Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { ApiError, api, apiUpload, hasAuthToken } from '@/lib/api';
 import { CHORE_REMINDERS_KEY, fetchUnreadCount } from '@/lib/notifications';
@@ -63,7 +64,7 @@ function formatJoinedDate(joinedAt?: string) {
 
 // Texto de la fila «Notificaciones»; null mientras no se sabe cuántos avisos hay sin leer
 function unreadSubtitle(unread: number | null) {
-  if (unread === null) return 'Avisos de tus tareas';
+  if (unread === null) return 'Avisos de tareas y gastos';
   if (unread === 0) return 'Estás al día';
   return unread === 1 ? 'Tienes 1 aviso sin leer' : `Tienes ${unread} avisos sin leer`;
 }
@@ -140,10 +141,12 @@ export default function ProfileScreen() {
 
   useFocusEffect(loadProfile);
 
-  // Avisos sin leer de las tareas del hogar (UT1019). Se piden al volver a esta pantalla y al
-  // cambiar el interruptor de recordatorios, que decide si los de vencimiento cuentan
+  // Avisos sin leer de las tareas (UT1019) y los gastos (UT1018) del hogar. Se piden al volver a
+  // esta pantalla y al cambiar el interruptor de recordatorios, que decide si los de
+  // vencimiento cuentan. Del mismo piso que la lista de avisos (APARTMENT_ID), para que el
+  // número coincida con lo que se ve al abrirla
   const [unread, setUnread] = useState<number | null>(null);
-  const primaryApartmentId = profile?.apartments[0]?.id;
+  const primaryApartmentId = profile?.apartments.length ? APARTMENT_ID : undefined;
   useFocusEffect(
     useCallback(() => {
       if (!primaryApartmentId) return;
@@ -336,7 +339,11 @@ export default function ProfileScreen() {
   }
 
   const initial = profile.full_name.trim().charAt(0).toUpperCase() || '?';
-  const primaryApartment = profile.apartments[0];
+  // Un usuario solo ve un hogar: el de la sesión (APARTMENT_ID), el mismo que usan los avisos y
+  // el resto de la app. Ya no se puede cambiar de casa, así que no se listan los demás
+  const primaryApartment =
+    profile.apartments.find((apartment) => apartment.id === APARTMENT_ID) ??
+    profile.apartments[0];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -379,7 +386,7 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
-        {/* Sección ACTIVIDAD: avisos de las tareas del hogar (UT1019) */}
+        {/* Sección ACTIVIDAD: avisos de las tareas (UT1019) y los gastos (UT1018) del hogar */}
         {primaryApartment ? (
           <Section label="Actividad">
             <Row
@@ -395,18 +402,15 @@ export default function ProfileScreen() {
 
         {/* Sección HOGAR */}
         <Section label="Hogar">
-          {profile.apartments.length > 0 ? (
-            profile.apartments.map((apartment) => (
-              <Row
-                key={apartment.id}
-                icon="home-outline"
-                tint={Palette.mint}
-                title={apartment.name}
-                subtitle={`${apartment.members_count} ${
-                  apartment.members_count === 1 ? 'compañero' : 'compañeros'
-                }`}
-              />
-            ))
+          {primaryApartment ? (
+            <Row
+              icon="home-outline"
+              tint={Palette.mint}
+              title={primaryApartment.name}
+              subtitle={`${primaryApartment.members_count} ${
+                primaryApartment.members_count === 1 ? 'compañero' : 'compañeros'
+              }`}
+            />
           ) : (
             <Row
               icon="home-plus-outline"
