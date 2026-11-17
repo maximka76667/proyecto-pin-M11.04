@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ApartmentsModule } from './apartments/apartments.module';
@@ -21,6 +22,9 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    // Eventos de dominio (patrón Observer): las tareas y los gastos los emiten y
+    // NotificationsListener crea los avisos
+    EventEmitterModule.forRoot(),
     PrismaModule,
     UsersModule,
     TransactionsModule,

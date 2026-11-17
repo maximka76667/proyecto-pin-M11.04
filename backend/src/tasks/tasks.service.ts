@@ -21,7 +21,8 @@ import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { TaskAvailabilityQueryDto } from './dto/task-availability-query.dto';
 import { toHHmm } from '../availability/availability.service';
 import { GoogleCalendarService } from '../availability/google-calendar.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { TAREA_ASIGNADA, TareaAsignada } from './task.events';
 import { defaultTaskPoints } from './task-points';
 
 // Integrante con la franja ocupada; solo la hora, nunca el título del evento
@@ -35,8 +36,8 @@ export class TasksService {
     private readonly prisma: PrismaService,
     // Opcional: sin él (p. ej. en los tests que solo dan Prisma) se usan los eventos ya guardados
     @Optional() private readonly googleCalendar?: GoogleCalendarService,
-    // Opcional por lo mismo: sin él no se crean avisos (UT1019)
-    @Optional() private readonly notifications?: NotificationsService,
+    // Opcional por lo mismo: sin él no se emiten eventos y, por tanto, no hay avisos (UT1019)
+    @Optional() private readonly events?: EventEmitter2,
   ) { }
 
   findAll(apartmentId?: string) {
@@ -217,18 +218,21 @@ export class TasksService {
         }),
       ]);
       const assignments = results.slice(0, userIds.length);
-      // UT1019: aviso a cada persona a la que un compañero le asigna la tarea
-      await this.notifications?.taskAssigned({
-        taskId,
-        apartmentId: task.apartment_id,
-        assignerId: currentUserId,
-        dueDate,
-        dueTime: assignmentDto.due_time,
-        assignments: userIds.map((userId, index) => ({
-          id: assignments[index].id,
-          user_id: userId,
-        })),
-      });
+      // Evento de dominio: NotificationsListener avisa a cada persona asignada (UT1019)
+      await this.events?.emitAsync(
+        TAREA_ASIGNADA,
+        new TareaAsignada({
+          taskId,
+          apartmentId: task.apartment_id,
+          assignerId: currentUserId,
+          dueDate,
+          dueTime: assignmentDto.due_time,
+          assignments: userIds.map((userId, index) => ({
+            id: assignments[index].id,
+            user_id: userId,
+          })),
+        }),
+      );
       return assignmentDto.user_ids ? assignments : assignments[0];
     } catch (error) {
       if (

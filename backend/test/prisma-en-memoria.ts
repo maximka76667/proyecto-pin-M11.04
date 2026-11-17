@@ -399,6 +399,20 @@ export function crearPrismaEnMemoria() {
         }),
       ),
       count: jest.fn((args: Args = {}) => perezosa(() => buscar(args.where).length)),
+      // Solo `_sum`, como lo usan los saldos y el total de un ticket. Igual que Prisma, sin filas
+      // la suma es null y un número llega como Decimal
+      aggregate: jest.fn((args: Args & { _sum?: Record<string, boolean> }) =>
+        perezosa(() => {
+          const filas = buscar(args.where);
+          const _sum: Record<string, Prisma.Decimal | null> = {};
+          for (const campo of Object.keys(args._sum ?? {})) {
+            _sum[campo] = filas.length
+              ? filas.reduce((total, fila) => total.plus(String(fila[campo] ?? 0)), new Prisma.Decimal(0))
+              : null;
+          }
+          return { _sum };
+        }),
+      ),
       create: jest.fn((args: Args) => perezosa(() => proyectar(modelo, insertar(modelo, args.data), args))),
       createMany: jest.fn((args: { data: Fila | Fila[]; skipDuplicates?: boolean }) =>
         perezosa(() => {

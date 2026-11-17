@@ -6,14 +6,24 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import {
-  NotificationsService,
-  type MoneyNotice,
-} from '../notifications/notifications.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'node:crypto';
 import { ExpenseType, Prisma, Transaction, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import {
+  GASTO_CREADO,
+  GastoCreado,
+  PAGO_CONFIRMADO,
+  PAGO_MARCADO,
+  PAGO_RECHAZADO,
+  PagoConfirmado,
+  PagoMarcado,
+  PagoRechazado,
+  TICKET_CREADO,
+  TicketCreado,
+  type MoneyNotice,
+} from './expense.events';
 import { buildExpenseRows, MAX_RECEIPT_TOTAL_CENTS } from './expense-rows';
 import { centsToAmount } from './expense-split';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
@@ -77,8 +87,8 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
-    // Opcional: sin él (p. ej. en los tests que no lo dan) no se crean avisos (UT1018)
-    @Optional() private readonly notifications?: NotificationsService,
+    // Opcional: sin él (p. ej. en los tests que no lo dan) no se emiten eventos ni hay avisos
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   // `currentUserId` es quien crea el gasto: no recibe aviso de su propio gasto aunque sea deudor
@@ -124,8 +134,11 @@ export class TransactionsService {
       this.handlePrismaError(error);
     }
 
-    // UT1018: «Aviso de cobro» a cada deudor con su parte
-    await this.notifications?.expenseAdded(transactions, currentUserId ?? payerId);
+    // Evento de dominio: NotificationsListener manda el «Aviso de cobro» a cada deudor (UT1018)
+    await this.events?.emitAsync(
+      GASTO_CREADO,
+      new GastoCreado(transactions, currentUserId ?? payerId),
+    );
     return hasMultipleDebtors ? transactions : transactions[0];
   }
 
@@ -224,8 +237,21 @@ export class TransactionsService {
       await tx.transaction.createMany({ data: transactions });
     });
 
-    // UT1018: «Aviso de cobro» a cada persona con la que se reparte el ticket
-    await this.notifications?.expenseAdded(transactions, payerId);
+    // Evento de dominio: NotificationsListener manda un «Aviso de cobro» por persona con su
+    // parte de todo el ticket, no uno por producto (UT1018)
+    await this.events?.emitAsync(
+      TICKET_CREADO,
+      new TicketCreado(
+        {
+          id: receiptId,
+          apartment_id: dto.apartment_id,
+          payer_id: payerId,
+          category: dto.category,
+        },
+        transactions,
+        payerId,
+      ),
+    );
 
     return {
       receipt_id: receiptId,
@@ -560,8 +586,9 @@ export class TransactionsService {
       throw error;
     }
 
-    // UT1018: aviso al acreedor, fuera de la transacción Serializable para no alargarla
-    await this.notifications?.paymentMarked(pago);
+    // Evento de dominio, fuera de la transacción Serializable para no alargarla: aviso al
+    // acreedor (UT1018)
+    await this.events?.emitAsync(PAGO_MARCADO, new PagoMarcado(pago));
     return pago;
   }
 
@@ -602,8 +629,8 @@ export class TransactionsService {
       this.handlePrismaError(error);
     }
 
-    // UT1018: aviso al deudor de que su pago ha llegado
-    await this.notifications?.paymentConfirmed(confirmado);
+    // Evento de dominio: aviso al deudor de que su pago ha llegado (UT1018)
+    await this.events?.emitAsync(PAGO_CONFIRMADO, new PagoConfirmado(confirmado));
     return confirmado;
   }
 
@@ -638,8 +665,8 @@ export class TransactionsService {
       this.handlePrismaError(error);
     }
 
-    // UT1018: aviso al deudor de que su pago no ha llegado
-    await this.notifications?.paymentRejected(rechazado);
+    // Evento de dominio: aviso al deudor de que su pago no ha llegado (UT1018)
+    await this.events?.emitAsync(PAGO_RECHAZADO, new PagoRechazado(rechazado));
     return rechazado;
   }
 

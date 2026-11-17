@@ -6,6 +6,7 @@ import {
   NestModule,
   RequestMethod,
 } from '@nestjs/common';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -14,6 +15,7 @@ import { AuthMiddleware } from '../src/auth/auth.middleware';
 import { AuthService } from '../src/auth/auth.service';
 import { GoogleCalendarService } from '../src/availability/google-calendar.service';
 import { NotificationsController } from '../src/notifications/notifications.controller';
+import { NotificationsListener } from '../src/notifications/notifications.listener';
 import { NotificationsService } from '../src/notifications/notifications.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TaskSwapsService } from '../src/tasks/task-swaps.service';
@@ -236,13 +238,16 @@ const auth = {
 // Al asignar y al pedir un intercambio se comprueba la disponibilidad; Google no trae eventos
 const google = { sync: jest.fn(() => Promise.resolve()) };
 
-// El mismo middleware que usa AppModule: cada petición va como el usuario de su token
+// El mismo middleware que usa AppModule: cada petición va como el usuario de su token. Los
+// avisos llegan como en la app: las tareas emiten eventos y NotificationsListener los escucha
 @Module({
+  imports: [EventEmitterModule.forRoot()],
   controllers: [TasksController, NotificationsController],
   providers: [
     TasksService,
     TaskSwapsService,
     NotificationsService,
+    NotificationsListener,
     AuthMiddleware,
     { provide: PrismaService, useValue: db.prisma },
     { provide: AuthService, useValue: auth },

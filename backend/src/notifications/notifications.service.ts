@@ -11,13 +11,23 @@ import {
   TransactionCategory,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type {
+  SwapAssignment,
+  SwapNotice,
+  TaskAssignedNotice,
+} from '../tasks/task.events';
+import type {
+  MoneyNotice,
+  ReceiptNotice,
+} from '../transactions/expense.events';
 
 // Lo que la app recibe de cada aviso. `reference_id` es lo que se abre al tocarlo (PA 2250-1):
 //   task_assigned, task_due_soon   → la tarea
 //   swap_requested, swap_accepted  → la petición de intercambio (pantalla de intercambios)
 //   swap_rejected                  → la tarea que ofrecía el emisor (la petición ya se borró)
-//   expense_*, payment_*           → el movimiento de dinero (Transaction); la app abre la lista
-//                                    de gastos o la de saldar deudas, según el tipo (UT1018)
+//   expense_*, payment_*           → el movimiento de dinero (Transaction), o el ticket (Receipt)
+//                                    en los avisos de un ticket entero; la app abre la lista de
+//                                    gastos o la de saldar deudas, según el tipo (UT1018)
 const AVISO_SELECT = {
   id: true,
   type: true,
@@ -52,28 +62,14 @@ const TIPOS_POR_CATEGORIA: Record<NotificationCategory, NotificationType[]> = {
   ],
 };
 
-// Movimiento de dinero del que habla un aviso de gastos. En un gasto, `from_user_id` es quien
-// pagó y `to_user_id` quien le debe su parte; en un aviso de pago (`pending`), al revés:
-// `from_user_id` es el deudor que dice haber pagado y `to_user_id` el acreedor
-export type MoneyNotice = {
-  id: string;
-  apartment_id: string;
-  from_user_id: string;
-  to_user_id: string;
-  // Una fila guardada trae Decimal; las que construye buildExpenseRows, un texto ("15.00")
-  amount: Prisma.Decimal | Prisma.DecimalJsLike | string | number;
-  concept?: string | null;
-  category: TransactionCategory;
-};
-
 const FORMATO_EUROS = new Intl.NumberFormat('es-ES', {
   style: 'currency',
   currency: 'EUR',
 });
+const aNumero = (importe: MoneyNotice['amount']) =>
+  Number(typeof importe === 'object' ? importe.toFixed() : importe);
 const euros = (importe: MoneyNotice['amount']) =>
-  FORMATO_EUROS.format(
-    Number(typeof importe === 'object' ? importe.toFixed() : importe),
-  ); // "15,00 €"
+  FORMATO_EUROS.format(aNumero(importe)); // "15,00 €"
 
 // Los mismos nombres de categoría que enseña la app, para cuando el gasto no tiene concepto
 const GASTO_POR_CATEGORIA: Partial<Record<TransactionCategory, string>> = {
@@ -90,30 +86,28 @@ const queGasto = (movimiento: MoneyNotice) => {
   return GASTO_POR_CATEGORIA[movimiento.category] ?? 'un gasto';
 };
 
-// Asignación implicada en un intercambio, con lo justo para redactar el aviso
-type SwapAssignment = {
-  id: string;
-  due_date: Date;
-  due_time: string | null;
-  start_minute: number;
-  user: { id: string; full_name: string };
-  task: { id: string; title: string; apartment_id: string };
-};
-
-// La petición tal y como estaba antes de responderla: `from` es del emisor y `to` del receptor
-export type SwapNotice = {
-  id: string;
-  from_assignment: SwapAssignment;
-  to_assignment: SwapAssignment;
-};
-
-export type TaskAssignedNotice = {
-  taskId: string;
-  apartmentId: string;
-  assignerId: string;
-  dueDate: Date;
-  dueTime: string;
-  assignments: { id: string; user_id: string }[];
+// Las deudas de un ticket (una por producto y deudor) sumadas por deudor. Sin concepto, el
+// aviso dice «la compra», «los suministros»… según la categoría del ticket
+const porDeudor = (ticket: ReceiptNotice, movimientos: MoneyNotice[]) => {
+  const centimos = new Map<string, number>();
+  for (const movimiento of movimientos) {
+    centimos.set(
+      movimiento.to_user_id,
+      (centimos.get(movimiento.to_user_id) ?? 0) +
+        Math.round(aNumero(movimiento.amount) * 100),
+    );
+  }
+  return [...centimos].map(
+    ([deudorId, total]): MoneyNotice => ({
+      id: ticket.id,
+      apartment_id: ticket.apartment_id,
+      from_user_id: ticket.payer_id,
+      to_user_id: deudorId,
+      amount: (total / 100).toFixed(2),
+      concept: null,
+      category: ticket.category,
+    }),
+  );
 };
 
 // due_date se guarda a medianoche UTC: se formatea en UTC para que no cambie de día
@@ -364,6 +358,27 @@ export class NotificationsService {
     });
   }
 
+  // Se edita un gasto o un producto de un ticket: un aviso por persona afectada. Quien seguía
+  // en el gasto recibe «Gasto modificado» si cambia lo que paga, el concepto o la categoría;
+  // quien entra nuevo, un «Aviso de cobro»; y a quien se saca del gasto, «Gasto eliminado»
+  async expenseEdited(antes: MoneyNotice[], despues: MoneyNotice[], actorId: string) {
+    const previas = new Map(antes.map((deuda) => [deuda.to_user_id, deuda]));
+    const nuevas: MoneyNotice[] = [];
+    for (const deuda of despues) {
+      const previa = previas.get(deuda.to_user_id);
+      if (previa) {
+        await this.expenseUpdated(previa, deuda);
+        previas.delete(deuda.to_user_id);
+      } else {
+        nuevas.push(deuda);
+      }
+    }
+    await this.expenseAdded(nuevas, actorId);
+    for (const fuera of previas.values()) {
+      await this.expenseDeleted(fuera);
+    }
+  }
+
   // El pagador edita el gasto: aviso al deudor de esa parte, solo si cambia algo que le
   // importa (importe, concepto o categoría; la fecha sola no avisa)
   async expenseUpdated(antes: MoneyNotice, despues: MoneyNotice) {
@@ -403,6 +418,19 @@ export class NotificationsService {
         },
       });
     });
+  }
+
+  // Ticket escaneado nuevo: un solo «Aviso de cobro» por persona con su parte de todo el
+  // ticket, aunque el ticket guarde una deuda por producto
+  async receiptAdded(ticket: ReceiptNotice, movimientos: MoneyNotice[], actorId: string) {
+    await this.expenseAdded(porDeudor(ticket, movimientos), actorId);
+  }
+
+  // Se borra el ticket entero: un solo «Gasto eliminado» por persona con lo que ya no debe
+  async receiptDeleted(ticket: ReceiptNotice, movimientos: MoneyNotice[]) {
+    for (const parte of porDeudor(ticket, movimientos)) {
+      await this.expenseDeleted(parte);
+    }
   }
 
   // El deudor marca la deuda como pagada: aviso al acreedor, que tiene que confirmarlo
