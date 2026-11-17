@@ -60,7 +60,8 @@ export type MoneyNotice = {
   apartment_id: string;
   from_user_id: string;
   to_user_id: string;
-  amount: Prisma.Decimal | string | number;
+  // Una fila guardada trae Decimal; las que construye buildExpenseRows, un texto ("15.00")
+  amount: Prisma.Decimal | Prisma.DecimalJsLike | string | number;
   concept?: string | null;
   category: TransactionCategory;
 };
@@ -70,7 +71,9 @@ const FORMATO_EUROS = new Intl.NumberFormat('es-ES', {
   currency: 'EUR',
 });
 const euros = (importe: MoneyNotice['amount']) =>
-  FORMATO_EUROS.format(Number(importe)); // "15,00 €"
+  FORMATO_EUROS.format(
+    Number(typeof importe === 'object' ? importe.toFixed() : importe),
+  ); // "15,00 €"
 
 // Los mismos nombres de categoría que enseña la app, para cuando el gasto no tiene concepto
 const GASTO_POR_CATEGORIA: Partial<Record<TransactionCategory, string>> = {
