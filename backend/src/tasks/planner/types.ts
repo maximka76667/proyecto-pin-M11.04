@@ -9,6 +9,8 @@ export type Preference = 'prefer' | 'indifferent' | 'avoid';
 export interface Interval {
   start: number;
   end: number;
+  // Nombre de lo que ocupa la franja (la tarea ya asignada), para poder decirlo en un aviso
+  label?: string;
 }
 
 export interface PlannerMember {

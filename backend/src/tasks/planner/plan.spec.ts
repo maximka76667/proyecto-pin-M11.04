@@ -218,6 +218,30 @@ describe('planAssignments', () => {
     expect(result.assignments[0].time).toBe('09:00');
   });
 
+  it('esquiva lo que la persona ya tiene asignado ese día', () => {
+    const result = planAssignments({
+      members: [{ id: 'A', points: 0 }],
+      occurrences: [{ ...weeklyOccurrence('t1', 30, 60), days: [WEEK[0]] }],
+      busy: {},
+      // ya tiene algo de 8:00 a 10:00: la nueva (60 min) no puede empezar antes de las 10:00
+      taken: { A: { [WEEK[0]]: [{ start: 480, end: 600 }] } },
+    });
+
+    expect(result.assignments[0].time).toBe('10:00');
+  });
+
+  it('con lo ya asignado ocupando todo el día, la tarea queda sin asignar', () => {
+    const result = planAssignments({
+      members: [{ id: 'A', points: 0 }],
+      occurrences: [{ ...weeklyOccurrence('t1', 30, 60), days: [WEEK[0]] }],
+      busy: {},
+      taken: { A: { [WEEK[0]]: [{ start: 0, end: 1440 }] } },
+    });
+
+    expect(result.assignments).toHaveLength(0);
+    expect(result.unassigned).toHaveLength(1);
+  });
+
   it('no solapa dos tareas de la misma persona', () => {
     const result = planAssignments({
       members: [{ id: 'A', points: 0 }],

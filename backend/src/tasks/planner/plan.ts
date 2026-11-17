@@ -1,3 +1,4 @@
+import { intervalsOf, overlaps, touches } from './intervals';
 import {
   DEFAULT_PLAN_OPTIONS,
   DateKey,
@@ -16,24 +17,6 @@ function toHHmm(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
-// Solape real: que una termine justo cuando empieza la otra no es solape
-function overlaps(a: Interval, b: Interval): boolean {
-  return a.start < b.end && b.start < a.end;
-}
-
-// Con el borde incluido: terminar justo cuando empieza una franja ocupada tampoco vale
-function touches(a: Interval, b: Interval): boolean {
-  return a.start <= b.end && b.start <= a.end;
-}
-
-function intervalsOf(
-  source: IntervalsByUserAndDate,
-  userId: string,
-  date: DateKey,
-): Interval[] {
-  return source[userId]?.[date] ?? [];
 }
 
 interface Slot {
