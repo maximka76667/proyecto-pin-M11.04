@@ -1,3 +1,4 @@
+import type { Href } from 'expo-router';
 import { Platform } from 'react-native';
 
 import { api } from '@/lib/api';
@@ -32,6 +33,19 @@ export type AppNotification = {
   is_read: boolean;
   created_at: string;
 };
+
+// A dónde lleva cada aviso al tocarlo, en el panel o en la notificación push. Los de
+// intercambio abren la pantalla de intercambios, donde se acepta o se rechaza; el de rechazo
+// abre la tarea que se ofrecía, porque la petición ya no existe. Los de tareas abren el detalle
+// de la tarea. Los de gastos abren la lista de gastos, y los de pagos, Saldar deudas, donde se
+// confirma o se rechaza
+export function destination(item: Pick<AppNotification, 'type' | 'reference_id'>): Href | null {
+  if (item.type === 'swap_requested' || item.type === 'swap_accepted') return '/chores/swaps';
+  if (item.type.startsWith('expense_')) return '/transactions';
+  if (item.type.startsWith('payment_')) return '/transactions/settle-up';
+  if (!item.reference_id) return null;
+  return { pathname: '/chores/details', params: { taskId: item.reference_id } };
+}
 
 // Donde el perfil guarda el interruptor «Recordatorios de tareas» (UT1020)
 export const CHORE_REMINDERS_KEY = 'room8_chore_reminders';

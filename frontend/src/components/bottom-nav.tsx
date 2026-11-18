@@ -25,8 +25,13 @@ const tabs: Tab[] = [
   { label: 'Tú', icon: 'account-outline', href: '/profile' },
 ];
 
+// Páginas que no son pestaña pero también enseñan la barra. La pinta la misma instancia de
+// _layout.tsx, así que no se desmonta ni se vuelve a cargar al entrar
+const extraPages: string[] = ['/notifications'];
+
 export function BottomNav() {
   const pathname = usePathname();
+  const onTabPage = tabs.some(({ href }) => href === pathname) || extraPages.includes(pathname);
   const insets = useSafeAreaInsets();
   const [hasHousehold, setHasHousehold] = useState(false);
   // Avisos sin leer (tareas, UT1019, y gastos, UT1018): pintan un punto en la pestaña «Tú»,
@@ -51,7 +56,7 @@ export function BottomNav() {
         // Solo en las páginas que enseñan la barra. Va aparte de la cadena de arriba: si el
         // contador falla, la barra sale igual, sin el punto
         // Mismo piso que la lista de avisos: getCurrentUser acaba de fijar APARTMENT_ID
-        if (user.user_apartments.length === 0 || !tabs.some(({ href }) => href === pathname)) {
+        if (user.user_apartments.length === 0 || !onTabPage) {
           return;
         }
         void fetchUnreadCount(APARTMENT_ID)
@@ -63,10 +68,12 @@ export function BottomNav() {
       .catch(() => {
         if (active) setHasHousehold(false);
       });
-    return () => { active = false; };
-  }, [pathname]);
+    return () => {
+      active = false;
+    };
+  }, [pathname, onTabPage]);
 
-  if (!hasHousehold || !tabs.some(({ href }) => href === pathname)) return null;
+  if (!hasHousehold || !onTabPage) return null;
 
   return (
     <View

@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   AssignmentStatus,
   NotificationType,
@@ -20,6 +21,11 @@ import type {
   MoneyNotice,
   ReceiptNotice,
 } from '../transactions/expense.events';
+import {
+  AVISOS_CREADOS,
+  AvisosCreados,
+  type AvisoCreado,
+} from './notification.events';
 
 // Lo que la app recibe de cada aviso. `reference_id` es lo que se abre al tocarlo (PA 2250-1):
 //   task_assigned, task_due_soon   → la tarea
@@ -137,7 +143,11 @@ const franja = (asignacion: SwapAssignment) =>
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Para anunciar los avisos guardados (AVISOS_CREADOS); hoy los escucha PushListener
+    private readonly events: EventEmitter2,
+  ) {}
 
   // PA 2248-1 y PA 2243-1: los avisos del usuario en su piso, del más reciente al más antiguo.
   // `category` deja solo los de tareas o solo los de gastos
@@ -240,35 +250,35 @@ export class NotificationsService {
       if (!tarea) return;
 
       const nombre = quienAsigna?.full_name ?? 'Un compañero';
-      await this.prisma.notification.createMany({
-        data: destinatarios.map((asignacion) => ({
-          user_id: asignacion.user_id,
-          apartment_id: aviso.apartmentId,
-          type: NotificationType.task_assigned,
-          title: 'Nueva tarea asignada',
-          body: `${nombre} te ha asignado «${tarea.title}» para el ${diaCorto(aviso.dueDate)} a las ${aviso.dueTime}.`,
-          reference_id: aviso.taskId,
-          assignment_id: asignacion.id,
-        })),
-      });
+      const avisos = destinatarios.map((asignacion) => ({
+        user_id: asignacion.user_id,
+        apartment_id: aviso.apartmentId,
+        type: NotificationType.task_assigned,
+        title: 'Nueva tarea asignada',
+        body: `${nombre} te ha asignado «${tarea.title}» para el ${diaCorto(aviso.dueDate)} a las ${aviso.dueTime}.`,
+        reference_id: aviso.taskId,
+        assignment_id: asignacion.id,
+      }));
+      await this.prisma.notification.createMany({ data: avisos });
+      this.anunciar(avisos);
     });
   }
 
   // Un compañero pide un intercambio: aviso a quien tiene que responder
   async swapRequested(swap: SwapNotice) {
     const { from_assignment: ofrecida, to_assignment: pedida } = swap;
-    await this.sinInterrumpir('avisar de la solicitud de intercambio', () =>
-      this.prisma.notification.create({
-        data: {
-          user_id: pedida.user.id,
-          apartment_id: pedida.task.apartment_id,
-          type: NotificationType.swap_requested,
-          title: 'Solicitud de intercambio',
-          body: `${ofrecida.user.full_name} te propone cambiar su «${ofrecida.task.title}» (${franja(ofrecida)}) por tu «${pedida.task.title}» (${franja(pedida)}).`,
-          reference_id: swap.id,
-        },
-      }),
-    );
+    await this.sinInterrumpir('avisar de la solicitud de intercambio', async () => {
+      const aviso = {
+        user_id: pedida.user.id,
+        apartment_id: pedida.task.apartment_id,
+        type: NotificationType.swap_requested,
+        title: 'Solicitud de intercambio',
+        body: `${ofrecida.user.full_name} te propone cambiar su «${ofrecida.task.title}» (${franja(ofrecida)}) por tu «${pedida.task.title}» (${franja(pedida)}).`,
+        reference_id: swap.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
+    });
   }
 
   // El receptor acepta: aviso al emisor. La solicitud queda atendida para el receptor y los
@@ -276,18 +286,17 @@ export class NotificationsService {
   // recibirá el de su tarea nueva la próxima vez que consulte sus avisos)
   async swapAccepted(swap: SwapNotice) {
     const { from_assignment: ofrecida, to_assignment: pedida } = swap;
-    await this.sinInterrumpir('avisar del intercambio aceptado', () =>
-      this.prisma.$transaction([
-        this.prisma.notification.create({
-          data: {
-            user_id: ofrecida.user.id,
-            apartment_id: ofrecida.task.apartment_id,
-            type: NotificationType.swap_accepted,
-            title: 'Intercambio aceptado',
-            body: `${pedida.user.full_name} ha aceptado el intercambio: ahora te toca «${pedida.task.title}» (${franja(pedida)}) en lugar de «${ofrecida.task.title}».`,
-            reference_id: swap.id,
-          },
-        }),
+    await this.sinInterrumpir('avisar del intercambio aceptado', async () => {
+      const aviso = {
+        user_id: ofrecida.user.id,
+        apartment_id: ofrecida.task.apartment_id,
+        type: NotificationType.swap_accepted,
+        title: 'Intercambio aceptado',
+        body: `${pedida.user.full_name} ha aceptado el intercambio: ahora te toca «${pedida.task.title}» (${franja(pedida)}) en lugar de «${ofrecida.task.title}».`,
+        reference_id: swap.id,
+      };
+      await this.prisma.$transaction([
+        this.prisma.notification.create({ data: aviso }),
         this.solicitudAtendida(swap),
         this.prisma.notification.deleteMany({
           where: {
@@ -295,29 +304,30 @@ export class NotificationsService {
             assignment_id: { in: [ofrecida.id, pedida.id] },
           },
         }),
-      ]),
-    );
+      ]);
+      this.anunciar([aviso]);
+    });
   }
 
   // El receptor rechaza: aviso al emisor. La petición se borra, así que el aviso lleva a la
   // tarea que ofrecía, que sigue siendo suya
   async swapRejected(swap: SwapNotice) {
     const { from_assignment: ofrecida, to_assignment: pedida } = swap;
-    await this.sinInterrumpir('avisar del intercambio rechazado', () =>
-      this.prisma.$transaction([
-        this.prisma.notification.create({
-          data: {
-            user_id: ofrecida.user.id,
-            apartment_id: ofrecida.task.apartment_id,
-            type: NotificationType.swap_rejected,
-            title: 'Intercambio rechazado',
-            body: `${pedida.user.full_name} ha rechazado cambiar su «${pedida.task.title}» por tu «${ofrecida.task.title}». Tu tarea sigue siendo tuya.`,
-            reference_id: ofrecida.task.id,
-          },
-        }),
+    await this.sinInterrumpir('avisar del intercambio rechazado', async () => {
+      const aviso = {
+        user_id: ofrecida.user.id,
+        apartment_id: ofrecida.task.apartment_id,
+        type: NotificationType.swap_rejected,
+        title: 'Intercambio rechazado',
+        body: `${pedida.user.full_name} ha rechazado cambiar su «${pedida.task.title}» por tu «${ofrecida.task.title}». Tu tarea sigue siendo tuya.`,
+        reference_id: ofrecida.task.id,
+      };
+      await this.prisma.$transaction([
+        this.prisma.notification.create({ data: aviso }),
         this.solicitudAtendida(swap),
-      ]),
-    );
+      ]);
+      this.anunciar([aviso]);
+    });
   }
 
   // El emisor cancela su petición: el aviso que recibió el compañero deja de tener sentido
@@ -345,16 +355,16 @@ export class NotificationsService {
 
     await this.sinInterrumpir('avisar del gasto nuevo', async () => {
       const nombre = await this.nombreDe(destinatarios[0].from_user_id);
-      await this.prisma.notification.createMany({
-        data: destinatarios.map((movimiento) => ({
-          user_id: movimiento.to_user_id,
-          apartment_id: movimiento.apartment_id,
-          type: NotificationType.expense_added,
-          title: 'Aviso de cobro',
-          body: `${nombre} solicita ${euros(movimiento.amount)} por ${queGasto(movimiento)}.`,
-          reference_id: movimiento.id,
-        })),
-      });
+      const avisos = destinatarios.map((movimiento) => ({
+        user_id: movimiento.to_user_id,
+        apartment_id: movimiento.apartment_id,
+        type: NotificationType.expense_added,
+        title: 'Aviso de cobro',
+        body: `${nombre} solicita ${euros(movimiento.amount)} por ${queGasto(movimiento)}.`,
+        reference_id: movimiento.id,
+      }));
+      await this.prisma.notification.createMany({ data: avisos });
+      this.anunciar(avisos);
     });
   }
 
@@ -390,16 +400,16 @@ export class NotificationsService {
 
     await this.sinInterrumpir('avisar del gasto modificado', async () => {
       const nombre = await this.nombreDe(despues.from_user_id);
-      await this.prisma.notification.create({
-        data: {
-          user_id: despues.to_user_id,
-          apartment_id: despues.apartment_id,
-          type: NotificationType.expense_updated,
-          title: 'Gasto modificado',
-          body: `${nombre} ha cambiado ${queGasto(despues)}: ahora te toca pagar ${euros(despues.amount)}.`,
-          reference_id: despues.id,
-        },
-      });
+      const aviso = {
+        user_id: despues.to_user_id,
+        apartment_id: despues.apartment_id,
+        type: NotificationType.expense_updated,
+        title: 'Gasto modificado',
+        body: `${nombre} ha cambiado ${queGasto(despues)}: ahora te toca pagar ${euros(despues.amount)}.`,
+        reference_id: despues.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
     });
   }
 
@@ -407,16 +417,16 @@ export class NotificationsService {
   async expenseDeleted(borrado: MoneyNotice) {
     await this.sinInterrumpir('avisar del gasto eliminado', async () => {
       const nombre = await this.nombreDe(borrado.from_user_id);
-      await this.prisma.notification.create({
-        data: {
-          user_id: borrado.to_user_id,
-          apartment_id: borrado.apartment_id,
-          type: NotificationType.expense_deleted,
-          title: 'Gasto eliminado',
-          body: `${nombre} ha eliminado ${queGasto(borrado)} (${euros(borrado.amount)}). Ya no le debes ese importe.`,
-          reference_id: borrado.id,
-        },
-      });
+      const aviso = {
+        user_id: borrado.to_user_id,
+        apartment_id: borrado.apartment_id,
+        type: NotificationType.expense_deleted,
+        title: 'Gasto eliminado',
+        body: `${nombre} ha eliminado ${queGasto(borrado)} (${euros(borrado.amount)}). Ya no le debes ese importe.`,
+        reference_id: borrado.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
     });
   }
 
@@ -437,16 +447,16 @@ export class NotificationsService {
   async paymentMarked(pago: MoneyNotice) {
     await this.sinInterrumpir('avisar del pago marcado', async () => {
       const nombre = await this.nombreDe(pago.from_user_id);
-      await this.prisma.notification.create({
-        data: {
-          user_id: pago.to_user_id,
-          apartment_id: pago.apartment_id,
-          type: NotificationType.payment_marked,
-          title: 'Pago pendiente de confirmar',
-          body: `${nombre} dice que te ha pagado ${euros(pago.amount)}. Confírmalo en Saldar deudas.`,
-          reference_id: pago.id,
-        },
-      });
+      const aviso = {
+        user_id: pago.to_user_id,
+        apartment_id: pago.apartment_id,
+        type: NotificationType.payment_marked,
+        title: 'Pago pendiente de confirmar',
+        body: `${nombre} dice que te ha pagado ${euros(pago.amount)}. Confírmalo en Saldar deudas.`,
+        reference_id: pago.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
     });
   }
 
@@ -455,19 +465,19 @@ export class NotificationsService {
   async paymentConfirmed(pago: MoneyNotice) {
     await this.sinInterrumpir('avisar del pago confirmado', async () => {
       const nombre = await this.nombreDe(pago.to_user_id);
+      const aviso = {
+        user_id: pago.from_user_id,
+        apartment_id: pago.apartment_id,
+        type: NotificationType.payment_confirmed,
+        title: 'Pago confirmado',
+        body: `${nombre} ha confirmado tu pago de ${euros(pago.amount)}.`,
+        reference_id: pago.id,
+      };
       await this.prisma.$transaction([
-        this.prisma.notification.create({
-          data: {
-            user_id: pago.from_user_id,
-            apartment_id: pago.apartment_id,
-            type: NotificationType.payment_confirmed,
-            title: 'Pago confirmado',
-            body: `${nombre} ha confirmado tu pago de ${euros(pago.amount)}.`,
-            reference_id: pago.id,
-          },
-        }),
+        this.prisma.notification.create({ data: aviso }),
         this.pagoAtendido(pago),
       ]);
+      this.anunciar([aviso]);
     });
   }
 
@@ -475,23 +485,41 @@ export class NotificationsService {
   async paymentRejected(pago: MoneyNotice) {
     await this.sinInterrumpir('avisar del pago rechazado', async () => {
       const nombre = await this.nombreDe(pago.to_user_id);
+      const aviso = {
+        user_id: pago.from_user_id,
+        apartment_id: pago.apartment_id,
+        type: NotificationType.payment_rejected,
+        title: 'Pago rechazado',
+        body: `${nombre} dice que no le ha llegado tu pago de ${euros(pago.amount)}. La deuda sigue pendiente.`,
+        reference_id: pago.id,
+      };
       await this.prisma.$transaction([
-        this.prisma.notification.create({
-          data: {
-            user_id: pago.from_user_id,
-            apartment_id: pago.apartment_id,
-            type: NotificationType.payment_rejected,
-            title: 'Pago rechazado',
-            body: `${nombre} dice que no le ha llegado tu pago de ${euros(pago.amount)}. La deuda sigue pendiente.`,
-            reference_id: pago.id,
-          },
-        }),
+        this.prisma.notification.create({ data: aviso }),
         this.pagoAtendido(pago),
       ]);
+      this.anunciar([aviso]);
     });
   }
 
   // ─── helpers ────────────────────────────────────────────────────────────────────────────
+
+  // Anuncia los avisos recién guardados para que PushListener los mande al móvil. Va siempre
+  // después de guardar, nunca antes: no sale ninguna push de un aviso que no existe
+  private anunciar(avisos: AvisoCreado[]) {
+    if (avisos.length === 0) return;
+    this.events.emit(
+      AVISOS_CREADOS,
+      new AvisosCreados(
+        avisos.map(({ user_id, type, title, body, reference_id }) => ({
+          user_id,
+          type,
+          title,
+          body,
+          reference_id,
+        })),
+      ),
+    );
+  }
 
   private async nombreDe(userId: string) {
     const usuario = await this.prisma.user.findUnique({

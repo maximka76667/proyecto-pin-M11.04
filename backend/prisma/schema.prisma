@@ -33,6 +33,7 @@ model User {
   swaps_sent                 TaskSwapRequest[]         @relation("SwapFromUser")
   swaps_received             TaskSwapRequest[]         @relation("SwapToUser")
   notifications              Notification[]
+  push_tokens                PushToken[]
   task_points                TaskPoints[]
 }
 
@@ -54,6 +55,19 @@ model PasswordResetCode {
   code_hash  String
   expires_at DateTime
   attempts   Int      @default(0)
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
+// Token de Expo de cada móvil donde el usuario ha iniciado sesión: a él se mandan las
+// notificaciones push. `token` es único porque un móvil tiene un solo token; si otra cuenta
+// inicia sesión en el mismo móvil, la fila pasa a esa cuenta
+model PushToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  token      String   @unique
   created_at DateTime @default(now())
   user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 

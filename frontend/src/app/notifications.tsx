@@ -9,6 +9,7 @@ import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { ApiError, errorMessage } from '@/lib/api';
 import {
+  destination,
   fetchNotifications,
   markNotificationRead,
   type AppNotification,
@@ -70,18 +71,6 @@ const emptyStates: Record<
 };
 // Por si el backend añade un tipo que esta versión de la app todavía no conoce
 const defaultLook: Look = { icon: 'bell-outline', tint: Palette.segment, color: Palette.text };
-
-// A dónde lleva cada aviso al tocarlo. Los de intercambio abren la pantalla de intercambios,
-// donde se acepta o se rechaza; el de rechazo abre la tarea que se ofrecía, porque la petición
-// ya no existe. Los de tareas abren el detalle de la tarea. Los de gastos abren la lista de
-// gastos, y los de pagos, Saldar deudas, donde se confirma o se rechaza
-function destination(item: AppNotification): Href | null {
-  if (item.type === 'swap_requested' || item.type === 'swap_accepted') return '/chores/swaps';
-  if (item.type.startsWith('expense_')) return '/transactions';
-  if (item.type.startsWith('payment_')) return '/transactions/settle-up';
-  if (!item.reference_id) return null;
-  return { pathname: '/chores/details', params: { taskId: item.reference_id } };
-}
 
 // "hace 5 min", "hace 2 h", "ayer"… y, a partir de una semana, la fecha
 function timeAgo(createdAt: string, now: number) {
@@ -297,12 +286,15 @@ function NotificationCard({
         accessibilityRole="button"
         accessibilityLabel={`${item.is_read ? 'Leída' : 'Sin leer'}. ${item.title}. ${item.body}`}
         style={({ pressed }) => [styles.cardMain, pressed && styles.pressed]}>
-        <View style={[styles.iconTile, { backgroundColor: look.tint }, item.is_read && styles.dimmed]}>
+        <View
+          style={[styles.iconTile, { backgroundColor: look.tint }, item.is_read && styles.dimmed]}>
           <MaterialCommunityIcons name={look.icon} size={20} color={look.color} />
         </View>
         <View style={[styles.cardText, item.is_read && styles.dimmed]}>
           <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, !item.is_read && styles.cardTitleUnread]} numberOfLines={1}>
+            <Text
+              style={[styles.cardTitle, !item.is_read && styles.cardTitleUnread]}
+              numberOfLines={1}>
               {item.title}
             </Text>
             {!item.is_read ? <View style={styles.dot} /> : null}
@@ -339,7 +331,12 @@ const styles = StyleSheet.create({
   },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 18, fontWeight: '800', color: Palette.text },
-  segmented: { flexDirection: 'row', padding: 3, borderRadius: Radius.input, backgroundColor: Palette.segment },
+  segmented: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.segment,
+  },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 9 },
   segmentSelected: { borderRadius: 9, backgroundColor: Palette.surface },
   segmentText: { fontSize: 13, fontWeight: '600', color: Palette.textSecondary },
@@ -367,7 +364,13 @@ const styles = StyleSheet.create({
   cardUnread: { borderColor: Palette.primary, backgroundColor: '#FFFFFF' },
   cardRead: { borderColor: Palette.border, backgroundColor: Palette.surface },
   cardMain: { flexDirection: 'row', gap: 12, padding: 16 },
-  iconTile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  iconTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cardText: { flex: 1, gap: 4 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardTitle: { flex: 1, fontSize: 15, fontWeight: '600', color: Palette.text },

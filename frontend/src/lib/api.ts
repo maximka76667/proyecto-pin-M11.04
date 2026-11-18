@@ -10,7 +10,8 @@ import {
 } from '@/lib/auth-storage';
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
-export const API_URL = (configuredApiUrl || 'http://localhost:3000').replace(/\/+$/, '');
+//export const API_URL = (configuredApiUrl || 'http://localhost:3000').replace(/\/+$/, '');
+export const API_URL = (configuredApiUrl || 'http://192.168.137.1:3000').replace(/\/+$/, '');
 
 export type Apartment = {
   id: string;

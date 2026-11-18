@@ -13,6 +13,7 @@ import { PointsModule } from './points/points.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { AuthModule } from './auth/auth.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { PushModule } from './push/push.module';
 import { AuthMiddleware } from './auth/auth.middleware';
 import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 
@@ -23,7 +24,8 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
       envFilePath: '.env',
     }),
     // Eventos de dominio (patrón Observer): las tareas y los gastos los emiten y
-    // NotificationsListener crea los avisos
+    // NotificationsListener crea los avisos; NotificationsService los anuncia y
+    // PushListener los manda al móvil
     EventEmitterModule.forRoot(),
     PrismaModule,
     UsersModule,
@@ -35,6 +37,7 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
     AvailabilityModule,
     AuthModule,
     NotificationsModule,
+    PushModule,
   ],
   controllers: [AppController],
   providers: [AppService],
