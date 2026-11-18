@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ApartmentsModule } from './apartments/apartments.module';
@@ -11,6 +12,8 @@ import { TasksModule } from './tasks/tasks.module';
 import { PointsModule } from './points/points.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { AuthModule } from './auth/auth.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { PushModule } from './push/push.module';
 import { AuthMiddleware } from './auth/auth.middleware';
 import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 
@@ -20,6 +23,10 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    // Eventos de dominio (patrón Observer): las tareas y los gastos los emiten y
+    // NotificationsListener crea los avisos; NotificationsService los anuncia y
+    // PushListener los manda al móvil
+    EventEmitterModule.forRoot(),
     PrismaModule,
     UsersModule,
     TransactionsModule,
@@ -29,6 +36,8 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
     ScannerModule,
     AvailabilityModule,
     AuthModule,
+    NotificationsModule,
+    PushModule,
   ],
   controllers: [AppController],
   providers: [AppService],

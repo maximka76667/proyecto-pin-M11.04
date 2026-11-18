@@ -9,6 +9,7 @@ import { MD3DarkTheme, MD3LightTheme, PaperProvider } from 'react-native-paper';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { BottomNav } from '@/components/bottom-nav';
 import { ApiError, getCurrentUser, hasAuthToken, loadAuthToken } from '@/lib/api';
+import { escucharToques, registrarPush } from '@/lib/push';
 import { Palette } from '@/constants/onboarding';
 
 SplashScreen.preventAutoHideAsync();
@@ -47,6 +48,9 @@ export default function RootLayout() {
     void getCurrentUser()
       .then((user) => {
         if (!active) return;
+        // Sesión válida (al abrir la app o recién iniciada): este móvil registra su token para
+        // las notificaciones push. Solo lo intenta una vez por sesión
+        void registrarPush();
         const hasHousehold = user.user_apartments.length > 0;
         if (!hasHousehold && !publicPaths.includes(pathname)) {
           router.replace('/' as Href);
@@ -64,6 +68,13 @@ export default function RootLayout() {
 
     return () => { active = false; };
   }, [pathname, tokenLoaded]);
+
+  // Tocar una notificación push abre su pantalla. Espera a que el Stack esté montado, porque
+  // antes no se puede navegar
+  useEffect(() => {
+    if (!routeChecked) return;
+    return escucharToques();
+  }, [routeChecked]);
 
   return (
     <PaperProvider theme={colorScheme === 'dark' ? MD3DarkTheme : MD3LightTheme}>

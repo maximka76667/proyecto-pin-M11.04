@@ -1,0 +1,696 @@
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  AssignmentStatus,
+  NotificationType,
+  Prisma,
+  TransactionCategory,
+} from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import type {
+  SwapAssignment,
+  SwapNotice,
+  TaskAssignedNotice,
+} from '../tasks/task.events';
+import type {
+  MoneyNotice,
+  ReceiptNotice,
+} from '../transactions/expense.events';
+import {
+  AVISOS_CREADOS,
+  AvisosCreados,
+  type AvisoCreado,
+} from './notification.events';
+
+// Lo que la app recibe de cada aviso. `reference_id` es lo que se abre al tocarlo (PA 2250-1):
+//   task_assigned, task_due_soon   → la tarea
+//   swap_requested, swap_accepted  → la petición de intercambio (pantalla de intercambios)
+//   swap_rejected                  → la tarea que ofrecía el emisor (la petición ya se borró)
+//   expense_*, payment_*           → el movimiento de dinero (Transaction), o el ticket (Receipt)
+//                                    en los avisos de un ticket entero; la app abre la lista de
+//                                    gastos o la de saldar deudas, según el tipo (UT1018)
+const AVISO_SELECT = {
+  id: true,
+  type: true,
+  title: true,
+  body: true,
+  reference_id: true,
+  is_read: true,
+  created_at: true,
+} satisfies Prisma.NotificationSelect;
+
+// Como mucho se devuelven los avisos más recientes
+const MAX_AVISOS = 100;
+
+// Filtros del panel: «Tareas» (UT1019) y «Gastos» (UT1018). Sin filtro salen todos
+export type NotificationCategory = 'tasks' | 'finances';
+
+const TIPOS_POR_CATEGORIA: Record<NotificationCategory, NotificationType[]> = {
+  tasks: [
+    NotificationType.task_assigned,
+    NotificationType.task_due_soon,
+    NotificationType.swap_requested,
+    NotificationType.swap_accepted,
+    NotificationType.swap_rejected,
+  ],
+  finances: [
+    NotificationType.expense_added,
+    NotificationType.expense_updated,
+    NotificationType.expense_deleted,
+    NotificationType.payment_marked,
+    NotificationType.payment_confirmed,
+    NotificationType.payment_rejected,
+  ],
+};
+
+const FORMATO_EUROS = new Intl.NumberFormat('es-ES', {
+  style: 'currency',
+  currency: 'EUR',
+});
+const aNumero = (importe: MoneyNotice['amount']) =>
+  Number(typeof importe === 'object' ? importe.toFixed() : importe);
+const euros = (importe: MoneyNotice['amount']) =>
+  FORMATO_EUROS.format(aNumero(importe)); // "15,00 €"
+
+// Los mismos nombres de categoría que enseña la app, para cuando el gasto no tiene concepto
+const GASTO_POR_CATEGORIA: Partial<Record<TransactionCategory, string>> = {
+  supplies: 'la compra',
+  utilities: 'los suministros',
+  maintenance: 'el hogar',
+  entertainment: 'ocio',
+};
+
+// "«Cena del viernes»" si tiene concepto; si no, "la compra", "los suministros"…
+const queGasto = (movimiento: MoneyNotice) => {
+  const concepto = movimiento.concept?.trim();
+  if (concepto) return `«${concepto}»`;
+  return GASTO_POR_CATEGORIA[movimiento.category] ?? 'un gasto';
+};
+
+// Las deudas de un ticket (una por producto y deudor) sumadas por deudor. Sin concepto, el
+// aviso dice «la compra», «los suministros»… según la categoría del ticket
+const porDeudor = (ticket: ReceiptNotice, movimientos: MoneyNotice[]) => {
+  const centimos = new Map<string, number>();
+  for (const movimiento of movimientos) {
+    centimos.set(
+      movimiento.to_user_id,
+      (centimos.get(movimiento.to_user_id) ?? 0) +
+        Math.round(aNumero(movimiento.amount) * 100),
+    );
+  }
+  return [...centimos].map(
+    ([deudorId, total]): MoneyNotice => ({
+      id: ticket.id,
+      apartment_id: ticket.apartment_id,
+      from_user_id: ticket.payer_id,
+      to_user_id: deudorId,
+      amount: (total / 100).toFixed(2),
+      concept: null,
+      category: ticket.category,
+    }),
+  );
+};
+
+// due_date se guarda a medianoche UTC: se formatea en UTC para que no cambie de día
+const FORMATO_DIA = new Intl.DateTimeFormat('es-ES', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+});
+const diaCorto = (fecha: Date) => FORMATO_DIA.format(fecha); // "12 nov"
+
+const aMinutos = (hora: string) => {
+  const [horas, minutos] = hora.split(':').map(Number);
+  return horas * 60 + minutos;
+};
+const aHora = (minutos: number) =>
+  `${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`;
+
+// Minuto del día en que empieza una asignación: su hora si la tiene; si no, el minuto heredado
+const minutoDeInicio = (asignacion: { due_time: string | null; start_minute: number }) =>
+  asignacion.due_time ? aMinutos(asignacion.due_time) : asignacion.start_minute;
+
+// "12 nov · 18:00"
+const franja = (asignacion: SwapAssignment) =>
+  `${diaCorto(asignacion.due_date)} · ${aHora(minutoDeInicio(asignacion))}`;
+
+@Injectable()
+export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    // Para anunciar los avisos guardados (AVISOS_CREADOS); hoy los escucha PushListener
+    private readonly events: EventEmitter2,
+  ) {}
+
+  // PA 2248-1 y PA 2243-1: los avisos del usuario en su piso, del más reciente al más antiguo.
+  // `category` deja solo los de tareas o solo los de gastos
+  async list(
+    apartmentId: string,
+    userId: string,
+    withReminders = true,
+    category?: NotificationCategory,
+  ) {
+    await this.asegurarMiembro(apartmentId, userId);
+    if (withReminders && category !== 'finances') {
+      await this.crearRecordatorios(apartmentId, userId);
+    }
+
+    return this.prisma.notification.findMany({
+      where: this.delUsuario(apartmentId, userId, withReminders, category),
+      select: AVISO_SELECT,
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: MAX_AVISOS,
+    });
+  }
+
+  // Contador de avisos sin leer que se enseña en el perfil y en la barra de pestañas
+  async unreadCount(
+    apartmentId: string,
+    userId: string,
+    withReminders = true,
+    category?: NotificationCategory,
+  ) {
+    await this.asegurarMiembro(apartmentId, userId);
+    if (withReminders && category !== 'finances') {
+      await this.crearRecordatorios(apartmentId, userId);
+    }
+
+    const count = await this.prisma.notification.count({
+      where: {
+        AND: [
+          this.delUsuario(apartmentId, userId, withReminders, category),
+          { is_read: false },
+        ],
+      },
+    });
+    return { count };
+  }
+
+  // Marca un aviso como leído. El id llega del cliente, así que antes se comprueba en la base
+  // de datos que el aviso es de quien hace la petición: si es de otra persona, 403 y no se toca
+  async markAsRead(id: string, userId: string) {
+    const aviso = await this.prisma.notification.findUnique({
+      where: { id },
+      select: { user_id: true },
+    });
+    if (!aviso) {
+      throw new NotFoundException('Notificación no encontrada');
+    }
+    if (aviso.user_id !== userId) {
+      throw new ForbiddenException(
+        'No puedes modificar una notificación que no es tuya',
+      );
+    }
+
+    try {
+      return await this.prisma.notification.update({
+        where: { id },
+        data: { is_read: true },
+        select: AVISO_SELECT,
+      });
+    } catch (error) {
+      // El aviso se ha borrado entre la comprobación y la escritura
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Notificación no encontrada');
+      }
+      throw error;
+    }
+  }
+
+  // ─── Avisos que crean las tareas y los intercambios ─────────────────────────────────────
+
+  // Un compañero asigna una tarea: aviso a cada persona asignada, menos a quien la asigna
+  async taskAssigned(aviso: TaskAssignedNotice) {
+    const destinatarios = aviso.assignments.filter(
+      (asignacion) => asignacion.user_id !== aviso.assignerId,
+    );
+    if (destinatarios.length === 0) return;
+
+    await this.sinInterrumpir('avisar de la tarea asignada', async () => {
+      const [tarea, quienAsigna] = await Promise.all([
+        this.prisma.task.findUnique({
+          where: { id: aviso.taskId },
+          select: { title: true },
+        }),
+        this.prisma.user.findUnique({
+          where: { id: aviso.assignerId },
+          select: { full_name: true },
+        }),
+      ]);
+      if (!tarea) return;
+
+      const nombre = quienAsigna?.full_name ?? 'Un compañero';
+      const avisos = destinatarios.map((asignacion) => ({
+        user_id: asignacion.user_id,
+        apartment_id: aviso.apartmentId,
+        type: NotificationType.task_assigned,
+        title: 'Nueva tarea asignada',
+        body: `${nombre} te ha asignado «${tarea.title}» para el ${diaCorto(aviso.dueDate)} a las ${aviso.dueTime}.`,
+        reference_id: aviso.taskId,
+        assignment_id: asignacion.id,
+      }));
+      await this.prisma.notification.createMany({ data: avisos });
+      this.anunciar(avisos);
+    });
+  }
+
+  // Un compañero pide un intercambio: aviso a quien tiene que responder
+  async swapRequested(swap: SwapNotice) {
+    const { from_assignment: ofrecida, to_assignment: pedida } = swap;
+    await this.sinInterrumpir('avisar de la solicitud de intercambio', async () => {
+      const aviso = {
+        user_id: pedida.user.id,
+        apartment_id: pedida.task.apartment_id,
+        type: NotificationType.swap_requested,
+        title: 'Solicitud de intercambio',
+        body: `${ofrecida.user.full_name} te propone cambiar su «${ofrecida.task.title}» (${franja(ofrecida)}) por tu «${pedida.task.title}» (${franja(pedida)}).`,
+        reference_id: swap.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
+    });
+  }
+
+  // El receptor acepta: aviso al emisor. La solicitud queda atendida para el receptor y los
+  // recordatorios de las dos tareas se retiran, porque han cambiado de dueño (cada uno
+  // recibirá el de su tarea nueva la próxima vez que consulte sus avisos)
+  async swapAccepted(swap: SwapNotice) {
+    const { from_assignment: ofrecida, to_assignment: pedida } = swap;
+    await this.sinInterrumpir('avisar del intercambio aceptado', async () => {
+      const aviso = {
+        user_id: ofrecida.user.id,
+        apartment_id: ofrecida.task.apartment_id,
+        type: NotificationType.swap_accepted,
+        title: 'Intercambio aceptado',
+        body: `${pedida.user.full_name} ha aceptado el intercambio: ahora te toca «${pedida.task.title}» (${franja(pedida)}) en lugar de «${ofrecida.task.title}».`,
+        reference_id: swap.id,
+      };
+      await this.prisma.$transaction([
+        this.prisma.notification.create({ data: aviso }),
+        this.solicitudAtendida(swap),
+        this.prisma.notification.deleteMany({
+          where: {
+            type: NotificationType.task_due_soon,
+            assignment_id: { in: [ofrecida.id, pedida.id] },
+          },
+        }),
+      ]);
+      this.anunciar([aviso]);
+    });
+  }
+
+  // El receptor rechaza: aviso al emisor. La petición se borra, así que el aviso lleva a la
+  // tarea que ofrecía, que sigue siendo suya
+  async swapRejected(swap: SwapNotice) {
+    const { from_assignment: ofrecida, to_assignment: pedida } = swap;
+    await this.sinInterrumpir('avisar del intercambio rechazado', async () => {
+      const aviso = {
+        user_id: ofrecida.user.id,
+        apartment_id: ofrecida.task.apartment_id,
+        type: NotificationType.swap_rejected,
+        title: 'Intercambio rechazado',
+        body: `${pedida.user.full_name} ha rechazado cambiar su «${pedida.task.title}» por tu «${ofrecida.task.title}». Tu tarea sigue siendo tuya.`,
+        reference_id: ofrecida.task.id,
+      };
+      await this.prisma.$transaction([
+        this.prisma.notification.create({ data: aviso }),
+        this.solicitudAtendida(swap),
+      ]);
+      this.anunciar([aviso]);
+    });
+  }
+
+  // El emisor cancela su petición: el aviso que recibió el compañero deja de tener sentido
+  async swapCancelled(swapRequestId: string) {
+    await this.sinInterrumpir('retirar el aviso de la solicitud cancelada', () =>
+      this.prisma.notification.deleteMany({
+        where: {
+          type: NotificationType.swap_requested,
+          reference_id: swapRequestId,
+        },
+      }),
+    );
+  }
+
+  // ─── Avisos que crean los gastos (UT1018) ───────────────────────────────────────────────
+
+  // Gasto nuevo, desde el formulario o desde el escáner de tickets: un «Aviso de cobro» a cada
+  // deudor con su parte. Cada fila es la parte de un deudor; todas son del mismo pagador.
+  // Nadie recibe aviso de un gasto que ha creado él mismo
+  async expenseAdded(movimientos: MoneyNotice[], actorId: string) {
+    const destinatarios = movimientos.filter(
+      (movimiento) => movimiento.to_user_id !== actorId,
+    );
+    if (destinatarios.length === 0) return;
+
+    await this.sinInterrumpir('avisar del gasto nuevo', async () => {
+      const nombre = await this.nombreDe(destinatarios[0].from_user_id);
+      const avisos = destinatarios.map((movimiento) => ({
+        user_id: movimiento.to_user_id,
+        apartment_id: movimiento.apartment_id,
+        type: NotificationType.expense_added,
+        title: 'Aviso de cobro',
+        body: `${nombre} solicita ${euros(movimiento.amount)} por ${queGasto(movimiento)}.`,
+        reference_id: movimiento.id,
+      }));
+      await this.prisma.notification.createMany({ data: avisos });
+      this.anunciar(avisos);
+    });
+  }
+
+  // Se edita un gasto o un producto de un ticket: un aviso por persona afectada. Quien seguía
+  // en el gasto recibe «Gasto modificado» si cambia lo que paga, el concepto o la categoría;
+  // quien entra nuevo, un «Aviso de cobro»; y a quien se saca del gasto, «Gasto eliminado»
+  async expenseEdited(antes: MoneyNotice[], despues: MoneyNotice[], actorId: string) {
+    const previas = new Map(antes.map((deuda) => [deuda.to_user_id, deuda]));
+    const nuevas: MoneyNotice[] = [];
+    for (const deuda of despues) {
+      const previa = previas.get(deuda.to_user_id);
+      if (previa) {
+        await this.expenseUpdated(previa, deuda);
+        previas.delete(deuda.to_user_id);
+      } else {
+        nuevas.push(deuda);
+      }
+    }
+    await this.expenseAdded(nuevas, actorId);
+    for (const fuera of previas.values()) {
+      await this.expenseDeleted(fuera);
+    }
+  }
+
+  // El pagador edita el gasto: aviso al deudor de esa parte, solo si cambia algo que le
+  // importa (importe, concepto o categoría; la fecha sola no avisa)
+  async expenseUpdated(antes: MoneyNotice, despues: MoneyNotice) {
+    const cambia =
+      Number(antes.amount) !== Number(despues.amount) ||
+      (antes.concept ?? '') !== (despues.concept ?? '') ||
+      antes.category !== despues.category;
+    if (!cambia) return;
+
+    await this.sinInterrumpir('avisar del gasto modificado', async () => {
+      const nombre = await this.nombreDe(despues.from_user_id);
+      const aviso = {
+        user_id: despues.to_user_id,
+        apartment_id: despues.apartment_id,
+        type: NotificationType.expense_updated,
+        title: 'Gasto modificado',
+        body: `${nombre} ha cambiado ${queGasto(despues)}: ahora te toca pagar ${euros(despues.amount)}.`,
+        reference_id: despues.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
+    });
+  }
+
+  // El pagador borra el gasto: aviso al deudor de esa parte
+  async expenseDeleted(borrado: MoneyNotice) {
+    await this.sinInterrumpir('avisar del gasto eliminado', async () => {
+      const nombre = await this.nombreDe(borrado.from_user_id);
+      const aviso = {
+        user_id: borrado.to_user_id,
+        apartment_id: borrado.apartment_id,
+        type: NotificationType.expense_deleted,
+        title: 'Gasto eliminado',
+        body: `${nombre} ha eliminado ${queGasto(borrado)} (${euros(borrado.amount)}). Ya no le debes ese importe.`,
+        reference_id: borrado.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
+    });
+  }
+
+  // Ticket escaneado nuevo: un solo «Aviso de cobro» por persona con su parte de todo el
+  // ticket, aunque el ticket guarde una deuda por producto
+  async receiptAdded(ticket: ReceiptNotice, movimientos: MoneyNotice[], actorId: string) {
+    await this.expenseAdded(porDeudor(ticket, movimientos), actorId);
+  }
+
+  // Se borra el ticket entero: un solo «Gasto eliminado» por persona con lo que ya no debe
+  async receiptDeleted(ticket: ReceiptNotice, movimientos: MoneyNotice[]) {
+    for (const parte of porDeudor(ticket, movimientos)) {
+      await this.expenseDeleted(parte);
+    }
+  }
+
+  // El deudor marca la deuda como pagada: aviso al acreedor, que tiene que confirmarlo
+  async paymentMarked(pago: MoneyNotice) {
+    await this.sinInterrumpir('avisar del pago marcado', async () => {
+      const nombre = await this.nombreDe(pago.from_user_id);
+      const aviso = {
+        user_id: pago.to_user_id,
+        apartment_id: pago.apartment_id,
+        type: NotificationType.payment_marked,
+        title: 'Pago pendiente de confirmar',
+        body: `${nombre} dice que te ha pagado ${euros(pago.amount)}. Confírmalo en Saldar deudas.`,
+        reference_id: pago.id,
+      };
+      await this.prisma.notification.create({ data: aviso });
+      this.anunciar([aviso]);
+    });
+  }
+
+  // El acreedor confirma el pago: aviso al deudor, y el aviso que tenía el acreedor queda
+  // atendido aunque lo haya confirmado desde Saldar deudas y no desde el aviso
+  async paymentConfirmed(pago: MoneyNotice) {
+    await this.sinInterrumpir('avisar del pago confirmado', async () => {
+      const nombre = await this.nombreDe(pago.to_user_id);
+      const aviso = {
+        user_id: pago.from_user_id,
+        apartment_id: pago.apartment_id,
+        type: NotificationType.payment_confirmed,
+        title: 'Pago confirmado',
+        body: `${nombre} ha confirmado tu pago de ${euros(pago.amount)}.`,
+        reference_id: pago.id,
+      };
+      await this.prisma.$transaction([
+        this.prisma.notification.create({ data: aviso }),
+        this.pagoAtendido(pago),
+      ]);
+      this.anunciar([aviso]);
+    });
+  }
+
+  // El acreedor dice que no le ha llegado: aviso al deudor. La deuda sigue en pie
+  async paymentRejected(pago: MoneyNotice) {
+    await this.sinInterrumpir('avisar del pago rechazado', async () => {
+      const nombre = await this.nombreDe(pago.to_user_id);
+      const aviso = {
+        user_id: pago.from_user_id,
+        apartment_id: pago.apartment_id,
+        type: NotificationType.payment_rejected,
+        title: 'Pago rechazado',
+        body: `${nombre} dice que no le ha llegado tu pago de ${euros(pago.amount)}. La deuda sigue pendiente.`,
+        reference_id: pago.id,
+      };
+      await this.prisma.$transaction([
+        this.prisma.notification.create({ data: aviso }),
+        this.pagoAtendido(pago),
+      ]);
+      this.anunciar([aviso]);
+    });
+  }
+
+  // ─── helpers ────────────────────────────────────────────────────────────────────────────
+
+  // Anuncia los avisos recién guardados para que PushListener los mande al móvil. Va siempre
+  // después de guardar, nunca antes: no sale ninguna push de un aviso que no existe
+  private anunciar(avisos: AvisoCreado[]) {
+    if (avisos.length === 0) return;
+    this.events.emit(
+      AVISOS_CREADOS,
+      new AvisosCreados(
+        avisos.map(({ user_id, type, title, body, reference_id }) => ({
+          user_id,
+          type,
+          title,
+          body,
+          reference_id,
+        })),
+      ),
+    );
+  }
+
+  private async nombreDe(userId: string) {
+    const usuario = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { full_name: true },
+    });
+    return usuario?.full_name ?? 'Un compañero';
+  }
+
+  // El acreedor ya ha respondido al pago: su aviso de «pendiente de confirmar» no puede seguir
+  // como no leído
+  private pagoAtendido(pago: MoneyNotice) {
+    return this.prisma.notification.updateMany({
+      where: {
+        AND: [
+          { user_id: pago.to_user_id },
+          { type: NotificationType.payment_marked },
+          { reference_id: pago.id },
+        ],
+      },
+      data: { is_read: true },
+    });
+  }
+
+  // El receptor ya ha respondido a la petición (aunque lo haya hecho desde la pantalla de
+  // intercambios y no desde el aviso): su aviso de solicitud no puede seguir como pendiente
+  private solicitudAtendida(swap: SwapNotice) {
+    return this.prisma.notification.updateMany({
+      where: {
+        user_id: swap.to_assignment.user.id,
+        type: NotificationType.swap_requested,
+        reference_id: swap.id,
+      },
+      data: { is_read: true },
+    });
+  }
+
+  // Siempre por usuario Y por piso, con un AND explícito (PA 2243-1): un aviso de otra persona
+  // o de otro hogar nunca sale
+  private delUsuario(
+    apartmentId: string,
+    userId: string,
+    withReminders: boolean,
+    category?: NotificationCategory,
+  ): Prisma.NotificationWhereInput {
+    const condiciones: Prisma.NotificationWhereInput[] = [
+      { user_id: userId },
+      { apartment_id: apartmentId },
+    ];
+    if (!withReminders) {
+      condiciones.push({ type: { not: NotificationType.task_due_soon } });
+    }
+    if (category) {
+      condiciones.push({ type: { in: TIPOS_POR_CATEGORIA[category] } });
+    }
+    return { AND: condiciones };
+  }
+
+  private async asegurarMiembro(apartmentId: string, userId: string) {
+    const miembro = await this.prisma.userApartment.findUnique({
+      where: {
+        user_id_apartment_id: { user_id: userId, apartment_id: apartmentId },
+      },
+      select: { user_id: true },
+    });
+
+    if (!miembro) {
+      throw new ForbiddenException('No perteneces a este piso');
+    }
+  }
+
+  // Recordatorios de vencimiento. No hay ningún proceso programado: se crean aquí, al
+  // consultar los avisos, para las tareas del usuario que empiezan en las próximas 24 horas.
+  // La restricción única (user_id, type, assignment_id) junto con skipDuplicates hace que cada
+  // tarea avise una sola vez, aunque lleguen dos consultas a la vez
+  private async crearRecordatorios(apartmentId: string, userId: string) {
+    await this.sinInterrumpir('crear los recordatorios de vencimiento', async () => {
+      const ahora = this.ahoraEnCasa();
+      const asignaciones = await this.prisma.taskAssignment.findMany({
+        where: {
+          user_id: userId,
+          task: { apartment_id: apartmentId },
+          status: {
+            notIn: [AssignmentStatus.completed, AssignmentStatus.rejected],
+          },
+          due_date: {
+            in: [
+              new Date(`${ahora.hoy}T00:00:00.000Z`),
+              new Date(`${ahora.manana}T00:00:00.000Z`),
+            ],
+          },
+        },
+        select: {
+          id: true,
+          due_date: true,
+          due_time: true,
+          start_minute: true,
+          task: { select: { id: true, title: true } },
+        },
+      });
+
+      const recordatorios = asignaciones.flatMap((asignacion) => {
+        const dia = asignacion.due_date.toISOString().slice(0, 10);
+        const inicio = minutoDeInicio(asignacion);
+        // Dentro de las próximas 24 horas: lo que queda de hoy, o mañana hasta esta misma hora
+        const cuando =
+          dia === ahora.hoy && inicio >= ahora.minuto
+            ? 'hoy'
+            : dia === ahora.manana && inicio <= ahora.minuto
+              ? 'mañana'
+              : null;
+        if (!cuando) return [];
+        return [
+          {
+            user_id: userId,
+            apartment_id: apartmentId,
+            type: NotificationType.task_due_soon,
+            title: 'Tarea próxima a vencer',
+            body: `«${asignacion.task.title}» vence ${cuando} a las ${aHora(inicio)}.`,
+            reference_id: asignacion.task.id,
+            assignment_id: asignacion.id,
+          },
+        ];
+      });
+      if (recordatorios.length === 0) return;
+
+      await this.prisma.notification.createMany({
+        data: recordatorios,
+        skipDuplicates: true,
+      });
+    });
+  }
+
+  // Día y minuto actuales en la zona horaria de la casa, la misma que usa el calendario: las
+  // horas de las tareas están en esa hora local
+  private ahoraEnCasa() {
+    const timeZone = process.env.CALENDAR_TIME_ZONE ?? 'Europe/Madrid';
+    const ahora = new Date();
+    const hoy = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(ahora);
+    const partes = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(ahora);
+    const parte = (tipo: string) =>
+      Number(partes.find((p) => p.type === tipo)?.value);
+
+    const manana = new Date(`${hoy}T00:00:00.000Z`);
+    manana.setUTCDate(manana.getUTCDate() + 1);
+
+    return {
+      hoy,
+      manana: manana.toISOString().slice(0, 10),
+      minuto: parte('hour') * 60 + parte('minute'),
+    };
+  }
+
+  // Un aviso que no se puede guardar no debe impedir la acción que lo origina (asignar una
+  // tarea, responder a un intercambio, abrir la lista…): se registra el fallo y se sigue
+  private async sinInterrumpir(accion: string, guardar: () => PromiseLike<unknown>) {
+    try {
+      await guardar();
+    } catch (error) {
+      const motivo = error instanceof Error ? error.message : 'error desconocido';
+      this.logger.warn(`No se ha podido ${accion}: ${motivo}`);
+    }
+  }
+}

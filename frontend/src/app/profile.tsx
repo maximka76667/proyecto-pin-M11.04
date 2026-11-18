@@ -22,13 +22,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { SkeletonRow } from '@/components/skeleton-row';
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
 import { ApiError, api, apiUpload, hasAuthToken } from '@/lib/api';
+import { CHORE_REMINDERS_KEY, fetchUnreadCount } from '@/lib/notifications';
 import { PASSWORD_UPDATED } from '@/lib/password-policy';
 import { logout } from '@/lib/session';
 
 const CARD = '#FFFFFF';
-const CHORE_REMINDERS_KEY = 'room8_chore_reminders';
 
 // Respuesta de GET /users/me
 type Profile = {
@@ -63,6 +64,13 @@ function formatJoinedDate(joinedAt?: string) {
   const d = new Date(joinedAt);
   if (isNaN(d.getTime())) return 'desde sep 2025';
   return `desde ${MESES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// Texto de la fila «Notificaciones»; null mientras no se sabe cuántos avisos hay sin leer
+function unreadSubtitle(unread: number | null) {
+  if (unread === null) return 'Avisos de tareas y gastos';
+  if (unread === 0) return 'Estás al día';
+  return unread === 1 ? 'Tienes 1 aviso sin leer' : `Tienes ${unread} avisos sin leer`;
 }
 
 export default function ProfileScreen() {
@@ -160,6 +168,29 @@ export default function ProfileScreen() {
   }, []);
 
   useFocusEffect(loadProfile);
+
+  // Avisos sin leer de las tareas (UT1019) y los gastos (UT1018) del hogar. Se piden al volver a
+  // esta pantalla y al cambiar el interruptor de recordatorios, que decide si los de
+  // vencimiento cuentan. Del mismo piso que la lista de avisos (APARTMENT_ID), para que el
+  // número coincida con lo que se ve al abrirla
+  const [unread, setUnread] = useState<number | null>(null);
+  const primaryApartmentId = profile?.apartments.length ? APARTMENT_ID : undefined;
+  useFocusEffect(
+    useCallback(() => {
+      if (!primaryApartmentId) return;
+      let active = true;
+      void fetchUnreadCount(primaryApartmentId, choreReminders)
+        .then((count) => {
+          if (active) setUnread(count);
+        })
+        .catch(() => {
+          // Sin el contador la fila sale igual: sigue llevando a la lista de avisos
+        });
+      return () => {
+        active = false;
+      };
+    }, [primaryApartmentId, choreReminders]),
+  );
 
   const dismissNotice = () => {
     setLastNotice(noticeText ?? '');
@@ -336,7 +367,11 @@ export default function ProfileScreen() {
   }
 
   const initial = profile.full_name.trim().charAt(0).toUpperCase() || '?';
-  const primaryApartment = profile.apartments[0];
+  // Un usuario solo ve un hogar: el de la sesión (APARTMENT_ID), el mismo que usan los avisos y
+  // el resto de la app. Ya no se puede cambiar de casa, así que no se listan los demás
+  const primaryApartment =
+    profile.apartments.find((apartment) => apartment.id === APARTMENT_ID) ??
+    profile.apartments[0];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -379,20 +414,31 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        {/* Sección ACTIVIDAD: avisos de las tareas (UT1019) y los gastos (UT1018) del hogar */}
+        {primaryApartment ? (
+          <Section label="Actividad">
+            <Row
+              icon="inbox-outline"
+              tint={Palette.sun}
+              title="Notificaciones"
+              subtitle={unreadSubtitle(unread)}
+              badge={unread ?? 0}
+              onPress={() => router.push('/notifications' as Href)}
+            />
+          </Section>
+        ) : null}
+
         {/* Sección HOGAR */}
         <Section label="Hogar">
-          {profile.apartments.length > 0 ? (
-            profile.apartments.map((apartment) => (
-              <Row
-                key={apartment.id}
-                icon="home-outline"
-                tint={Palette.mint}
-                title={apartment.name}
-                subtitle={`${apartment.members_count} ${
-                  apartment.members_count === 1 ? 'compañero' : 'compañeros'
-                }`}
-              />
-            ))
+          {primaryApartment ? (
+            <Row
+              icon="home-outline"
+              tint={Palette.mint}
+              title={primaryApartment.name}
+              subtitle={`${primaryApartment.members_count} ${
+                primaryApartment.members_count === 1 ? 'compañero' : 'compañeros'
+              }`}
+            />
           ) : (
             <Row
               icon="home-plus-outline"
@@ -641,6 +687,7 @@ function Row({
   titleColor = Palette.text,
   subtitle,
   trailing = 'chevron-right',
+  badge,
   onPress,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -650,6 +697,8 @@ function Row({
   titleColor?: string;
   subtitle?: string;
   trailing?: keyof typeof MaterialCommunityIcons.glyphMap | null;
+  // Contador que se enseña a la derecha; con 0 no sale
+  badge?: number;
   onPress?: () => void;
 }) {
   const content = (
@@ -667,6 +716,11 @@ function Row({
           </Text>
         ) : null}
       </View>
+      {badge ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
+      ) : null}
       {onPress && trailing ? (
         <MaterialCommunityIcons name={trailing} size={22} color={Palette.textSecondary} />
       ) : null}
@@ -738,6 +792,16 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 15, fontWeight: '700' },
   rowSubtitle: { fontSize: 13, color: Palette.textSecondary },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+  },
+  badgeText: { fontSize: 12, fontWeight: '800', color: Palette.onPrimary },
   divider: { height: 1, marginLeft: 70, backgroundColor: Palette.border },
   pressed: { opacity: 0.6 },
   error: { fontSize: 15, color: Palette.error, textAlign: 'center' },

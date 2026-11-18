@@ -4,8 +4,20 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  INTERCAMBIO_ACEPTADO,
+  INTERCAMBIO_CANCELADO,
+  INTERCAMBIO_RECHAZADO,
+  INTERCAMBIO_SOLICITADO,
+  IntercambioAceptado,
+  IntercambioCancelado,
+  IntercambioRechazado,
+  IntercambioSolicitado,
+} from './task.events';
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksService } from './tasks.service';
 
@@ -31,6 +43,8 @@ export class TaskSwapsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tasksService: TasksService,
+    // Opcional: sin él (p. ej. en los tests que no lo dan) no se emiten eventos ni hay avisos
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   // Tareas de OTROS miembros del piso que el usuario podría pedir a cambio: deben estar
@@ -112,7 +126,7 @@ export class TaskSwapsService {
     await this.assertCrossAvailability(from, to);
 
     try {
-      return await this.prisma.taskSwapRequest.create({
+      const request = await this.prisma.taskSwapRequest.create({
         data: {
           apartment_id: from.task.apartment_id,
           from_user_id: from.user_id,
@@ -126,6 +140,16 @@ export class TaskSwapsService {
           to_user: { select: { id: true, full_name: true } },
         },
       });
+      // Evento de dominio: NotificationsListener avisa al compañero que tiene que responder
+      await this.events?.emitAsync(
+        INTERCAMBIO_SOLICITADO,
+        new IntercambioSolicitado({
+          id: request.id,
+          from_assignment: from,
+          to_assignment: to,
+        }),
+      );
+      return request;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -201,6 +225,8 @@ export class TaskSwapsService {
       throw error;
     }
 
+    // Evento de dominio: NotificationsListener avisa al emisor de que su petición se aceptó
+    await this.events?.emitAsync(INTERCAMBIO_ACEPTADO, new IntercambioAceptado(request));
     return { status: 'accepted' as const };
   }
 
@@ -218,6 +244,8 @@ export class TaskSwapsService {
     }
 
     await this.borrarPeticion(id);
+    // Evento de dominio: NotificationsListener avisa al emisor de que su petición se rechazó
+    await this.events?.emitAsync(INTERCAMBIO_RECHAZADO, new IntercambioRechazado(request));
     return { status: 'rejected' as const };
   }
 
@@ -235,6 +263,8 @@ export class TaskSwapsService {
     }
 
     await this.borrarPeticion(id);
+    // Evento de dominio: el aviso que recibió el compañero ya no tiene nada que responder
+    await this.events?.emitAsync(INTERCAMBIO_CANCELADO, new IntercambioCancelado(id));
     return { status: 'cancelled' as const };
   }
 

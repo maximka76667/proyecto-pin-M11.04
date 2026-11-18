@@ -6,6 +6,7 @@ import { ExpensesController } from './expenses.controller';
 import { ExpensesService } from './expenses.service';
 
 @Module({
+  // Los avisos de UT1018 no se piden aquí: los servicios emiten eventos (expense.events.ts)
   imports: [UsersModule],
   controllers: [TransactionsController, ExpensesController],
   providers: [TransactionsService, ExpensesService],

@@ -4,10 +4,21 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'node:crypto';
 import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  deudasDe,
+  GASTO_BORRADO,
+  GASTO_EDITADO,
+  GastoBorrado,
+  GastoEditado,
+  TICKET_BORRADO,
+  TicketBorrado,
+} from './expense.events';
 import { MAX_RECEIPT_TOTAL_CENTS } from './expense-rows';
 import { centsToAmount, splitExpense } from './expense-split';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -65,7 +76,11 @@ export interface TicketDeLista {
 // borrar y volver a crear, para que sus ids no cambien.
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Opcional: sin él (p. ej. en los tests que no lo dan) no se emiten eventos ni hay avisos
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   // Los gastos que ve una persona: los que pagó y aquellos de los que debe algo. Los avisos de
   // pago pendientes no cuentan hasta que el acreedor los confirma. Los productos de un mismo
@@ -189,7 +204,7 @@ export class ExpensesService {
 
     const date = dto.date ? new Date(dto.date) : undefined;
 
-    return this.prisma.$transaction(async (tx) => {
+    const actualizado = await this.prisma.$transaction(async (tx) => {
       // Esta escritura va la primera: si la versión ya no coincide no se toca nada más
       const { count } = await tx.expense.updateMany({
         where: { id, version: dto.version },
@@ -256,6 +271,16 @@ export class ExpensesService {
         include: { transactions: true },
       });
     });
+
+    // Evento de dominio, ya con la edición guardada: las deudas de antes y las de después.
+    // NotificationsListener decide a quién avisar y de qué (UT1018)
+    if (actualizado) {
+      await this.events?.emitAsync(
+        GASTO_EDITADO,
+        new GastoEditado(deudasDe(expense), actualizado.transactions, userId),
+      );
+    }
+    return actualizado;
   }
 
   async remove(id: string, version: number, userId: string) {
@@ -284,6 +309,9 @@ export class ExpensesService {
       }
     });
 
+    // Evento de dominio: las deudas que tenía (cada persona tiene una sola en un gasto o en un
+    // producto). NotificationsListener manda un «Gasto eliminado» a cada deudor (UT1018)
+    await this.events?.emitAsync(GASTO_BORRADO, new GastoBorrado(deudasDe(expense)));
     return { id };
   }
 
@@ -291,7 +319,26 @@ export class ExpensesService {
   async removeReceipt(id: string, version: number, userId: string) {
     const receipt = await this.prisma.receipt.findUnique({
       where: { id },
-      select: { payer_id: true, version: true },
+      select: {
+        apartment_id: true,
+        payer_id: true,
+        version: true,
+        // Para el aviso: cuánto debía cada persona de todo el ticket
+        expenses: {
+          select: {
+            category: true,
+            transactions: {
+              select: {
+                id: true,
+                to_user_id: true,
+                amount: true,
+                concept: true,
+                category: true,
+              },
+            },
+          },
+        },
+      },
     });
     if (!receipt) {
       throw new NotFoundException('Receipt not found');
@@ -312,6 +359,30 @@ export class ExpensesService {
       }
     });
 
+    // Evento de dominio con las deudas de todos los productos: NotificationsListener manda un
+    // solo «Gasto eliminado» por persona con lo que debía de todo el ticket (UT1018). Sin emisor
+    // (p. ej. en los tests que no lo dan) ni se preparan
+    if (this.events) {
+      const deudas = receipt.expenses.flatMap((producto) =>
+        deudasDe({
+          apartment_id: receipt.apartment_id,
+          payer_id: receipt.payer_id,
+          transactions: producto.transactions,
+        }),
+      );
+      await this.events.emitAsync(
+        TICKET_BORRADO,
+        new TicketBorrado(
+          {
+            id,
+            apartment_id: receipt.apartment_id,
+            payer_id: receipt.payer_id,
+            category: receipt.expenses[0]?.category ?? TransactionCategory.supplies,
+          },
+          deudas,
+        ),
+      );
+    }
     return { id };
   }
 
@@ -355,7 +426,16 @@ export class ExpensesService {
         category: true,
         date: true,
         payer_participates: true,
-        transactions: { select: { id: true, to_user_id: true } },
+        // Importe, concepto y categoría: con ellos se redactan los avisos de editar y borrar
+        transactions: {
+          select: {
+            id: true,
+            to_user_id: true,
+            amount: true,
+            concept: true,
+            category: true,
+          },
+        },
       },
     });
 
