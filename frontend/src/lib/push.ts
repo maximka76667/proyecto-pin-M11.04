@@ -52,7 +52,10 @@ export async function registrarPush() {
 
     let { granted } = await Notifications.getPermissionsAsync();
     if (!granted) ({ granted } = await Notifications.requestPermissionsAsync());
-    if (!granted) return;
+    if (!granted) {
+      console.warn('Notificaciones push desactivadas: el usuario no ha dado permiso');
+      return;
+    }
 
     // Lo escribe `eas init` en app.json (extra.eas.projectId)
     const projectId =
@@ -65,8 +68,10 @@ export async function registrarPush() {
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
     await api('POST', '/push/tokens', { token });
     tokenRegistrado = token;
-  } catch {
+  } catch (error) {
     // Sin push: los avisos siguen llegando al panel de la app
+    const motivo = error instanceof Error ? error.message : String(error);
+    console.warn(`No se han podido activar las notificaciones push: ${motivo}`);
   }
 }
 
