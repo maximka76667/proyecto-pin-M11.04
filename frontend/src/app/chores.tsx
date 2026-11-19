@@ -363,6 +363,11 @@ export default function ChoresScreen() {
                     <Text style={styles.availabilityButtonText}>Intercambios de tareas</Text>
                 </Pressable>
 
+                <Pressable style={styles.availabilityButton} onPress={() => router.push('/chores/plan')}>
+                    <MaterialCommunityIcons name="auto-fix" size={18} color={Palette.primary} />
+                    <Text style={styles.availabilityButtonText}>Repartir la semana</Text>
+                </Pressable>
+
                 <Pressable style={styles.availabilityButton} onPress={() => router.push('/ranking')}>
                     <MaterialCommunityIcons name="trophy-outline" size={18} color={Palette.primary} />
                     <Text style={styles.availabilityButtonText}>Ranking de la casa</Text>
