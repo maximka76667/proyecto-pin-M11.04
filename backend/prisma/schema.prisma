@@ -24,6 +24,7 @@ model User {
   paidExpenses               Expense[]                 @relation("PaidExpenses")
   paidReceipts               Receipt[]                 @relation("PaidReceipts")
   taskAssignments            TaskAssignment[]
+  assignments_to_verify      TaskAssignment[]           @relation("AssignmentVerifier")
   availability_blocks        AvailabilityBlock[]
   google_calendar_connection GoogleCalendarConnection?
   google_busy_blocks         GoogleBusyBlock[]
@@ -213,12 +214,18 @@ model TaskAssignment {
   due_time     String?           @db.VarChar(5)
   task         Task              @relation(fields: [task_id], references: [id])
   user         User              @relation(fields: [user_id], references: [id])
+  // Verificación: otro miembro del piso confirma o rechaza la tarea antes de darla por completada
+  verifier_id           String?   @db.Uuid
+  verification_deadline DateTime?
+  rejection_reason      String?
+  verifier              User?     @relation("AssignmentVerifier", fields: [verifier_id], references: [id], onDelete: SetNull)
   swap_as_from  TaskSwapRequest[] @relation("SwapFromAssignment")
   swap_as_to    TaskSwapRequest[] @relation("SwapToAssignment")
   notifications Notification[]
   points_entry  TaskPoints?
 
   @@unique([user_id, due_date, due_time])
+  @@index([verifier_id])
 }
 
 // Ledger de reputación: una fila por asignación que dio puntos. Los puntos de un usuario son
@@ -304,6 +311,10 @@ enum NotificationType {
   swap_requested
   swap_accepted
   swap_rejected
+  // Verificación de tareas (UT1021)
+  verification_requested
+  verification_approved
+  verification_rejected
   // Gastos (UT1018)
   expense_added
   expense_updated
@@ -384,6 +395,7 @@ enum AssignmentStatus {
   rejected
   completed
   overdue
+  waiting_verification
 }
 
 enum DayOfWeek {

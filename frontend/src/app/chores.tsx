@@ -117,6 +117,8 @@ export default function ChoresScreen() {
     const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
     // Ids de asignaciones implicadas en un intercambio pendiente (para marcarlas "Swap pendiente")
     const [swapAssignmentIds, setSwapAssignmentIds] = useState<Set<string>>(new Set());
+    // Tareas de otros que este usuario tiene que verificar (se cuentan al abrir Chores)
+    const [reviewCount, setReviewCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [pageWidth, setPageWidth] = useState(0);
@@ -191,12 +193,26 @@ export default function ChoresScreen() {
         }
     }, []);
 
+    // Además de contarlas, esta petición reasigna en el servidor las verificaciones caducadas
+    const loadReviews = useCallback(async () => {
+        try {
+            const data = await api(
+                'GET',
+                `/tasks/verifications?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+            ) as unknown[];
+            setReviewCount(data.length);
+        } catch {
+            // El aviso es secundario: si falla, Chores se muestra igual
+        }
+    }, []);
+
     useFocusEffect(
         useCallback(() => {
             void loadTasks();
             void loadCalendar();
             void loadSwaps();
-        }, [loadTasks, loadCalendar, loadSwaps]),
+            void loadReviews();
+        }, [loadTasks, loadCalendar, loadSwaps, loadReviews]),
     );
 
     const openDeleteDialog = (task: Task) => {
@@ -366,6 +382,17 @@ export default function ChoresScreen() {
                 <Pressable style={styles.availabilityButton} onPress={() => router.push('/ranking')}>
                     <MaterialCommunityIcons name="trophy-outline" size={18} color={Palette.primary} />
                     <Text style={styles.availabilityButtonText}>Ranking de la casa</Text>
+                </Pressable>
+
+                <Pressable style={reviewCount > 0 ? styles.reviewButton : styles.availabilityButton} onPress={() => router.push('/chores/verify')}>
+                    <MaterialCommunityIcons name="clipboard-check-outline" size={18} color={reviewCount > 0 ? Palette.text : Palette.primary} />
+                    <Text style={reviewCount > 0 ? styles.reviewButtonText : styles.availabilityButtonText}>
+                        {reviewCount === 0
+                            ? 'Verificar tareas'
+                            : reviewCount === 1
+                            ? 'Tienes 1 tarea pendiente de verificar'
+                            : `Tienes ${reviewCount} tareas pendientes de verificar`}
+                    </Text>
                 </Pressable>
 
                 <View style={styles.segmented}>
@@ -595,6 +622,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         backgroundColor: Palette.primary,
     },
+    reviewButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 11, borderRadius: Radius.input, backgroundColor: Palette.peach },
+    reviewButtonText: { fontSize: 13, fontWeight: '800', color: Palette.text },
     availabilityButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 11, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
     availabilityButtonText: { fontSize: 13, fontWeight: '700', color: Palette.primary },
     segmented: { flexDirection: 'row', padding: 3, borderRadius: Radius.input, backgroundColor: Palette.segment },

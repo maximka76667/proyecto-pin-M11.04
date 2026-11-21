@@ -16,6 +16,7 @@ import type {
   SwapAssignment,
   SwapNotice,
   TaskAssignedNotice,
+  VerificationNotice,
 } from '../tasks/task.events';
 import type {
   MoneyNotice,
@@ -31,6 +32,9 @@ import {
 //   task_assigned, task_due_soon   → la tarea
 //   swap_requested, swap_accepted  → la petición de intercambio (pantalla de intercambios)
 //   swap_rejected                  → la tarea que ofrecía el emisor (la petición ya se borró)
+//   verification_requested         → la tarea; la app abre «Tareas por revisar» (UT1021)
+//   verification_approved          → la tarea confirmada, con los puntos ganados en el texto
+//   verification_rejected          → la tarea rechazada, con el motivo en el texto
 //   expense_*, payment_*           → el movimiento de dinero (Transaction), o el ticket (Receipt)
 //                                    en los avisos de un ticket entero; la app abre la lista de
 //                                    gastos o la de saldar deudas, según el tipo (UT1018)
@@ -57,6 +61,9 @@ const TIPOS_POR_CATEGORIA: Record<NotificationCategory, NotificationType[]> = {
     NotificationType.swap_requested,
     NotificationType.swap_accepted,
     NotificationType.swap_rejected,
+    NotificationType.verification_requested,
+    NotificationType.verification_approved,
+    NotificationType.verification_rejected,
   ],
   finances: [
     NotificationType.expense_added,
@@ -340,6 +347,67 @@ export class NotificationsService {
         },
       }),
     );
+  }
+
+  // ─── Avisos de la verificación de tareas (UT1021) ───────────────────────────────────────
+
+  // Una tarea pasa a esperar verificación (o se reasigna a otro verificador): solo el verificador
+  // elegido recibe el aviso. No lleva `assignment_id`: una tarea rechazada y enviada otra vez puede
+  // tocarle al mismo verificador, y la restricción única no debe impedirle recibir el aviso
+  async verificationRequested(aviso: VerificationNotice) {
+    await this.sinInterrumpir('avisar de la tarea por verificar', async () => {
+      const nombre = await this.nombreDe(aviso.ownerId);
+      const nuevo = {
+        user_id: aviso.verifierId,
+        apartment_id: aviso.apartmentId,
+        type: NotificationType.verification_requested,
+        title: 'Tarea por verificar',
+        body: aviso.reassigned
+          ? `Te toca verificar «${aviso.taskTitle}» de ${nombre}: el verificador anterior no respondió a tiempo.`
+          : `${nombre} ha marcado «${aviso.taskTitle}» como hecha. Te toca confirmarla o rechazarla.`,
+        reference_id: aviso.taskId,
+      };
+      await this.prisma.notification.create({ data: nuevo });
+      this.anunciar([nuevo]);
+    });
+  }
+
+  // El verificador confirma la tarea: aviso a quien la hizo, con los puntos que gana
+  async verificationApproved(aviso: VerificationNotice) {
+    await this.sinInterrumpir('avisar de la tarea confirmada', async () => {
+      const nombre = await this.nombreDe(aviso.verifierId);
+      const puntos = aviso.points ?? 0;
+      const nuevo = {
+        user_id: aviso.ownerId,
+        apartment_id: aviso.apartmentId,
+        type: NotificationType.verification_approved,
+        title: 'Tarea confirmada',
+        body:
+          puntos > 0
+            ? `${nombre} ha confirmado «${aviso.taskTitle}». Has ganado ${puntos} ${puntos === 1 ? 'punto' : 'puntos'}.`
+            : `${nombre} ha confirmado «${aviso.taskTitle}».`,
+        reference_id: aviso.taskId,
+      };
+      await this.prisma.notification.create({ data: nuevo });
+      this.anunciar([nuevo]);
+    });
+  }
+
+  // El verificador rechaza la tarea: aviso a quien la hizo, con el motivo
+  async verificationRejected(aviso: VerificationNotice) {
+    await this.sinInterrumpir('avisar del rechazo de la tarea', async () => {
+      const nombre = await this.nombreDe(aviso.verifierId);
+      const nuevo = {
+        user_id: aviso.ownerId,
+        apartment_id: aviso.apartmentId,
+        type: NotificationType.verification_rejected,
+        title: 'Tarea rechazada',
+        body: `${nombre} ha rechazado «${aviso.taskTitle}»: ${aviso.reason ?? 'sin motivo'}. Cuando esté lista, vuelve a marcarla como hecha.`,
+        reference_id: aviso.taskId,
+      };
+      await this.prisma.notification.create({ data: nuevo });
+      this.anunciar([nuevo]);
+    });
   }
 
   // ─── Avisos que crean los gastos (UT1018) ───────────────────────────────────────────────

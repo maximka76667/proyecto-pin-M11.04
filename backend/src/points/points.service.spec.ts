@@ -18,7 +18,7 @@ describe('PointsService', () => {
     taskAssignment: { findUnique: jest.fn(), update: jest.fn() },
     taskSwapRequest: { findFirst: jest.fn() },
     taskPoints: { create: jest.fn(), groupBy: jest.fn() },
-    userApartment: { findUnique: jest.fn() },
+    userApartment: { findUnique: jest.fn(), count: jest.fn() },
     user: { findMany: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -34,6 +34,8 @@ describe('PointsService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     prisma.taskSwapRequest.findFirst.mockResolvedValue(null);
+    // Por defecto el piso es de una sola persona (la verificación solo aplica con más miembros)
+    prisma.userApartment.count.mockResolvedValue(0);
     prisma.$transaction.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
     prisma.taskAssignment.update.mockResolvedValue({});
     prisma.taskPoints.create.mockResolvedValue({});
@@ -117,6 +119,31 @@ describe('PointsService', () => {
       await expect(service.completeAssignment(ASSIGNMENT, ANA)).rejects.toThrow(
         ConflictException,
       );
+    });
+
+    it('no deja saltarse la verificación: con más miembros en el piso se rechaza', async () => {
+      prisma.taskAssignment.findUnique.mockResolvedValue(asignacion());
+      prisma.userApartment.count.mockResolvedValue(2);
+
+      await expect(service.completeAssignment(ASSIGNMENT, ANA)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.userApartment.count).toHaveBeenCalledWith({
+        where: { apartment_id: APARTMENT, user_id: { not: ANA } },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.taskPoints.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una tarea que está esperando verificación', async () => {
+      prisma.taskAssignment.findUnique.mockResolvedValue(
+        asignacion({ status: 'waiting_verification' }),
+      );
+
+      await expect(service.completeAssignment(ASSIGNMENT, ANA)).rejects.toThrow(
+        'verifique',
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('rechaza una tarea con un intercambio pendiente', async () => {
