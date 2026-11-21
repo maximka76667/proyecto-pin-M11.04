@@ -6,7 +6,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AssignmentStatus, Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   INTERCAMBIO_ACEPTADO,
@@ -21,16 +21,31 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TasksService } from './tasks.service';
 
+// Una tarea esperando verificación o ya completada no se puede intercambiar: cambiar su dueño
+// haría que los puntos fueran a quien no la hizo (o que el verificador se confirmara a sí mismo)
+const NOT_SWAPPABLE: AssignmentStatus[] = [
+  AssignmentStatus.waiting_verification,
+  AssignmentStatus.completed,
+];
+const NOT_SWAPPABLE_MESSAGE =
+  'No se puede intercambiar una tarea que está completada o esperando verificación';
+
 // Datos mínimos de una asignación necesarios para validar y ejecutar un intercambio.
 const ASSIGNMENT_SELECT = {
   id: true,
   user_id: true,
+  status: true,
   due_date: true,
   due_time: true,
   start_minute: true,
   user: { select: { id: true, full_name: true } },
   task: {
-    select: { id: true, title: true, apartment_id: true, duration_minutes: true },
+    select: {
+      id: true,
+      title: true,
+      apartment_id: true,
+      duration_minutes: true,
+    },
   },
 } satisfies Prisma.TaskAssignmentSelect;
 
@@ -58,6 +73,7 @@ export class TaskSwapsService {
       where: {
         user_id: { not: currentUserId },
         id: { notIn: lockedIds },
+        status: { notIn: NOT_SWAPPABLE },
         task: { apartment_id: apartmentId },
       },
       select: ASSIGNMENT_SELECT,
@@ -76,7 +92,10 @@ export class TaskSwapsService {
         OR: [
           {
             status: 'pending',
-            OR: [{ from_user_id: currentUserId }, { to_user_id: currentUserId }],
+            OR: [
+              { from_user_id: currentUserId },
+              { to_user_id: currentUserId },
+            ],
           },
           { status: 'completed', from_user_id: currentUserId },
         ],
@@ -108,13 +127,21 @@ export class TaskSwapsService {
     const to = await this.buscarAsignacion(toAssignmentId);
 
     if (from.user_id !== currentUserId) {
-      throw new ForbiddenException('Solo puedes ofrecer una tarea que sea tuya');
+      throw new ForbiddenException(
+        'Solo puedes ofrecer una tarea que sea tuya',
+      );
     }
     if (to.user_id === currentUserId) {
       throw new BadRequestException('No puedes intercambiar contigo mismo');
     }
     if (from.task.apartment_id !== to.task.apartment_id) {
       throw new ForbiddenException('Las tareas no pertenecen al mismo piso');
+    }
+    if (
+      NOT_SWAPPABLE.includes(from.status) ||
+      NOT_SWAPPABLE.includes(to.status)
+    ) {
+      throw new ConflictException(NOT_SWAPPABLE_MESSAGE);
     }
 
     // Ambos tienen que ser miembros del piso de las tareas.
@@ -175,7 +202,16 @@ export class TaskSwapsService {
       );
     }
     if (request.status !== 'pending') {
-      throw new ConflictException('Esta petición de intercambio ya se resolvió');
+      throw new ConflictException(
+        'Esta petición de intercambio ya se resolvió',
+      );
+    }
+    // Por si alguna de las dos tareas cambió de estado desde que se pidió el cambio
+    if (
+      NOT_SWAPPABLE.includes(request.from_assignment.status) ||
+      NOT_SWAPPABLE.includes(request.to_assignment.status)
+    ) {
+      throw new ConflictException(NOT_SWAPPABLE_MESSAGE);
     }
 
     await this.assertCrossAvailability(
@@ -226,7 +262,10 @@ export class TaskSwapsService {
     }
 
     // Evento de dominio: NotificationsListener avisa al emisor de que su petición se aceptó
-    await this.events?.emitAsync(INTERCAMBIO_ACEPTADO, new IntercambioAceptado(request));
+    await this.events?.emitAsync(
+      INTERCAMBIO_ACEPTADO,
+      new IntercambioAceptado(request),
+    );
     return { status: 'accepted' as const };
   }
 
@@ -240,12 +279,17 @@ export class TaskSwapsService {
       );
     }
     if (request.status !== 'pending') {
-      throw new ConflictException('Esta petición de intercambio ya se resolvió');
+      throw new ConflictException(
+        'Esta petición de intercambio ya se resolvió',
+      );
     }
 
     await this.borrarPeticion(id);
     // Evento de dominio: NotificationsListener avisa al emisor de que su petición se rechazó
-    await this.events?.emitAsync(INTERCAMBIO_RECHAZADO, new IntercambioRechazado(request));
+    await this.events?.emitAsync(
+      INTERCAMBIO_RECHAZADO,
+      new IntercambioRechazado(request),
+    );
     return { status: 'rejected' as const };
   }
 
@@ -259,12 +303,17 @@ export class TaskSwapsService {
       );
     }
     if (request.status !== 'pending') {
-      throw new ConflictException('Esta petición de intercambio ya se resolvió');
+      throw new ConflictException(
+        'Esta petición de intercambio ya se resolvió',
+      );
     }
 
     await this.borrarPeticion(id);
     // Evento de dominio: el aviso que recibió el compañero ya no tiene nada que responder
-    await this.events?.emitAsync(INTERCAMBIO_CANCELADO, new IntercambioCancelado(id));
+    await this.events?.emitAsync(
+      INTERCAMBIO_CANCELADO,
+      new IntercambioCancelado(id),
+    );
     return { status: 'cancelled' as const };
   }
 
@@ -381,14 +430,12 @@ export class TaskSwapsService {
   }
 
   private async buscarPeticion(id: string) {
-    let request:
-      | Prisma.TaskSwapRequestGetPayload<{
-          include: {
-            from_assignment: { select: typeof ASSIGNMENT_SELECT };
-            to_assignment: { select: typeof ASSIGNMENT_SELECT };
-          };
-        }>
-      | null;
+    let request: Prisma.TaskSwapRequestGetPayload<{
+      include: {
+        from_assignment: { select: typeof ASSIGNMENT_SELECT };
+        to_assignment: { select: typeof ASSIGNMENT_SELECT };
+      };
+    }> | null;
     try {
       request = await this.prisma.taskSwapRequest.findUnique({
         where: { id },

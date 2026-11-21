@@ -289,6 +289,40 @@ describe('Puntos · intentos de manipular los puntos con peticiones a mano', () 
     expect(ledger()[0].points).toBe(PUNTOS_TAREA);
   });
 
+  it('no se pueden cambiar los puntos de una tarea mientras espera verificación: 409 y se paga lo que vio el verificador', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
+
+    const edicion = await como(ANA).patch(`/tasks/${TAREA_ANA}`, { points: 500 });
+    await verificar(BETO, ASIG_ANA);
+
+    expect(edicion.status).toBe(409);
+    expect(tareaGuardada(TAREA_ANA)?.points).toBe(PUNTOS_TAREA);
+    expect(ledger()).toHaveLength(1);
+    expect(ledger()[0].points).toBe(PUNTOS_TAREA);
+  });
+
+  it('mientras espera verificación se puede editar el resto de la tarea, aunque se reenvíen los mismos puntos', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
+
+    const edicion = await como(ANA).patch(`/tasks/${TAREA_ANA}`, {
+      title: 'Fregar los platos y la cocina',
+      points: PUNTOS_TAREA,
+    });
+
+    expect(edicion.status).toBe(200);
+    expect(tareaGuardada(TAREA_ANA)?.title).toBe('Fregar los platos y la cocina');
+  });
+
+  it('si el verificador rechaza, los puntos de la tarea vuelven a poder cambiarse', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
+    await como(BETO).send('post', `/tasks/assignments/${ASIG_ANA}/reject`, { reason: 'Quedó a medias' });
+
+    const edicion = await como(ANA).patch(`/tasks/${TAREA_ANA}`, { points: 500 });
+
+    expect(edicion.status).toBe(200);
+    expect(tareaGuardada(TAREA_ANA)?.points).toBe(500);
+  });
+
   it('en un piso de una sola persona se completa directamente y da los puntos', async () => {
     await db.prisma.userApartment.deleteMany({ where: { user_id: BETO } }); // Ana se queda sola
 
