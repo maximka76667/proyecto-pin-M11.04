@@ -16,6 +16,8 @@ import { AuthService } from '../auth/auth.service';
 import { GoogleCalendarService } from '../availability/google-calendar.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaskSwapsService } from '../tasks/task-swaps.service';
+import { TaskVerificationsController } from '../tasks/task-verifications.controller';
+import { TaskVerificationsService } from '../tasks/task-verifications.service';
 import { TasksController } from '../tasks/tasks.controller';
 import { TasksService } from '../tasks/tasks.service';
 import { PointsController } from './points.controller';
@@ -108,10 +110,11 @@ const auth = {
 const google = { sync: jest.fn(() => Promise.resolve()) };
 
 @Module({
-  controllers: [TasksController, PointsController],
+  controllers: [TaskVerificationsController, TasksController, PointsController],
   providers: [
     TasksService,
     TaskSwapsService,
+    TaskVerificationsService,
     PointsService,
     AuthMiddleware,
     { provide: PrismaService, useValue: db.prisma },
@@ -193,18 +196,52 @@ describe('Puntos · intentos de manipular los puntos con peticiones a mano', () 
     expect(ledger()).toHaveLength(0);
   });
 
-  it('completar la tarea propia da exactamente los puntos de la tarea, y solo a quien la hizo', async () => {
+  // Con más de una persona en el piso, los puntos solo llegan cuando OTRO miembro confirma la tarea
+  const enviarAVerificar = (usuario: string, asignacion: string) =>
+    como(usuario).send('post', `/tasks/assignments/${asignacion}/submit`);
+  const verificar = (usuario: string, asignacion: string) =>
+    como(usuario).send('post', `/tasks/assignments/${asignacion}/verify`);
+
+  it('el atajo de completar con puntos está cerrado si hay más miembros: 409 y sin puntos', async () => {
     const respuesta = await completar(ANA, ASIG_ANA);
 
-    expect(respuesta.status).toBe(200);
-    expect(respuesta.body).toEqual({
-      assignment_id: ASIG_ANA,
-      status: 'completed',
-      points: PUNTOS_TAREA,
+    expect(respuesta.status).toBe(409);
+    expect(ledger()).toHaveLength(0);
+    expect(asignacionGuardada(ASIG_ANA)?.status).toBe('pending');
+  });
+
+  it('marcar la tarea como hecha no da puntos: queda esperando a que otro la verifique', async () => {
+    const respuesta = await enviarAVerificar(ANA, ASIG_ANA);
+
+    expect(respuesta.status).toBe(201);
+    expect(respuesta.body).toMatchObject({ status: 'waiting_verification' });
+    expect(asignacionGuardada(ASIG_ANA)).toMatchObject({
+      status: 'waiting_verification',
+      verifier_id: BETO, // el único otro miembro: nunca ella misma
     });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it('quien hizo la tarea no puede verificarla él mismo', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
+
+    const respuesta = await verificar(ANA, ASIG_ANA);
+
+    expect(respuesta.status).toBe(403);
+    expect(ledger()).toHaveLength(0);
+    expect(asignacionGuardada(ASIG_ANA)?.status).toBe('waiting_verification');
+  });
+
+  it('al confirmar el verificador se dan exactamente los puntos de la tarea, y solo a quien la hizo', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
+
+    const respuesta = await verificar(BETO, ASIG_ANA);
+
+    expect(respuesta.status).toBe(201);
+    expect(respuesta.body).toEqual({ status: 'completed' });
     expect(ledger()).toHaveLength(1);
     expect(ledger()[0]).toMatchObject({
-      user_id: ANA,
+      user_id: ANA, // los puntos son de quien hizo la tarea, no del verificador
       apartment_id: PISO,
       assignment_id: ASIG_ANA,
       points: PUNTOS_TAREA,
@@ -212,17 +249,37 @@ describe('Puntos · intentos de manipular los puntos con peticiones a mano', () 
     });
   });
 
-  it('completar dos veces la misma tarea no suma dos veces', async () => {
-    await completar(ANA, ASIG_ANA);
-    const segunda = await completar(ANA, ASIG_ANA);
+  it('si el verificador rechaza, no hay puntos y la tarea vuelve a quien la hizo con el motivo', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
 
-    expect(segunda.status).toBe(200);
-    expect(segunda.body).toMatchObject({ points: 0 });
+    const respuesta = await como(BETO).send('post', `/tasks/assignments/${ASIG_ANA}/reject`, {
+      reason: 'Quedó a medias',
+    });
+
+    expect(respuesta.status).toBe(201);
+    expect(ledger()).toHaveLength(0);
+    expect(asignacionGuardada(ASIG_ANA)).toMatchObject({
+      status: 'pending',
+      user_id: ANA, // sigue siendo suya
+      rejection_reason: 'Quedó a medias',
+    });
+  });
+
+  it('confirmar dos veces la misma tarea no suma dos veces', async () => {
+    await enviarAVerificar(ANA, ASIG_ANA);
+    await verificar(BETO, ASIG_ANA);
+    const segunda = await verificar(BETO, ASIG_ANA);
+    const atajo = await completar(ANA, ASIG_ANA);
+
+    expect(segunda.status).toBe(409);
+    expect(atajo.status).toBe(200);
+    expect(atajo.body).toMatchObject({ points: 0 });
     expect(ledger()).toHaveLength(1);
   });
 
   it('cambiar después el valor de la tarea no altera los puntos ya ganados', async () => {
-    await completar(ANA, ASIG_ANA);
+    await enviarAVerificar(ANA, ASIG_ANA);
+    await verificar(BETO, ASIG_ANA);
 
     const edicion = await como(ANA).patch(`/tasks/${TAREA_ANA}`, { points: 500 });
 
@@ -230,6 +287,17 @@ describe('Puntos · intentos de manipular los puntos con peticiones a mano', () 
     expect(tareaGuardada(TAREA_ANA)?.points).toBe(500);
     expect(ledger()).toHaveLength(1);
     expect(ledger()[0].points).toBe(PUNTOS_TAREA);
+  });
+
+  it('en un piso de una sola persona se completa directamente y da los puntos', async () => {
+    await db.prisma.userApartment.deleteMany({ where: { user_id: BETO } }); // Ana se queda sola
+
+    const respuesta = await enviarAVerificar(ANA, ASIG_ANA);
+
+    expect(respuesta.status).toBe(201);
+    expect(respuesta.body).toMatchObject({ status: 'completed' });
+    expect(ledger()).toHaveLength(1);
+    expect(ledger()[0]).toMatchObject({ user_id: ANA, points: PUNTOS_TAREA });
   });
 
   it.each([

@@ -35,6 +35,8 @@ type TaskDetails = {
     due_date: string;
     due_time: string | null;
     status: string;
+    verifier_id?: string | null;
+    rejection_reason?: string | null;
   }[];
 };
 
@@ -409,36 +411,49 @@ export default function ChoreDetailsScreen() {
   const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
   const apartmentId = task?.apartment_id;
   const myAssignmentId = myAssignment?.id;
-  // La que se puede marcar como hecha: una asignación mía que aún no está completada
+  // La que se puede marcar como hecha: una asignación mía que aún no está completada ni
+  // esperando a que otro compañero la verifique
   const myOpenAssignment = task?.assignments.find(
     (item) =>
-      item.user_id === USER_ID && item.status !== 'completed' && item.status !== 'rejected',
+      item.user_id === USER_ID &&
+      item.status !== 'completed' &&
+      item.status !== 'rejected' &&
+      item.status !== 'waiting_verification',
   );
-  const iCompletedIt = !myOpenAssignment && Boolean(myAssignment) &&
+  const myWaitingAssignment = task?.assignments.find(
+    (item) => item.user_id === USER_ID && item.status === 'waiting_verification',
+  );
+  const iCompletedIt = !myOpenAssignment && !myWaitingAssignment && Boolean(myAssignment) &&
     task?.assignments.some((item) => item.user_id === USER_ID && item.status === 'completed');
+  const verifierName = members.find(({ id }) => id === myWaitingAssignment?.verifier_id)?.full_name;
 
-  // Marca la tarea como hecha en el backend, que es quien registra los puntos
+  // Marca la tarea como hecha: si hay más gente en el piso, un compañero elegido al azar tiene
+  // que verificarla antes de que cuente (y den puntos); si vives solo, se completa directamente
   const completeAssignment = async () => {
     if (!myOpenAssignment || !task) return;
     setCompleting(true);
     setCompleteError('');
     try {
       const result = await api(
-        'PATCH',
-        `/points/assignments/${encodeURIComponent(myOpenAssignment.id)}/complete`,
-      ) as { points: number };
+        'POST',
+        `/tasks/assignments/${encodeURIComponent(myOpenAssignment.id)}/submit`,
+      ) as { status: string; verifier: { id: string; full_name: string } | null };
       setTask((current) =>
         current
           ? {
             ...current,
             assignments: current.assignments.map((item) =>
-              item.id === myOpenAssignment.id ? { ...item, status: 'completed' } : item,
+              item.id === myOpenAssignment.id
+                ? { ...item, status: result.status, verifier_id: result.verifier?.id ?? null, rejection_reason: null }
+                : item,
             ),
           }
           : current,
       );
       setAssignmentNotice(
-        result.points > 0 ? `¡Hecho! Has ganado ${result.points} puntos.` : 'La tarea ya estaba hecha.',
+        result.status === 'completed'
+          ? `¡Hecho! Has ganado ${task.points} puntos.`
+          : `Enviada a verificar a ${result.verifier?.full_name ?? 'un compañero'}. Ganarás los puntos cuando la confirme.`,
       );
     } catch (e) {
       setCompleteError(errorMessage(e));
@@ -534,7 +549,7 @@ export default function ChoreDetailsScreen() {
                     {item.user.full_name} · {formatAssignmentDay(item.due_date, {
                       month: 'short',
                       day: 'numeric',
-                    })} · {formatSlot(item.due_time, task.duration_minutes)} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
+                    })} · {formatSlot(item.due_time, task.duration_minutes)} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status === 'waiting_verification' ? 'esperando verificación' : item.status}
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -559,13 +574,23 @@ export default function ChoreDetailsScreen() {
 
         {task ? <>
           <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
+          {myOpenAssignment?.status === 'pending' && myOpenAssignment.rejection_reason ? (
+            <View style={styles.rejectionCard}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={20} color={Palette.error} />
+              <View style={styles.rejectionText}>
+                <Text style={styles.rejectionTitle}>Te han devuelto esta tarea</Text>
+                <Text style={styles.rejectionReason}>{myOpenAssignment.rejection_reason}</Text>
+              </View>
+            </View>
+          ) : null}
           <Pressable
             disabled={!myOpenAssignment || completing}
             onPress={() => void completeAssignment()}
             style={[
               styles.actionButton,
               iCompletedIt && styles.completedButton,
-              !myOpenAssignment && !iCompletedIt && styles.disabledButton,
+              myWaitingAssignment && styles.waitingButton,
+              !myOpenAssignment && !iCompletedIt && !myWaitingAssignment && styles.disabledButton,
             ]}>
             {completing ? (
               <ActivityIndicator color={Palette.onPrimary} />
@@ -575,7 +600,9 @@ export default function ChoreDetailsScreen() {
             <Text style={styles.actionText}>
               {iCompletedIt
                 ? 'Marcada como hecha'
-                : myOpenAssignment
+                : myWaitingAssignment
+                  ? `Esperando verificación${verifierName ? ` de ${verifierName}` : ''}`
+                  : myOpenAssignment
                   ? `Marcar como hecha (+${task.points} pts)`
                   : 'Solo quien la tiene asignada puede marcarla'}
             </Text>
@@ -897,6 +924,11 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
   },
   completedButton: { backgroundColor: '#4C8B6F' },
+  waitingButton: { backgroundColor: Palette.sun },
+  rejectionCard: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.error, backgroundColor: Palette.surface },
+  rejectionText: { flex: 1, gap: 2 },
+  rejectionTitle: { fontSize: 14, fontWeight: '800', color: Palette.error },
+  rejectionReason: { fontSize: 14, color: Palette.text },
   actionText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
   secondaryButton: {
     flexDirection: 'row',
