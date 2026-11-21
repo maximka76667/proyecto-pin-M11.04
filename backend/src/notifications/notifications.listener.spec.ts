@@ -13,8 +13,15 @@ import {
   IntercambioSolicitado,
   TAREA_ASIGNADA,
   TareaAsignada,
+  VERIFICACION_CONFIRMADA,
+  VERIFICACION_RECHAZADA,
+  VERIFICACION_SOLICITADA,
+  VerificacionConfirmada,
+  VerificacionRechazada,
+  VerificacionSolicitada,
   type SwapNotice,
   type TaskAssignedNotice,
+  type VerificationNotice,
 } from '../tasks/task.events';
 import * as eventosDeGastos from '../transactions/expense.events';
 import {
@@ -48,6 +55,7 @@ import { NotificationsService } from './notifications.service';
 
 const METODOS = [
   'taskAssigned', 'swapRequested', 'swapAccepted', 'swapRejected', 'swapCancelled',
+  'verificationRequested', 'verificationApproved', 'verificationRejected',
   'expenseAdded', 'receiptAdded', 'expenseEdited', 'expenseDeleted', 'receiptDeleted',
   'paymentMarked', 'paymentConfirmed', 'paymentRejected',
 ] as const;
@@ -75,6 +83,14 @@ const ASIGNACION: TaskAssignedNotice = {
   assignments: [{ id: 'asig', user_id: 'ana' }],
 };
 const PETICION = { id: 'peticion' } as SwapNotice;
+const VERIFICACION: VerificationNotice = {
+  assignmentId: 'asig',
+  taskId: 'tarea',
+  taskTitle: 'Limpiar el baño',
+  apartmentId: 'piso',
+  ownerId: 'ana',
+  verifierId: 'luis',
+};
 
 // Cada evento, lo que se emite y las llamadas que tiene que recibir NotificationsService
 const CASOS: [string, unknown, Metodo, unknown[][]][] = [
@@ -83,6 +99,9 @@ const CASOS: [string, unknown, Metodo, unknown[][]][] = [
   [INTERCAMBIO_ACEPTADO, new IntercambioAceptado(PETICION), 'swapAccepted', [[PETICION]]],
   [INTERCAMBIO_RECHAZADO, new IntercambioRechazado(PETICION), 'swapRejected', [[PETICION]]],
   [INTERCAMBIO_CANCELADO, new IntercambioCancelado('peticion'), 'swapCancelled', [['peticion']]],
+  [VERIFICACION_SOLICITADA, new VerificacionSolicitada(VERIFICACION), 'verificationRequested', [[VERIFICACION]]],
+  [VERIFICACION_CONFIRMADA, new VerificacionConfirmada(VERIFICACION), 'verificationApproved', [[VERIFICACION]]],
+  [VERIFICACION_RECHAZADA, new VerificacionRechazada(VERIFICACION), 'verificationRejected', [[VERIFICACION]]],
   [GASTO_CREADO, new GastoCreado(DEUDAS, 'juan'), 'expenseAdded', [[DEUDAS, 'juan']]],
   [TICKET_CREADO, new TicketCreado(TICKET, DEUDAS, 'juan'), 'receiptAdded', [[TICKET, DEUDAS, 'juan']]],
   [GASTO_EDITADO, new GastoEditado(DEUDAS, DESPUES, 'juan'), 'expenseEdited', [[DEUDAS, DESPUES, 'juan']]],
@@ -152,13 +171,13 @@ describe('Patrón Observer · NotificationsListener (el observador)', () => {
     }
   });
 
-  it('cada uno de los 13 eventos tiene su propio nombre y todos tienen observador', () => {
+  it('cada uno de los 16 eventos tiene su propio nombre y todos tienen observador', () => {
     const nombres = [...Object.entries(eventosDeTareas), ...Object.entries(eventosDeGastos)]
       .filter(([clave, valor]) => /^[A-Z_]+$/.test(clave) && typeof valor === 'string')
       .map(([, valor]) => valor as string);
 
-    expect(nombres).toHaveLength(13);
-    expect(new Set(nombres).size).toBe(13);
+    expect(nombres).toHaveLength(16);
+    expect(new Set(nombres).size).toBe(16);
     for (const nombre of nombres) {
       expect(eventos.listeners(nombre).length).toBeGreaterThan(0);
     }

@@ -3,10 +3,21 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { AssignmentStatus, Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AssignmentStatus, Prisma, TaskStatus } from '@prisma/client';
 import { monthKey } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  VERIFICACION_CONFIRMADA,
+  VERIFICACION_RECHAZADA,
+  VERIFICACION_SOLICITADA,
+  VerificacionConfirmada,
+  VerificacionRechazada,
+  VerificacionSolicitada,
+  type VerificationNotice,
+} from './task.events';
 
 // Plazo que tiene el verificador para responder antes de que se asigne a otro
 export const VERIFICATION_HOURS = 24;
@@ -20,10 +31,13 @@ const SUBMITTABLE: AssignmentStatus[] = [
 
 const ASSIGNMENT_SELECT = {
   id: true,
+  task_id: true,
   user_id: true,
   status: true,
   verifier_id: true,
-  task: { select: { apartment_id: true, points: true, title: true } },
+  task: {
+    select: { apartment_id: true, points: true, title: true, status: true },
+  },
 } satisfies Prisma.TaskAssignmentSelect;
 
 type LoadedAssignment = Prisma.TaskAssignmentGetPayload<{
@@ -32,7 +46,11 @@ type LoadedAssignment = Prisma.TaskAssignmentGetPayload<{
 
 @Injectable()
 export class TaskVerificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Opcional: sin él (p. ej. en los tests que no lo dan) no se emiten eventos ni hay avisos
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   // El responsable marca su tarea como hecha. Se elige al azar a otro miembro del piso como
   // verificador; si no hay nadie más, la tarea se completa directamente
@@ -43,6 +61,10 @@ export class TaskVerificationsService {
     }
     if (!SUBMITTABLE.includes(assignment.status)) {
       throw new ConflictException('Esta tarea no se puede marcar como hecha ahora');
+    }
+    // Una tarea anulada ya no se hace: aunque su asignación siga pendiente, no se puede enviar
+    if (assignment.task.status === TaskStatus.cancelled) {
+      throw new ConflictException('Esta tarea ha sido anulada y ya no se puede marcar como hecha');
     }
 
     // Igual que al completar con puntos: una tarea con un intercambio pendiente queda bloqueada
@@ -96,6 +118,12 @@ export class TaskVerificationsService {
       throw new ConflictException('Esta tarea ya ha cambiado de estado');
     }
 
+    // Solo el verificador elegido recibe un aviso
+    await this.events?.emitAsync(
+      VERIFICACION_SOLICITADA,
+      new VerificacionSolicitada(this.notice(assignment, verifierId)),
+    );
+
     const verifier = await this.prisma.user.findUnique({
       where: { id: verifierId },
       select: { id: true, full_name: true },
@@ -107,7 +135,7 @@ export class TaskVerificationsService {
   async verify(assignmentId: string, userId: string) {
     const assignment = await this.loadForVerifier(assignmentId, userId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.taskAssignment.updateMany({
         where: {
           id: assignmentId,
@@ -126,11 +154,21 @@ export class TaskVerificationsService {
       await this.awardPoints(tx, assignment);
       return { status: AssignmentStatus.completed };
     });
+
+    // Quien hizo la tarea recibe un aviso con los puntos que ha ganado
+    await this.events?.emitAsync(
+      VERIFICACION_CONFIRMADA,
+      new VerificacionConfirmada({
+        ...this.notice(assignment, userId),
+        points: assignment.task.points,
+      }),
+    );
+    return result;
   }
 
   // El verificador rechaza con un motivo: vuelve a pendiente y el responsable ve el motivo
   async reject(assignmentId: string, userId: string, reason: string) {
-    await this.loadForVerifier(assignmentId, userId);
+    const assignment = await this.loadForVerifier(assignmentId, userId);
 
     const { count } = await this.prisma.taskAssignment.updateMany({
       where: {
@@ -148,6 +186,12 @@ export class TaskVerificationsService {
     if (count !== 1) {
       throw new ConflictException('Esta tarea ya ha sido verificada');
     }
+
+    // Quien hizo la tarea recibe un aviso con el motivo
+    await this.events?.emitAsync(
+      VERIFICACION_RECHAZADA,
+      new VerificacionRechazada({ ...this.notice(assignment, userId), reason }),
+    );
     return { status: AssignmentStatus.pending, rejection_reason: reason };
   }
 
@@ -176,8 +220,9 @@ export class TaskVerificationsService {
   }
 
   // Si el verificador no responde en el plazo, se elige a otro miembro al azar: cualquiera del
-  // piso menos quien hizo la tarea. Al ser azar puro, puede tocarle otra vez al mismo
-  // verificador que no respondió (así no hay casos especiales cuando hay pocos miembros)
+  // piso menos quien hizo la tarea y menos el verificador que no respondió. Solo si no queda
+  // nadie más (en un piso de dos) se queda el mismo, con un plazo nuevo: nunca verifica quien
+  // hizo la tarea. Cada reasignación avisa al nuevo verificador
   async reassignExpired(apartmentId: string, now = new Date()) {
     const expired = await this.prisma.taskAssignment.findMany({
       where: {
@@ -185,15 +230,17 @@ export class TaskVerificationsService {
         verification_deadline: { lt: now },
         task: { apartment_id: apartmentId },
       },
-      select: { id: true, user_id: true },
+      select: ASSIGNMENT_SELECT,
     });
     if (expired.length === 0) return 0;
 
     const members = await this.memberIds(apartmentId);
     let reassigned = 0;
     for (const assignment of expired) {
-      const pool = members.filter((id) => id !== assignment.user_id);
-      if (pool.length === 0) continue;
+      const candidates = members.filter((id) => id !== assignment.user_id);
+      if (candidates.length === 0) continue;
+      const others = candidates.filter((id) => id !== assignment.verifier_id);
+      const next = this.pickRandom(others.length > 0 ? others : candidates);
 
       const { count } = await this.prisma.taskAssignment.updateMany({
         // Con esta condición dos peticiones a la vez no reasignan dos veces
@@ -203,13 +250,35 @@ export class TaskVerificationsService {
           verification_deadline: { lt: now },
         },
         data: {
-          verifier_id: this.pickRandom(pool),
+          verifier_id: next,
           verification_deadline: this.newDeadline(now),
         },
       });
       reassigned += count;
+
+      if (count === 1 && this.events) {
+        await this.events.emitAsync(
+          VERIFICACION_SOLICITADA,
+          new VerificacionSolicitada({
+            ...this.notice(assignment, next),
+            reassigned: true,
+          }),
+        );
+      }
     }
     return reassigned;
+  }
+
+  // Lo que necesitan los avisos: de qué tarea habla, quién la hizo y quién verifica
+  private notice(assignment: LoadedAssignment, verifierId: string): VerificationNotice {
+    return {
+      assignmentId: assignment.id,
+      taskId: assignment.task_id,
+      taskTitle: assignment.task.title,
+      apartmentId: assignment.task.apartment_id,
+      ownerId: assignment.user_id,
+      verifierId,
+    };
   }
 
   private async load(assignmentId: string): Promise<LoadedAssignment> {

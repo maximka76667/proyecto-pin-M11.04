@@ -215,8 +215,8 @@ describe('Verificación de tareas', () => {
   describe('plazo vencido', () => {
     afterEach(() => jest.restoreAllMocks());
 
-    const caducada = () =>
-      prisma.taskAssignment.findMany.mockResolvedValue([{ id: ASIGNACION, user_id: ANA }]);
+    const caducada = (verifier_id?: string) =>
+      prisma.taskAssignment.findMany.mockResolvedValue([{ id: ASIGNACION, user_id: ANA, verifier_id }]);
 
     it('elige al azar a cualquier miembro menos a quien hizo la tarea', async () => {
       caducada(); // la hizo Ana; el piso es Yo, Ana y Bruno
@@ -230,13 +230,24 @@ describe('Verificación de tareas', () => {
       expect(data.verification_deadline.getTime()).toBeGreaterThan(Date.now() + 23 * 3_600_000);
     });
 
-    it('puede volver a tocarle al verificador que no respondió', async () => {
-      caducada();
-      jest.spyOn(Math, 'random').mockReturnValue(0); // primero del grupo: Yo, que ya había fallado
+    it('con otro candidato, no repite al verificador que no respondió', async () => {
+      caducada(YO); // Yo no respondió; el piso es Yo, Ana (la hizo) y Bruno
+      jest.spyOn(Math, 'random').mockReturnValue(0); // primero del grupo que queda: Bruno
 
       await service.reassignExpired(PISO);
 
-      expect(prisma.taskAssignment.updateMany.mock.calls[0][0].data.verifier_id).toBe(YO);
+      expect(prisma.taskAssignment.updateMany.mock.calls[0][0].data.verifier_id).toBe(BRUNO);
+    });
+
+    it('si no queda nadie más (piso de dos), se queda el mismo verificador con plazo nuevo', async () => {
+      caducada(YO);
+      prisma.userApartment.findMany.mockResolvedValue([YO, ANA].map((user_id) => ({ user_id })));
+
+      await service.reassignExpired(PISO);
+
+      const { data } = prisma.taskAssignment.updateMany.mock.calls[0][0];
+      expect(data.verifier_id).toBe(YO);
+      expect(data.verification_deadline.getTime()).toBeGreaterThan(Date.now() + 23 * 3_600_000);
     });
 
     it('nunca elige a quien hizo la tarea', async () => {

@@ -11,6 +11,12 @@ import {
   IntercambioSolicitado,
   TAREA_ASIGNADA,
   TareaAsignada,
+  VERIFICACION_CONFIRMADA,
+  VERIFICACION_RECHAZADA,
+  VERIFICACION_SOLICITADA,
+  VerificacionConfirmada,
+  VerificacionRechazada,
+  VerificacionSolicitada,
 } from '../tasks/task.events';
 import {
   GASTO_BORRADO,
@@ -69,6 +75,23 @@ export class NotificationsListener {
   @OnEvent(INTERCAMBIO_CANCELADO, SIN_ROMPER)
   onIntercambioCancelado(evento: IntercambioCancelado) {
     return this.notifications.swapCancelled(evento.peticionId);
+  }
+
+  // ─── Verificación de tareas (UT1021) ──────────────────────────────────────────────────
+
+  @OnEvent(VERIFICACION_SOLICITADA, SIN_ROMPER)
+  onVerificacionSolicitada(evento: VerificacionSolicitada) {
+    return this.notifications.verificationRequested(evento.aviso);
+  }
+
+  @OnEvent(VERIFICACION_CONFIRMADA, SIN_ROMPER)
+  onVerificacionConfirmada(evento: VerificacionConfirmada) {
+    return this.notifications.verificationApproved(evento.aviso);
+  }
+
+  @OnEvent(VERIFICACION_RECHAZADA, SIN_ROMPER)
+  onVerificacionRechazada(evento: VerificacionRechazada) {
+    return this.notifications.verificationRejected(evento.aviso);
   }
 
   // ─── Gastos y pagos (UT1018) ──────────────────────────────────────────────────────────

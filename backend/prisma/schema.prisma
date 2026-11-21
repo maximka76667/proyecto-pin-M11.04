@@ -308,6 +308,10 @@ enum NotificationType {
   swap_requested
   swap_accepted
   swap_rejected
+  // Verificación de tareas (UT1021)
+  verification_requested
+  verification_approved
+  verification_rejected
   // Gastos (UT1018)
   expense_added
   expense_updated

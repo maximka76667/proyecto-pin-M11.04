@@ -126,10 +126,14 @@ const enVerificacionConC = (over: Fila = {}): Fila => ({
 
 const ledger = () => db.filasDe('TaskPoints');
 const asignacion = (id: string) => db.filasDe('TaskAssignment').find((a) => a.id === id);
+// Los avisos de la verificación llevan el id de la tarea en `reference_id`, como los de tarea
 const avisosDe = (id: string) =>
   db
     .filasDe('Notification')
-    .filter((aviso) => aviso.assignment_id === id || aviso.reference_id === id);
+    .filter(
+      (aviso) =>
+        aviso.assignment_id === id || aviso.reference_id === id || aviso.reference_id === TAREA_A,
+    );
 
 const auth = {
   userIdForToken: jest.fn((token: string) => Promise.resolve(USUARIO_DEL_TOKEN[token] ?? null)),
@@ -248,8 +252,6 @@ describe('UT 1021 · Sistema de verificación de tareas (pruebas de aceptación)
       expect(asignacion(ASIG_A)?.status).toBe('completed');
     });
 
-    it.todo('se registra la fecha de finalización');
-
     it('la solicitud queda confirmada con el id de C', async () => {
       await confirmar(C);
 
@@ -261,6 +263,22 @@ describe('UT 1021 · Sistema de verificación de tareas (pruebas de aceptación)
 
       expect(ledger()).toHaveLength(1);
       expect(ledger()[0]).toMatchObject({ user_id: A, assignment_id: ASIG_A, points: PUNTOS });
+    });
+
+    it('A recibe un aviso de que la tarea fue confirmada, con los puntos ganados', async () => {
+      await confirmar(C);
+
+      const avisosDeA = avisosDe(ASIG_A).filter((aviso) => aviso.user_id === A);
+      expect(avisosDeA).toHaveLength(1);
+      expect(avisosDeA[0].type).toBe('verification_approved');
+      expect(String(avisosDeA[0].body)).toContain(String(PUNTOS));
+    });
+
+    it('si el verificador confirma, nadie más recibe aviso', async () => {
+      await confirmar(C);
+
+      const destinatarios = avisosDe(ASIG_A).map((aviso) => aviso.user_id);
+      expect(destinatarios).toEqual([A]);
     });
 
     it('el cambio de estado y la suma de puntos van en la misma transacción: si fallan los puntos, no cambia nada', async () => {
