@@ -64,6 +64,8 @@ type ChoreFormProps = {
   subtitle: string;
   submitLabel: string;
   initialValues?: ChoreFormValues;
+  // Si se da, el campo de puntos no se puede editar y este texto explica por qué
+  pointsLockedReason?: string;
   children?: ReactNode;
   onSubmit: (values: ChoreFormValues) => Promise<void>;
 };
@@ -74,6 +76,7 @@ export function ChoreForm({
   subtitle,
   submitLabel,
   initialValues = emptyValues,
+  pointsLockedReason,
   children,
   onSubmit,
 }: ChoreFormProps) {
@@ -173,10 +176,12 @@ export function ChoreForm({
           onChangeText={setPoints}
           placeholder="Automático según la duración"
           placeholderTextColor={Palette.textSecondary}
-          style={styles.input}
+          style={[styles.input, pointsLockedReason ? styles.inputLocked : null]}
           accessibilityLabel="Puntos que da la tarea"
           keyboardType="number-pad"
+          editable={!pointsLockedReason}
         />
+        {pointsLockedReason ? <Text style={styles.hint}>{pointsLockedReason}</Text> : null}
 
         <Text style={styles.label}>Detalles (opcional)</Text>
         <TextInput
@@ -275,6 +280,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   descriptionInput: { minHeight: 88, paddingTop: 14 },
+  inputLocked: { opacity: 0.55 },
+  hint: { fontSize: 12, lineHeight: 17, color: Palette.textSecondary },
   frequencyRow: { flexDirection: 'row', gap: 8 },
   categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   category: {

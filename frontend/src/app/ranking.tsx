@@ -36,7 +36,7 @@ export default function RankingScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Se vuelve a cargar al volver a la pantalla (p. ej. tras completar una tarea) y al cambiar de mes
+  // Se vuelve a cargar al volver a la pantalla (p. ej. tras verificar una tarea) y al cambiar de mes
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -121,7 +121,7 @@ export default function RankingScreen() {
             ))}
             {data.ranking.every((row) => row.points === 0) ? (
               <Text style={styles.muted}>
-                Todavía no hay puntos este mes. Se ganan al marcar tus tareas como hechas.
+                Todavía no hay puntos este mes. Se ganan cuando un compañero confirma que has hecho tu tarea.
               </Text>
             ) : null}
           </View>

@@ -303,6 +303,9 @@ export class TasksService {
     await this.asegurarMiembro(task.apartment_id, userId);
     // PA-1010.01: las tareas con un intercambio pendiente quedan bloqueadas.
     await this.assertNoPendingSwapForAssignments(await this.assignmentIdsOfTask(id));
+    if (updateTaskDto.points !== undefined) {
+      await this.assertPointsNotLockedByVerification(id, updateTaskDto.points);
+    }
 
     try {
       return await this.prisma.task.update({
@@ -435,6 +438,29 @@ export class TasksService {
   // Lanza ForbiddenException si el usuario no pertenece al piso (versión pública de asegurarMiembro).
   async assertMember(apartmentId: string, userId: string) {
     return this.asegurarMiembro(apartmentId, userId);
+  }
+
+  // UT1021: mientras una asignación de la tarea espera verificación no se pueden cambiar sus
+  // puntos. El verificador confirma el valor que ve y los puntos se pagan al verificar, así que
+  // cambiarlos en medio haría que se pagara otra cosa. Enviar el mismo valor no es un cambio
+  // (el formulario de edición reenvía todos los campos)
+  private async assertPointsNotLockedByVerification(taskId: string, newPoints: number) {
+    if (typeof this.prisma.taskAssignment.findFirst !== 'function') return;
+    const inVerification = await this.prisma.taskAssignment.findFirst({
+      where: { task_id: taskId, status: AssignmentStatus.waiting_verification },
+      select: { id: true },
+    });
+    if (!inVerification) return;
+
+    const current = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { points: true },
+    });
+    if (current && current.points !== newPoints) {
+      throw new ConflictException(
+        'No se pueden cambiar los puntos de una tarea mientras está esperando verificación',
+      );
+    }
   }
 
   // Ids de las asignaciones de una tarea (vacío si el mock de prisma no soporta findMany).

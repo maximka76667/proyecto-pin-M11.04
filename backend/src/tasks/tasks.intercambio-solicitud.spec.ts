@@ -406,6 +406,57 @@ describe('UT1010 · Solicitud de intercambio (POST /tasks/swap-requests)', () =>
     });
   });
 
+  // Una tarea esperando verificación o ya completada no se intercambia: cambiar su dueño haría
+  // que los puntos fueran a quien no la hizo (UT1021)
+  describe('tareas completadas o esperando verificación', () => {
+    const ESTADOS = ['waiting_verification', 'completed'];
+    const ponerEstado = (asignacion: string, status: string) =>
+      db.prisma.taskAssignment.update({ where: { id: asignacion }, data: { status } });
+    const dueñoDe = (asignacion: string) =>
+      db.filasDe('TaskAssignment').find((a) => a.id === asignacion)?.user_id;
+
+    it.each(ESTADOS)('una tarea %s no sale entre las candidatas para elegir', async (estado) => {
+      await ponerEstado(ASIG_B, estado);
+
+      const ids = (await candidatasPara(ANA)).map((c) => c.id);
+
+      expect(ids).not.toContain(ASIG_B);
+      expect(ids).toContain(ASIG_C); // las demás siguen saliendo
+    });
+
+    it.each(ESTADOS)('no deja pedir a cambio una tarea %s: 409 y sin solicitud', async (estado) => {
+      await ponerEstado(ASIG_B, estado);
+
+      const respuesta = await pedirCambio(ANA, ASIG_A, ASIG_B);
+
+      expect(respuesta.status).toBe(409);
+      expect(solicitudes()).toHaveLength(0);
+    });
+
+    it.each(ESTADOS)('no deja ofrecer la propia tarea si está %s: 409 y sin solicitud', async (estado) => {
+      await ponerEstado(ASIG_A, estado);
+
+      const respuesta = await pedirCambio(ANA, ASIG_A, ASIG_B);
+
+      expect(respuesta.status).toBe(409);
+      expect(solicitudes()).toHaveLength(0);
+    });
+
+    it.each(ESTADOS)(
+      'una solicitud ya creada no se acepta si una de las tareas pasó a %s: 409 y nadie cambia de dueño',
+      async (estado) => {
+        const id = await solicitudDeAnaABeto();
+        await ponerEstado(ASIG_A, estado);
+
+        const respuesta = await como(BETO).post(`/tasks/swap-requests/${id}/accept`);
+
+        expect(respuesta.status).toBe(409);
+        expect(dueñoDe(ASIG_A)).toBe(ANA);
+        expect(dueñoDe(ASIG_B)).toBe(BETO);
+      },
+    );
+  });
+
   // PA-1010.04: Intento de swap rechazado por falta de disponibilidad horaria
   describe('PA-1010.04 · intento de swap sin disponibilidad horaria', () => {
     const AVISO_BETO_SIN_HUECO =

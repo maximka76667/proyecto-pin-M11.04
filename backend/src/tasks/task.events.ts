@@ -58,3 +58,38 @@ export const INTERCAMBIO_CANCELADO = 'intercambio.cancelado';
 export class IntercambioCancelado {
   constructor(readonly peticionId: string) {}
 }
+
+// Verificación de tareas (UT1021): `ownerId` es quien hizo la tarea y `verifierId` quien tiene
+// que confirmarla
+export type VerificationNotice = {
+  assignmentId: string;
+  taskId: string;
+  taskTitle: string;
+  apartmentId: string;
+  ownerId: string;
+  verifierId: string;
+  // Solo en VERIFICACION_SOLICITADA: el verificador anterior no respondió a tiempo
+  reassigned?: boolean;
+  // Solo en VERIFICACION_RECHAZADA: el motivo que escribió el verificador
+  reason?: string;
+  // Solo en VERIFICACION_CONFIRMADA: los puntos que ha ganado quien hizo la tarea
+  points?: number;
+};
+
+// Una tarea pasa a esperar verificación, o se reasigna a otro verificador por plazo vencido
+export const VERIFICACION_SOLICITADA = 'verificacion.solicitada';
+export class VerificacionSolicitada {
+  constructor(readonly aviso: VerificationNotice) {}
+}
+
+// El verificador confirma la tarea: queda completada y su responsable gana los puntos
+export const VERIFICACION_CONFIRMADA = 'verificacion.confirmada';
+export class VerificacionConfirmada {
+  constructor(readonly aviso: VerificationNotice) {}
+}
+
+// El verificador rechaza la tarea y vuelve a su responsable
+export const VERIFICACION_RECHAZADA = 'verificacion.rechazada';
+export class VerificacionRechazada {
+  constructor(readonly aviso: VerificationNotice) {}
+}

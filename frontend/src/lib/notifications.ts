@@ -11,6 +11,9 @@ export type NotificationType =
   | 'swap_requested'
   | 'swap_accepted'
   | 'swap_rejected'
+  | 'verification_requested'
+  | 'verification_approved'
+  | 'verification_rejected'
   | 'expense_added'
   | 'expense_updated'
   | 'expense_deleted'
@@ -41,6 +44,8 @@ export type AppNotification = {
 // confirma o se rechaza
 export function destination(item: Pick<AppNotification, 'type' | 'reference_id'>): Href | null {
   if (item.type === 'swap_requested' || item.type === 'swap_accepted') return '/chores/swaps';
+  // Te toca verificar una tarea: abre la bandeja «Tareas por revisar»
+  if (item.type === 'verification_requested') return '/chores/verify';
   if (item.type.startsWith('expense_')) return '/transactions';
   if (item.type.startsWith('payment_')) return '/transactions/settle-up';
   if (!item.reference_id) return null;
