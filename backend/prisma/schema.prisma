@@ -34,6 +34,8 @@ model User {
   swaps_received             TaskSwapRequest[]         @relation("SwapToUser")
   notifications              Notification[]
   push_tokens                PushToken[]
+  documents_created          ApartmentDocument[]       @relation("DocumentCreator")
+  documents_edited           ApartmentDocument[]       @relation("DocumentEditor")
   task_points                TaskPoints[]
 }
 
@@ -102,6 +104,7 @@ model Apartment {
   swap_requests   TaskSwapRequest[]
   notifications   Notification[]
   task_points     TaskPoints[]
+  documents       ApartmentDocument[]
 
   @@unique([landlord_id, name])
   @@index([landlord_id])
@@ -404,4 +407,34 @@ model AvailabilityBlock {
   user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, day_of_week])
+}
+
+// Documentos compartidos del piso. Cualquier miembro puede verlos, subirlos, editarlos y
+// borrarlos: created_by / updated_by solo sirven para mostrar quién fue, no restringen nada
+enum DocumentKind {
+  file
+  link
+}
+
+model ApartmentDocument {
+  id                String       @id @default(uuid()) @db.Uuid
+  apartment_id      String       @db.Uuid
+  name              String       @db.VarChar(80)
+  kind              DocumentKind
+  // kind = file: ruta en el bucket privado "apartment-documents" ("<piso>/<id>.<ext>")
+  storage_path      String?
+  mime_type         String?
+  size_bytes        Int?
+  original_filename String?
+  // kind = link: enlace de Google Docs / Sheets / Drive
+  url               String?
+  created_by        String?      @db.Uuid
+  updated_by        String?      @db.Uuid
+  created_at        DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
+  apartment         Apartment    @relation(fields: [apartment_id], references: [id], onDelete: Cascade)
+  creator           User?        @relation("DocumentCreator", fields: [created_by], references: [id], onDelete: SetNull)
+  editor            User?        @relation("DocumentEditor", fields: [updated_by], references: [id], onDelete: SetNull)
+
+  @@index([apartment_id, created_at])
 }
