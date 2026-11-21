@@ -384,16 +384,16 @@ export default function ChoresScreen() {
                     <Text style={styles.availabilityButtonText}>Ranking de la casa</Text>
                 </Pressable>
 
-                {reviewCount > 0 ? (
-                    <Pressable style={styles.reviewButton} onPress={() => router.push('/chores/verify')}>
-                        <MaterialCommunityIcons name="clipboard-check-outline" size={18} color={Palette.text} />
-                        <Text style={styles.reviewButtonText}>
-                            {reviewCount === 1
-                                ? 'Tienes 1 tarea pendiente de verificar'
-                                : `Tienes ${reviewCount} tareas pendientes de verificar`}
-                        </Text>
-                    </Pressable>
-                ) : null}
+                <Pressable style={reviewCount > 0 ? styles.reviewButton : styles.availabilityButton} onPress={() => router.push('/chores/verify')}>
+                    <MaterialCommunityIcons name="clipboard-check-outline" size={18} color={reviewCount > 0 ? Palette.text : Palette.primary} />
+                    <Text style={reviewCount > 0 ? styles.reviewButtonText : styles.availabilityButtonText}>
+                        {reviewCount === 0
+                            ? 'Verificar tareas'
+                            : reviewCount === 1
+                            ? 'Tienes 1 tarea pendiente de verificar'
+                            : `Tienes ${reviewCount} tareas pendientes de verificar`}
+                    </Text>
+                </Pressable>
 
                 <View style={styles.segmented}>
                     <Pressable
