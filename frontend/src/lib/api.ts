@@ -212,6 +212,28 @@ export async function apiUpload(
   return sendWithTimeout(`${API_URL}${path}`, { method: 'POST', headers, body: form }, timeoutMs);
 }
 
+// Formulario multipart con campos de texto y, si hay, un archivo (documentos de la casa).
+// Los campos undefined no se envían. Sin cabecera Content-Type: fetch pone el boundary
+export async function apiMultipart(
+  method: 'POST' | 'PATCH',
+  path: string,
+  fields: Record<string, string | undefined>,
+  upload?: { field: string; file: UploadFile },
+  timeoutMs = UPLOAD_TIMEOUT_MS,
+) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) form.append(key, value);
+  }
+  if (upload) {
+    const part = await getUploadBlob(upload.file);
+    form.append(upload.field, part, upload.file.name);
+  }
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  return sendWithTimeout(`${API_URL}${path}`, { method, headers, body: form }, timeoutMs);
+}
+
 async function getUploadBlob(upload: UploadFile): Promise<Blob> {
   if (Platform.OS === "web" && upload.file) {
     return upload.file;

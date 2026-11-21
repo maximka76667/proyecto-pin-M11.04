@@ -14,6 +14,7 @@ import { AvailabilityModule } from './availability/availability.module';
 import { AuthModule } from './auth/auth.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PushModule } from './push/push.module';
+import { DocumentsModule } from './documents/documents.module';
 import { AuthMiddleware } from './auth/auth.middleware';
 import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 
@@ -38,6 +39,7 @@ import { MiddlewareConsumer, RequestMethod } from '@nestjs/common';
     AuthModule,
     NotificationsModule,
     PushModule,
+    DocumentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

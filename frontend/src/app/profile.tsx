@@ -431,6 +431,7 @@ export default function ProfileScreen() {
         {/* Sección HOGAR */}
         <Section label="Hogar">
           {primaryApartment ? (
+            <>
             <Row
               icon="home-outline"
               tint={Palette.mint}
@@ -439,6 +440,14 @@ export default function ProfileScreen() {
                 primaryApartment.members_count === 1 ? 'compañero' : 'compañeros'
               }`}
             />
+            <Row
+              icon="folder-outline"
+              tint={Palette.sun}
+              title="Documentos de la casa"
+              subtitle="Contratos, facturas, normas…"
+              onPress={() => router.push('/documents' as Href)}
+            />
+            </>
           ) : (
             <Row
               icon="home-plus-outline"
