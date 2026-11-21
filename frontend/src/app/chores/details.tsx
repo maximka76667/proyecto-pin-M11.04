@@ -411,6 +411,11 @@ export default function ChoreDetailsScreen() {
   const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
   const apartmentId = task?.apartment_id;
   const myAssignmentId = myAssignment?.id;
+  // Una tarea completada o esperando verificación no se puede intercambiar: cambiar su dueño
+  // haría que los puntos fueran a quien no la hizo (el servidor también lo rechaza)
+  const swapLocked =
+    myAssignment?.status === 'completed' || myAssignment?.status === 'waiting_verification';
+  const canRequestSwap = Boolean(myAssignment) && !swapLocked;
   // La que se puede marcar como hecha: una asignación mía que aún no está completada ni
   // esperando a que otro compañero la verifique
   const myOpenAssignment = task?.assignments.find(
@@ -631,7 +636,7 @@ export default function ChoreDetailsScreen() {
             </Pressable>
           ) : (
             <Pressable
-              disabled={!myAssignment}
+              disabled={!canRequestSwap}
               onPress={() =>
                 myAssignment &&
                 router.push({
@@ -639,12 +644,14 @@ export default function ChoreDetailsScreen() {
                   params: { assignmentId: myAssignment.id, taskId },
                 })
               }
-              style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
+              style={[styles.secondaryButton, !canRequestSwap && styles.disabledButton]}>
               <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
               <Text style={styles.secondaryText}>
-                {myAssignment
-                  ? 'Solicitar un cambio'
-                  : 'Solo puedes cambiar una tarea tuya'}
+                {!myAssignment
+                  ? 'Solo puedes cambiar una tarea tuya'
+                  : swapLocked
+                    ? 'No se puede cambiar una tarea completada o en verificación'
+                    : 'Solicitar un cambio'}
               </Text>
             </Pressable>
           )}

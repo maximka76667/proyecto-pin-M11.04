@@ -21,11 +21,15 @@ type TaskToEdit = {
   points: number;
   category: ChoreFormValues['category'];
   frequency: ChoreFormValues['frequency'];
+  // GET /tasks/:id trae las asignaciones con su estado
+  assignments?: { status: string }[];
 };
 
 export default function EditChoreScreen() {
   const { taskId } = useLocalSearchParams<{ taskId?: string }>();
   const [initialValues, setInitialValues] = useState<ChoreFormValues | null>(null);
+  // Mientras una asignación espera verificación, el servidor no deja cambiar los puntos
+  const [pointsLocked, setPointsLocked] = useState(false);
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
   const [error, setError] = useState(taskId ? '' : 'No se encontró la tarea.');
@@ -39,6 +43,9 @@ export default function EditChoreScreen() {
           'GET',
           `/tasks/${encodeURIComponent(taskId)}`,
         ) as TaskToEdit;
+        setPointsLocked(
+          (task.assignments ?? []).some((item) => item.status === 'waiting_verification'),
+        );
         setInitialValues({
           title: task.title,
           description: task.description ?? '',
@@ -75,6 +82,11 @@ export default function EditChoreScreen() {
       subtitle="Los cambios se guardan para todas las personas del hogar."
       submitLabel="Guardar cambios"
       initialValues={initialValues}
+      pointsLockedReason={
+        pointsLocked
+          ? 'Los puntos no se pueden cambiar mientras una asignación de esta tarea espera verificación.'
+          : undefined
+      }
       onSubmit={async (values) => {
         // El PATCH rechaza cualquier campo que no sea uno de estos (p. ej. apartment_id).
         // Una descripción vacía borra la que hubiera.
