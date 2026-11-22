@@ -14,7 +14,16 @@ import { TaskVerificationsService } from './task-verifications.service';
   imports: [AvailabilityModule],
   // Los controladores con rutas fijas (/tasks/verifications, /tasks/plan/...) van antes que
   // TasksController para que no caigan en /tasks/:id
-  controllers: [TaskVerificationsController, TaskPlannerController, TasksController],
-  providers: [TasksService, TaskSwapsService, TaskVerificationsService, TaskPlannerService],
+  controllers: [
+    TaskVerificationsController,
+    TaskPlannerController,
+    TasksController,
+  ],
+  providers: [
+    TasksService,
+    TaskSwapsService,
+    TaskVerificationsService,
+    TaskPlannerService,
+  ],
 })
 export class TasksModule {}

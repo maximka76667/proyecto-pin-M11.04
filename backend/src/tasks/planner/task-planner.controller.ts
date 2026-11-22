@@ -14,23 +14,42 @@ export class TaskPlannerController {
   preview(
     @Query('apartment_id') apartmentId: string,
     @CurrentUser() userId: string,
+    // ?ignore_calendar=true: reparte sin mirar la disponibilidad ni Google Calendar
+    @Query('ignore_calendar') ignoreCalendar?: string,
   ) {
     if (!apartmentId || !UUID_PATTERN.test(apartmentId)) {
       throw new BadRequestException('apartment_id debe ser un UUID válido');
     }
-    return this.plannerService.preview(apartmentId, userId);
+    return this.plannerService.preview(
+      apartmentId,
+      userId,
+      undefined,
+      ignoreCalendar === 'true',
+    );
   }
 
   // Comprueba una propuesta editada: qué asignaciones tienen solapes u otros problemas
   @Post('validate')
   validate(@Body() dto: ValidatePlanDto, @CurrentUser() userId: string) {
-    return this.plannerService.validate(dto.apartment_id, userId, dto.assignments);
+    return this.plannerService.validate(
+      dto.apartment_id,
+      userId,
+      dto.assignments,
+      undefined,
+      dto.ignore_calendar === true,
+    );
   }
 
   // Crea las asignaciones (las editadas, o el reparto automático si no se envían).
   // El servidor las vuelve a validar antes de guardar nada
   @Post('apply')
   apply(@Body() dto: ApplyPlanDto, @CurrentUser() userId: string) {
-    return this.plannerService.apply(dto.apartment_id, userId, dto.assignments);
+    return this.plannerService.apply(
+      dto.apartment_id,
+      userId,
+      dto.assignments,
+      undefined,
+      dto.ignore_calendar === true,
+    );
   }
 }

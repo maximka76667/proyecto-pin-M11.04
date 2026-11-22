@@ -247,6 +247,161 @@ describe('TaskPlannerService', () => {
     });
   });
 
+  describe('repartir ignorando el calendario', () => {
+    const MONDAY = '2026-11-16';
+    const ocupado = ALL_DAYS.map((day) => ({
+      day_of_week: day,
+      start_minute: 0,
+      end_minute: 1440,
+    }));
+
+    beforeEach(() => {
+      // Nadie tiene un hueco en toda la semana
+      prisma.user.findMany.mockResolvedValue([
+        { id: ANA, availability_blocks: ocupado, google_busy_blocks: [] },
+        { id: LUIS, availability_blocks: ocupado, google_busy_blocks: [] },
+      ]);
+    });
+
+    it('caso completo: sin tiempo libre no se reparte, y al ignorar el calendario sí', async () => {
+      // Las dos agendas están llenas toda la semana
+      const normal = await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(normal.assignments).toHaveLength(0);
+      expect(normal.unassigned).toEqual([
+        expect.objectContaining({
+          task_id: TASK,
+          reason: 'Nadie tiene un hueco libre para esta tarea',
+        }),
+      ]);
+      // Nada se guarda: la tarea sigue pendiente
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+
+      // Misma semana, mismas agendas, pero ignorando el calendario
+      const forzado = await service.preview(APARTMENT, ANA, TODAY, true);
+
+      expect(forzado.unassigned).toEqual([]);
+      expect(forzado.assignments).toEqual([
+        expect.objectContaining({ task_id: TASK, user_id: LUIS, user_name: 'Luis' }),
+      ]);
+
+      // Y al aplicarlo se guarda esa asignación
+      await expect(service.apply(APARTMENT, ANA, undefined, TODAY, true)).resolves.toEqual({
+        created: 1,
+      });
+      expect(prisma.taskAssignment.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('sin ignorarlo, la tarea queda sin asignar', async () => {
+      const plan = await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(plan.assignments).toHaveLength(0);
+      expect(plan.unassigned).toHaveLength(1);
+    });
+
+    it('ignorándolo, la tarea se reparte aunque no haya hueco', async () => {
+      const plan = await service.preview(APARTMENT, ANA, TODAY, true);
+
+      expect(plan.unassigned).toHaveLength(0);
+      expect(plan.assignments).toHaveLength(1);
+      expect(plan.assignments[0].user_id).toBe(LUIS);
+    });
+
+    it('ignorándolo, ni siquiera consulta la disponibilidad ni Google Calendar', async () => {
+      await service.preview(APARTMENT, ANA, TODAY, true);
+
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('validate acepta una hora ocupada solo si se ignora el calendario', async () => {
+      const items = [{ task_id: TASK, user_id: LUIS, date: MONDAY, time: '10:00' }];
+
+      const sin = await service.validate(APARTMENT, ANA, items, TODAY);
+      const con = await service.validate(APARTMENT, ANA, items, TODAY, true);
+
+      expect(sin.valid).toBe(false);
+      expect(con.valid).toBe(true);
+    });
+
+    it('apply guarda lo editado solo si se ignora el calendario', async () => {
+      const items = [{ task_id: TASK, user_id: LUIS, date: MONDAY, time: '10:00' }];
+
+      await expect(service.apply(APARTMENT, ANA, items, TODAY)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+
+      await expect(service.apply(APARTMENT, ANA, items, TODAY, true)).resolves.toEqual({
+        created: 1,
+      });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('no deja solapar con una tarea que la persona ya tiene asignada', async () => {
+      prisma.taskAssignment.findMany.mockResolvedValue([
+        {
+          task_id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+          user_id: LUIS,
+          status: 'pending',
+          due_date: new Date(`${MONDAY}T00:00:00.000Z`),
+          due_time: '10:00',
+          start_minute: 600,
+          task: {
+            apartment_id: APARTMENT,
+            title: 'Regar plantas',
+            duration_minutes: 30,
+            points: 10,
+          },
+        },
+      ]);
+      const items = [{ task_id: TASK, user_id: LUIS, date: MONDAY, time: '10:15' }];
+
+      const result = await service.validate(APARTMENT, ANA, items, TODAY, true);
+
+      expect(result.valid).toBe(false);
+      expect(result.items[0].issues[0]).toContain('«Regar plantas» de 10:00 a 10:30');
+      await expect(service.apply(APARTMENT, ANA, items, TODAY, true)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
+    it('con el reparto automático tampoco pisa lo ya asignado', async () => {
+      // Luis ocupado de 08:00 a 22:00 con tareas ya asignadas cada día: no hay hueco aunque
+      // se ignore el calendario
+      prisma.taskAssignment.findMany.mockResolvedValue(
+        [
+          '2026-11-16',
+          '2026-11-17',
+          '2026-11-18',
+          '2026-11-19',
+          '2026-11-20',
+          '2026-11-21',
+          '2026-11-22',
+        ].flatMap((date) =>
+          [ANA, LUIS].map((user) => ({
+            task_id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+            user_id: user,
+            status: 'pending',
+            due_date: new Date(`${date}T00:00:00.000Z`),
+            due_time: '08:00',
+            start_minute: 480,
+            task: {
+              apartment_id: 'otro',
+              title: 'Turno',
+              duration_minutes: 840,
+              points: 0,
+            },
+          })),
+        ),
+      );
+
+      const plan = await service.preview(APARTMENT, ANA, TODAY, true);
+
+      expect(plan.assignments).toHaveLength(0);
+      expect(plan.unassigned).toHaveLength(1);
+    });
+  });
+
   describe('validate y apply con asignaciones editadas', () => {
     const TASK2 = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
     const MONDAY = '2026-11-16';

@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsOptional,
   IsUUID,
   Matches,
@@ -41,6 +42,11 @@ export class ValidatePlanDto {
   @ValidateNested({ each: true })
   @Type(() => PlanItemDto)
   assignments: PlanItemDto[];
+
+  // Ignora la disponibilidad y Google Calendar, pero no las tareas ya asignadas
+  @IsOptional()
+  @IsBoolean()
+  ignore_calendar?: boolean;
 }
 
 // POST /tasks/plan/apply: sin `assignments` se aplica el reparto automático tal cual
@@ -54,4 +60,9 @@ export class ApplyPlanDto {
   @ValidateNested({ each: true })
   @Type(() => PlanItemDto)
   assignments?: PlanItemDto[];
+
+  // Ignora la disponibilidad y Google Calendar, pero no las tareas ya asignadas
+  @IsOptional()
+  @IsBoolean()
+  ignore_calendar?: boolean;
 }

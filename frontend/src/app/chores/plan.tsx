@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
+  Animated,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -67,20 +68,45 @@ function validTime(text: string) {
   return time && time !== '24:00' ? time : null;
 }
 
+// Bloque gris que late mientras se calcula el reparto
+function Skeleton({ height, width = '100%' }: { height: number; width?: `${number}%` }) {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+  return <Animated.View style={[styles.skeleton, { height, width, opacity: pulse }]} />;
+}
+
 export default function PlanScreen() {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [items, setItems] = useState<EditableItem[]>([]);
   const [validated, setValidated] = useState<{ signature: string; result: ValidationResponse } | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
+  // Recalculando la propuesta (al cambiar el interruptor) sin esconder lo que ya se ve
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  // «Repartir ignorando el calendario»: no mira la disponibilidad ni Google Calendar, pero
+  // el servidor sigue sin dejar solapar tareas ya asignadas
+  const [ignoreCalendar, setIgnoreCalendar] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
+      // La primera vez se ve el indicador de carga; al cambiar el interruptor se sigue viendo
+      // la pantalla y solo se recalcula por detrás, sin recargarla entera
+      setRefreshing(true);
       setError('');
-      void (api('GET', `/tasks/plan/preview?apartment_id=${encodeURIComponent(APARTMENT_ID)}`) as Promise<WeekPlan>)
+      setValidated(null);
+      const query = `apartment_id=${encodeURIComponent(APARTMENT_ID)}${ignoreCalendar ? '&ignore_calendar=true' : ''}`;
+      void (api('GET', `/tasks/plan/preview?${query}`) as Promise<WeekPlan>)
         .then((result) => {
           if (!active) return;
           setPlan(result);
@@ -90,12 +116,15 @@ export default function PlanScreen() {
           if (active) setError(errorMessage(e));
         })
         .finally(() => {
-          if (active) setLoading(false);
+          if (active) {
+            setLoading(false);
+            setRefreshing(false);
+          }
         });
       return () => {
         active = false;
       };
-    }, []),
+    }, [ignoreCalendar]),
   );
 
   // Errores de formato que se ven sin preguntar al servidor
@@ -127,6 +156,7 @@ export default function PlanScreen() {
       void (api('POST', '/tasks/plan/validate', {
         apartment_id: APARTMENT_ID,
         assignments,
+        ...(ignoreCalendar ? { ignore_calendar: true } : {}),
       }) as Promise<ValidationResponse>)
         .then((result) => {
           if (!stale) setValidated({ signature, result });
@@ -139,7 +169,7 @@ export default function PlanScreen() {
       stale = true;
       clearTimeout(timer);
     };
-  }, [signature]);
+  }, [signature, ignoreCalendar]);
 
   const serverChecked = signature !== null && validated?.signature === signature;
   const serverIssues = (index: number) =>
@@ -147,7 +177,8 @@ export default function PlanScreen() {
   const hasProblems =
     !allFormatsValid || (serverChecked && validated?.result.valid === false);
   const checking = allFormatsValid && !serverChecked && items.length > 0;
-  const canApply = !applying && !hasProblems && serverChecked && items.length > 0;
+  const canApply =
+    !applying && !refreshing && !hasProblems && serverChecked && items.length > 0;
 
   const setTime = (index: number, timeText: string) => {
     setError('');
@@ -164,6 +195,7 @@ export default function PlanScreen() {
       await api('POST', '/tasks/plan/apply', {
         apartment_id: APARTMENT_ID,
         assignments: JSON.parse(signature),
+        ...(ignoreCalendar ? { ignore_calendar: true } : {}),
       });
       router.dismissTo('/chores');
     } catch (e) {
@@ -198,13 +230,82 @@ export default function PlanScreen() {
           </Text>
         ) : null}
 
-        {loading ? <ActivityIndicator color={Palette.primary} /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
+        {/* Primera carga: esqueleto con la forma de la pantalla */}
+        {loading && !plan ? (
+          <View style={styles.content} accessibilityLabel="Calculando el reparto">
+            <Skeleton height={20} width="40%" />
+            <Skeleton height={64} />
+            <Skeleton height={64} />
+            <Skeleton height={20} width="35%" />
+            <Skeleton height={64} />
+            <Skeleton height={64} />
+          </View>
+        ) : null}
+
+        {/* Al recalcular (interruptor) se sigue viendo la propuesta, atenuada y sin tocar */}
         {!loading && plan ? (
-          <>
+          <View
+            style={[styles.content, refreshing && styles.refreshing]}
+            pointerEvents={refreshing ? 'none' : 'auto'}>
             {items.length === 0 && plan.unassigned.length === 0 ? (
               <Text style={styles.muted}>No hay tareas pendientes de repartir esta semana.</Text>
+            ) : null}
+
+            {/* Lo que no se ha podido repartir va primero y llama la atención. El interruptor
+                está aquí al lado: aparece cuando alguna tarea no cabe y se queda mientras esté
+                activado, para poder volver a tener en cuenta el calendario */}
+            {plan.unassigned.length > 0 || ignoreCalendar ? (
+              <View style={[styles.alertBox, ignoreCalendar && styles.alertBoxOn]}>
+                {plan.unassigned.length > 0 ? (
+                  <>
+                    <View style={styles.alertHeader}>
+                      <MaterialCommunityIcons name="alert" size={22} color={Palette.error} />
+                      <Text style={styles.alertTitle}>
+                        {plan.unassigned.length === 1
+                          ? '1 tarea sin asignar'
+                          : `${plan.unassigned.length} tareas sin asignar`}
+                      </Text>
+                    </View>
+                    {plan.unassigned.map((item) => (
+                      <View key={`${item.task_id}-${item.days[0]}`} style={styles.alertRow}>
+                        <Text style={styles.name}>{item.task_title}</Text>
+                        <Text style={styles.person}>{item.reason}</Text>
+                      </View>
+                    ))}
+                    {!ignoreCalendar ? (
+                      <Text style={styles.alertText}>
+                        No hay suficientes horas libres en los calendarios para todas las tareas.
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+
+                <Pressable
+                  onPress={() => setIgnoreCalendar(!ignoreCalendar)}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: ignoreCalendar }}
+                  accessibilityLabel="Ignorar el calendario"
+                  style={styles.toggleRow}>
+                  <View style={styles.rowText}>
+                    <Text style={styles.name}>Ignorar el calendario</Text>
+                    <Text style={styles.person}>
+                      {ignoreCalendar
+                        ? 'Activado: no se mira la disponibilidad ni Google Calendar. Las tareas ya asignadas siguen sin poder solaparse.'
+                        : 'Desactivado: se respeta la disponibilidad y Google Calendar.'}
+                    </Text>
+                  </View>
+                  <View style={styles.toggleState}>
+                    <View style={[styles.track, ignoreCalendar && styles.trackOn]}>
+                      <View style={[styles.thumb, ignoreCalendar && styles.thumbOn]} />
+                    </View>
+                    <Text style={[styles.toggleLabel, ignoreCalendar && styles.toggleLabelOn]}>
+                      {ignoreCalendar ? 'SÍ' : 'NO'}
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
             ) : null}
 
             {[...byDate.entries()].map(([date, indexes]) => (
@@ -254,21 +355,6 @@ export default function PlanScreen() {
               </View>
             ))}
 
-            {plan.unassigned.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Sin asignar</Text>
-                {plan.unassigned.map((item) => (
-                  <View key={`${item.task_id}-${item.days[0]}`} style={styles.row}>
-                    <MaterialCommunityIcons name="alert-circle-outline" size={20} color={Palette.error} />
-                    <View style={styles.rowText}>
-                      <Text style={styles.name}>{item.task_title}</Text>
-                      <Text style={styles.person}>{item.reason}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
             {items.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Puntos tras el reparto</Text>
@@ -281,14 +367,6 @@ export default function PlanScreen() {
                   </View>
                 ))}
               </View>
-            ) : null}
-
-            {plan.unassigned.length > 0 && items.length > 0 ? (
-              <Text style={styles.warning}>
-                {plan.unassigned.length === 1
-                  ? 'Hay 1 tarea que no se ha podido repartir y quedará sin asignar.'
-                  : `Hay ${plan.unassigned.length} tareas que no se han podido repartir y quedarán sin asignar.`}
-              </Text>
             ) : null}
 
             {items.length > 0 ? (
@@ -312,7 +390,14 @@ export default function PlanScreen() {
                 </Pressable>
               </>
             ) : null}
-          </>
+
+            <Pressable
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/chores'))}
+              style={styles.secondaryButton}
+              accessibilityLabel="Cancelar">
+              <Text style={styles.secondaryButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -334,6 +419,9 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 22, fontWeight: '800', color: Palette.text },
   subtitle: { fontSize: 14, lineHeight: 20, color: Palette.textSecondary },
+  content: { gap: 16 },
+  refreshing: { opacity: 0.45 },
+  skeleton: { borderRadius: Radius.input, backgroundColor: Palette.border },
   section: { gap: 10 },
   sectionTitle: {
     fontSize: 13,
@@ -379,6 +467,56 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
   },
   primaryButtonText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
+  // Caja de aviso: lo que no se ha podido repartir, en rojo, y el interruptor del calendario
+  alertBox: {
+    gap: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: Palette.error,
+    borderRadius: Radius.input,
+    backgroundColor: '#FDECEA',
+  },
+  alertBoxOn: { borderColor: Palette.primary, backgroundColor: Palette.mint },
+  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  alertTitle: { fontSize: 16, fontWeight: '800', color: Palette.error },
+  alertRow: {
+    gap: 2,
+    padding: 12,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.surface,
+  },
+  alertText: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: Palette.error },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.surface,
+  },
+  toggleState: { alignItems: 'center', gap: 4 },
+  track: {
+    width: 52,
+    height: 30,
+    padding: 3,
+    borderRadius: 15,
+    backgroundColor: '#BDB8AC',
+    justifyContent: 'center',
+  },
+  trackOn: { backgroundColor: Palette.primary },
+  thumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF' },
+  thumbOn: { alignSelf: 'flex-end' },
+  toggleLabel: { fontSize: 11, fontWeight: '800', color: Palette.textSecondary },
+  toggleLabelOn: { color: Palette.primary },
+  secondaryButton: {
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderRadius: Radius.button,
+    borderWidth: 1,
+    borderColor: Palette.primary,
+    backgroundColor: Palette.surface,
+  },
+  secondaryButtonText: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   disabled: { opacity: 0.5 },
   error: { fontSize: 14, textAlign: 'center', color: Palette.error },
   muted: { fontSize: 14, textAlign: 'center', color: Palette.textSecondary },

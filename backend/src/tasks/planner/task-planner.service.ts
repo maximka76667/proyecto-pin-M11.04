@@ -96,10 +96,22 @@ export class TaskPlannerService {
   ) {}
 
   // Calcula el reparto de la semana siguiente sin guardar nada
-  async preview(apartmentId: string, userId: string, today?: DateKey) {
+  // `ignoreCalendar` deja de mirar la disponibilidad y Google Calendar (para cuando no hay
+  // huecos para todo), pero sigue sin permitir solapar tareas ya asignadas
+  async preview(
+    apartmentId: string,
+    userId: string,
+    today?: DateKey,
+    ignoreCalendar = false,
+  ) {
     await this.assertMember(apartmentId, userId);
     return this.guarded('preview', PLAN_FAILED, async () => {
-      const context = await this.loadContext(apartmentId, today, true);
+      const context = await this.loadContext(
+        apartmentId,
+        today,
+        true,
+        ignoreCalendar,
+      );
       const result = this.plan(context);
       this.assertCoherent(context, result);
       return this.describe(context, result);
@@ -137,10 +149,16 @@ export class TaskPlannerService {
     userId: string,
     items: PlanItem[],
     today?: DateKey,
+    ignoreCalendar = false,
   ) {
     await this.assertMember(apartmentId, userId);
     return this.guarded('validate', VALIDATE_FAILED, async () => {
-      const context = await this.loadContext(apartmentId, today, false);
+      const context = await this.loadContext(
+        apartmentId,
+        today,
+        false,
+        ignoreCalendar,
+      );
       const checks = this.check(context, items);
       return {
         valid: checks.every((c) => c.issues.length === 0),
@@ -158,10 +176,11 @@ export class TaskPlannerService {
     userId: string,
     items?: PlanItem[],
     today?: DateKey,
+    ignoreCalendar = false,
   ) {
     await this.assertMember(apartmentId, userId);
     return this.guarded('apply', PLAN_FAILED, () =>
-      this.applyPlan(apartmentId, items, today),
+      this.applyPlan(apartmentId, items, today, ignoreCalendar),
     );
   }
 
@@ -169,8 +188,14 @@ export class TaskPlannerService {
     apartmentId: string,
     items: PlanItem[] | undefined,
     today: DateKey | undefined,
+    ignoreCalendar: boolean,
   ) {
-    const context = await this.loadContext(apartmentId, today, true);
+    const context = await this.loadContext(
+      apartmentId,
+      today,
+      true,
+      ignoreCalendar,
+    );
 
     let toCreate: PlanItem[];
     if (items) {
@@ -414,6 +439,7 @@ export class TaskPlannerService {
     apartmentId: string,
     today: DateKey | undefined,
     syncGoogle: boolean,
+    ignoreCalendar: boolean,
   ): Promise<PlanContext> {
     const days = nextWeekDays(today ?? todayKey());
     const from = new Date(`${days[0]}T00:00:00.000Z`);
@@ -550,7 +576,11 @@ export class TaskPlannerService {
       members,
       tasks: plannerTasks,
       occurrences,
-      busy: await this.loadBusy(userIds, days, from, after, dayAfterLast, syncGoogle),
+      // Ignorar el calendario no consulta ni sincroniza nada: solo cuentan las tareas ya
+      // asignadas (`taken`), que nunca se pueden solapar
+      busy: ignoreCalendar
+        ? {}
+        : await this.loadBusy(userIds, days, from, after, dayAfterLast, syncGoogle),
       taken,
       preferences: await this.loadPreferences(apartmentId, userIds),
     };
