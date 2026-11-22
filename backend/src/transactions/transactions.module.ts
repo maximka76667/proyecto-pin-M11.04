@@ -2,10 +2,13 @@ import { Module } from '@nestjs/common';
 import { UsersModule } from '../users/users.module';
 import { TransactionsService } from './transactions.service';
 import { TransactionsController } from './transactions.controller';
+import { ExpensesController } from './expenses.controller';
+import { ExpensesService } from './expenses.service';
 
 @Module({
+  // Los avisos de UT1018 no se piden aquí: los servicios emiten eventos (expense.events.ts)
   imports: [UsersModule],
-  controllers: [TransactionsController],
-  providers: [TransactionsService],
+  controllers: [TransactionsController, ExpensesController],
+  providers: [TransactionsService, ExpensesService],
 })
 export class TransactionsModule {}

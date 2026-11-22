@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -14,10 +14,17 @@ import {
 import { Snackbar } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DeleteTarget, ExpenseSheet } from "@/components/expense-sheet";
 import { SettleUpCard } from "@/components/settle-up";
 import { APARTMENT_ID, USER_ID } from "@/constants/dev-session";
 import { Palette } from "@/constants/onboarding";
 import { api, errorMessage } from "@/lib/api";
+import {
+  ExpenseListEntry,
+  myBalanceCents,
+  myReceiptBalanceCents,
+  signedAmount,
+} from "@/lib/expenses";
 
 // Aviso que se muestra al volver de guardar un gasto
 const notices: Record<string, string> = {
@@ -34,45 +41,8 @@ type PersonalSummary = {
   mensaje: string;
 };
 
-type Transaction = {
-  id: string;
-  apartment_id: string;
-  from_user_id: string;
-  to_user_id: string;
-  amount: number | string;
-  concept?: string | null;
-  category: string;
-  date: string;
-  paidByCurrentUser: boolean;
-  canEdit?: boolean;
-  fromUser: {
-    full_name: string;
-  };
-  toUser: {
-    full_name: string;
-  };
-};
-
-type DisplayTransaction = {
-  id: string;
-  rawIds: string[];
-  apartment_id: string;
-  from_user_id: string;
-  to_user_ids: string[];
-  amount: number;
-  concept?: string | null;
-  category: string;
-  date: string;
-  paidByMe: boolean;
-  canEdit: boolean;
-  fromUser: {
-    full_name: string;
-  };
-  toUser: {
-    full_name: string;
-  };
-  debtorsCount: number;
-};
+// What the delete dialog needs to know about the expense or receipt
+type DisplayTransaction = DeleteTarget;
 
 const categoryLabels: Record<string, string> = {
   supplies: "Compra",
@@ -84,31 +54,10 @@ const categoryLabels: Record<string, string> = {
   pending: "Pendiente",
 };
 
-function groupTransactions(list: Transaction[]): DisplayTransaction[] {
-  return list.map((first) => {
-    return {
-      id: first.id,
-      rawIds: [first.id],
-      apartment_id: first.apartment_id,
-      from_user_id: first.from_user_id,
-      to_user_ids: [first.to_user_id],
-      amount: Number(first.amount) || 0,
-      concept: first.concept,
-      category: first.category,
-      date: first.date,
-      paidByMe: first.paidByCurrentUser,
-      canEdit: first.canEdit ?? false,
-      fromUser: first.fromUser,
-      toUser: first.toUser,
-      debtorsCount: 1,
-    };
-  });
-}
-
 export default function Transactions() {
   const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [summary, setSummary] = useState<PersonalSummary | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<ExpenseListEntry[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
@@ -116,8 +65,9 @@ export default function Transactions() {
 
   // sube al saldar una deuda, para recargar el balance y la lista sin salir de la pantalla
   const [refreshKey, setRefreshKey] = useState(0);
-  const [transactionMenu, setTransactionMenu] =
-    useState<DisplayTransaction | null>(null);
+  // the expense or ticket whose sheet is open
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = transactions.find(({ id }) => id === selectedId) ?? null;
   const [transactionToDelete, setTransactionToDelete] =
     useState<DisplayTransaction | null>(null);
   // Al cerrarse el aviso se quita el parámetro, para que no vuelva a salir al recargar la página,
@@ -130,26 +80,18 @@ export default function Transactions() {
     router.setParams({ notice: undefined });
   };
 
-  const displayTransactions = useMemo(
-    () => groupTransactions(transactions),
-    [transactions],
-  );
-
   const deleteTransaction = async () => {
     if (!transactionToDelete) return;
 
     try {
-      await Promise.all(
-        transactionToDelete.rawIds.map((id) =>
-          api("DELETE", `/transactions/${id}`),
-        ),
+      const { kind, id, version } = transactionToDelete;
+      await api(
+        "DELETE",
+        `/${kind === "receipt" ? "receipts" : "expenses"}/${id}?version=${version}`,
       );
-      const deletedIds = new Set(transactionToDelete.rawIds);
       setTransactionToDelete(null);
       setSuccess("Gasto eliminado correctamente.");
-      setTransactions((current) =>
-        current.filter(({ id }) => !deletedIds.has(id)),
-      );
+      // the list is reloaded: deleting a product changes the total of its receipt
       setRefreshKey((key) => key + 1);
 
       try {
@@ -174,18 +116,12 @@ export default function Transactions() {
         setLoading(true);
         setError("");
         try {
-          const apartmentTransactions = (await api(
+          const loaded = (await api(
             "GET",
-            `/transactions?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
-          )) as Transaction[];
+            `/expenses?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
+          )) as ExpenseListEntry[];
 
-          if (active) {
-            setTransactions(
-              apartmentTransactions.filter(
-                (transaction) => transaction.category !== "pending",
-              ),
-            );
-          }
+          if (active) setTransactions(loaded);
 
           try {
             const summaryData = (await api(
@@ -243,7 +179,7 @@ export default function Transactions() {
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.eyebrow}>MIS TRANSACCIONES</Text>
+              <Text style={styles.eyebrow}>MIS GASTOS</Text>
               <Text style={styles.title}>Dinero</Text>
             </View>
             <Pressable
@@ -315,181 +251,152 @@ export default function Transactions() {
         />
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Mis transacciones</Text>
+          <Text style={styles.sectionTitle}>Mis gastos</Text>
           <Text style={styles.sectionCaption}>
-            {displayTransactions.length}
+            {transactions.length}
           </Text>
         </View>
 
-        {displayTransactions.length > 0 ? (
+        {transactions.length > 0 ? (
           <View style={styles.transactionList}>
-            {displayTransactions.map((transaction) => {
-              const paidByMe = transaction.paidByMe;
-              const pendiente = transaction.category === "pending";
-              // el backend no deja editar ni borrar pagos ni avisos: no se ofrece el menú
-              const editable =
-                transaction.canEdit === true &&
-                transaction.from_user_id === USER_ID &&
-                transaction.category !== "payment" &&
-                !pendiente &&
-                transaction.concept?.trim().toLowerCase() !== "payment";
+            {transactions.map((entry) => {
+              const isReceipt = entry.kind === "receipt";
+              const paidByMe = entry.paidByCurrentUser;
+              const settlement = !isReceipt && entry.type === "SETTLEMENT";
+              // what the user gets back (+) or owes (-) from this expense
+              const balanceCents = isReceipt
+                ? myReceiptBalanceCents(entry, USER_ID)
+                : myBalanceCents(entry, USER_ID);
+              const title = isReceipt
+                ? "Ticket"
+                : entry.concept ||
+                  categoryLabels[entry.category] ||
+                  entry.category;
+              const status = isReceipt
+                ? paidByMe
+                  ? `Pagaste tú · ${entry.items.length} productos`
+                  : `Pagó ${entry.payer.full_name}`
+                : settlement
+                  ? paidByMe
+                    ? `Pagaste a ${entry.shares[0]?.user.full_name ?? ""}`
+                    : `${entry.payer.full_name} te pagó`
+                  : paidByMe
+                    ? `Pagaste tú · ${entry.shares
+                        .map((share) => share.user.full_name)
+                        .join(", ")}`
+                    : `Pagó ${entry.payer.full_name}`;
 
               return (
-                <View key={transaction.id} style={styles.transaction}>
-                  <View
-                    style={[
-                      styles.categoryIcon,
-                      !paidByMe && styles.categoryIconOther,
+                <View
+                  key={entry.id}
+                  style={[styles.entry, isReceipt && styles.entryCard]}
+                >
+                  <Pressable
+                    onPress={() => setSelectedId(entry.id)}
+                    style={({ pressed }) => [
+                      styles.transaction,
+                      isReceipt && styles.transactionInCard,
+                      pressed && styles.pressed,
                     ]}
                   >
-                    <MaterialCommunityIcons
-                      name={paidByMe ? "cart-outline" : "home-outline"}
-                      size={20}
-                      color={Palette.primary}
-                    />
-                  </View>
-                  <View style={styles.transactionInfo}>
-                    <Text style={styles.transactionCategory}>
-                      {transaction.concept ||
-                        categoryLabels[transaction.category] ||
-                        transaction.category}
-                    </Text>
-                    <Text style={styles.transactionStatus}>
-                      {paidByMe
-                        ? `Pagaste tú a ${transaction.toUser.full_name}`
-                        : `Pagó ${transaction.fromUser.full_name}`}
-                      {pendiente ? " · pendiente de confirmar" : ""}
-                    </Text>
-                    <Text style={styles.transactionDate}>
-                      {new Date(transaction.date).toLocaleDateString("es-ES")}
-                    </Text>
-                  </View>
-                  <View style={styles.transactionActions}>
-                    <Text
+                    <View
                       style={[
-                        styles.transactionAmount,
-                        !paidByMe && styles.negativeAmount,
-                        // todavía no cuenta en el balance
-                        pendiente && styles.pendingAmount,
+                        styles.categoryIcon,
+                        !paidByMe && styles.categoryIconOther,
                       ]}
                     >
-                      {paidByMe ? "+" : "-"}
-                      {transaction.amount.toFixed(2)} €
-                    </Text>
-                    {editable ? (
-                      <Pressable
-                        onPress={() => setTransactionMenu(transaction)}
-                        hitSlop={8}
-                        style={styles.menuButton}
+                      <MaterialCommunityIcons
+                        name={
+                          isReceipt
+                            ? "receipt-text-outline"
+                            : paidByMe
+                              ? "cart-outline"
+                              : "home-outline"
+                        }
+                        size={20}
+                        color={Palette.primary}
+                      />
+                    </View>
+                    <View style={styles.transactionInfo}>
+                      <Text style={styles.transactionCategory}>{title}</Text>
+                      <Text style={styles.transactionStatus}>{status}</Text>
+                      <Text style={styles.transactionDate}>
+                        {new Date(entry.date).toLocaleDateString("es-ES")}
+                      </Text>
+                    </View>
+                    <View style={styles.transactionActions}>
+                      <Text style={styles.transactionAmount}>
+                        {Number(entry.total_amount).toFixed(2)} €
+                      </Text>
+                      <Text
+                        style={[
+                          styles.transactionBalance,
+                          balanceCents > 0 && styles.balancePositive,
+                          balanceCents < 0 && styles.negativeAmount,
+                        ]}
                       >
-                        <MaterialCommunityIcons
-                          name="dots-horizontal"
-                          size={22}
-                          color={Palette.text}
-                        />
-                      </Pressable>
-                    ) : null}
-                  </View>
+                        {signedAmount(balanceCents)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  {isReceipt ? (
+                    <Pressable
+                      onPress={() => setSelectedId(entry.id)}
+                      style={styles.receiptItems}
+                    >
+                      {entry.items.map((item) => {
+                        const itemCents = myBalanceCents(item, USER_ID);
+                        return (
+                          <View key={item.id} style={styles.receiptItem}>
+                            <Text style={styles.receiptItemBullet}>-</Text>
+                            <Text
+                              style={styles.receiptItemName}
+                              numberOfLines={1}
+                            >
+                              {item.concept ||
+                                categoryLabels[item.category] ||
+                                item.category}
+                            </Text>
+                            <View style={styles.receiptItemAmounts}>
+                              <Text style={styles.receiptItemAmount}>
+                                {Number(item.total_amount).toFixed(2)} €
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.transactionBalance,
+                                  itemCents > 0 && styles.balancePositive,
+                                  itemCents < 0 && styles.negativeAmount,
+                                ]}
+                              >
+                                {signedAmount(itemCents)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </Pressable>
+                  ) : null}
                 </View>
               );
             })}
           </View>
         ) : !loading ? (
-          <Text style={styles.muted}>No hay transacciones para mostrar.</Text>
+          <Text style={styles.muted}>No hay gastos para mostrar.</Text>
         ) : null}
       </ScrollView>
-      <Modal
-        visible={transactionMenu !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTransactionMenu(null)}
-      >
-        <Pressable
-          style={[styles.modalBackdrop, styles.actionMenuBackdrop]}
-          onPress={() => setTransactionMenu(null)}
-        >
-          <Pressable style={styles.actionMenu} onPress={() => undefined}>
-            <View style={styles.actionMenuHandle} />
-            <View style={styles.actionMenuHeader}>
-              <View style={styles.actionMenuIcon}>
-                <MaterialCommunityIcons
-                  name="receipt-text-outline"
-                  size={23}
-                  color={Palette.primary}
-                />
-              </View>
-              <View style={styles.actionMenuHeaderText}>
-                <Text style={styles.actionMenuEyebrow}>OPCIONES DEL GASTO</Text>
-                <Text style={styles.actionMenuTitle}>
-                  {transactionMenu?.concept ||
-                    transactionMenu?.category ||
-                    "Gasto"}
-                </Text>
-              </View>
-              <Text style={styles.actionMenuAmount}>
-                {transactionMenu
-                  ? `${transactionMenu.amount.toFixed(2)} €`
-                  : ""}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                if (!transactionMenu) return;
-                const id = transactionMenu.id;
-                setTransactionMenu(null);
-                router.push({
-                  pathname: "/transactions/edit",
-                  params: { id },
-                });
-              }}
-              style={styles.actionMenuItem}
-            >
-              <View style={styles.actionMenuItemIcon}>
-                <MaterialCommunityIcons
-                  name="pencil-outline"
-                  size={20}
-                  color={Palette.primary}
-                />
-              </View>
-              <Text style={styles.actionMenuItemText}>Editar gasto</Text>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={21}
-                color={Palette.textSecondary}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setTransactionToDelete(transactionMenu);
-                setTransactionMenu(null);
-              }}
-              style={styles.actionMenuItem}
-            >
-              <View
-                style={[styles.actionMenuItemIcon, styles.actionMenuDeleteIcon]}
-              >
-                <MaterialCommunityIcons
-                  name="trash-can-outline"
-                  size={20}
-                  color={Palette.error}
-                />
-              </View>
-              <Text style={styles.actionMenuDeleteText}>Eliminar gasto</Text>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={21}
-                color={Palette.textSecondary}
-              />
-            </Pressable>
-            <Pressable
-              onPress={() => setTransactionMenu(null)}
-              style={styles.actionMenuCancel}
-            >
-              <Text style={styles.actionMenuCancelText}>Cancelar</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <ExpenseSheet
+        entry={selected}
+        userId={USER_ID}
+        onClose={() => setSelectedId(null)}
+        onEdit={(id) => {
+          setSelectedId(null);
+          router.push({ pathname: "/transactions/edit", params: { id } });
+        }}
+        onDelete={(target) => {
+          setSelectedId(null);
+          setTransactionToDelete(target);
+        }}
+      />
       <Modal
         visible={transactionToDelete !== null}
         transparent
@@ -556,6 +463,38 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     gap: 18,
   },
+  entry: { gap: 6 },
+  entryCard: {
+    gap: 0,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: 16,
+    backgroundColor: Palette.surface,
+    overflow: "hidden",
+  },
+  transactionInCard: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  },
+  receiptItems: {
+    gap: 8,
+    marginHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: Palette.border,
+  },
+  receiptItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 4,
+  },
+  receiptItemBullet: { fontSize: 14, color: Palette.textSecondary },
+  receiptItemName: { flex: 1, fontSize: 14, color: Palette.textSecondary },
+  receiptItemAmount: { fontSize: 14, color: Palette.text },
+  receiptItemAmounts: { alignItems: "flex-end" },
   back: { alignSelf: "flex-start", paddingTop: 8 },
   header: { gap: 6 },
   headerRow: {
@@ -648,104 +587,22 @@ const styles = StyleSheet.create({
   transactionStatus: { fontSize: 12, color: Palette.textSecondary },
   transactionDate: { fontSize: 11, color: Palette.textSecondary },
   transactionAmount: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "800",
-    color: Palette.primary,
+    color: Palette.text,
   },
+  transactionBalance: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Palette.textSecondary,
+  },
+  balancePositive: { color: Palette.primary },
   transactionActions: { alignItems: "flex-end", gap: 8 },
-  menuButton: {
-    padding: 4,
-    borderRadius: 12,
-    backgroundColor: Palette.segment,
-  },
   negativeAmount: { color: Palette.error },
   pendingAmount: { color: Palette.textSecondary },
   error: { fontSize: 14, color: Palette.error },
   success: { fontSize: 14, color: Palette.primary, fontWeight: "700" },
   muted: { fontSize: 14, color: Palette.textSecondary },
-  actionMenuBackdrop: {
-    alignItems: "center",
-    justifyContent: "flex-end",
-    padding: 0,
-  },
-  actionMenu: {
-    width: "100%",
-    maxWidth: 560,
-    gap: 6,
-    padding: 24,
-    paddingTop: 12,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: Palette.background,
-  },
-  actionMenuHandle: {
-    alignSelf: "center",
-    width: 42,
-    height: 5,
-    marginBottom: 20,
-    borderRadius: 999,
-    backgroundColor: Palette.border,
-  },
-  actionMenuHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-  },
-  actionMenuIcon: {
-    width: 46,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 15,
-    backgroundColor: Palette.mint,
-  },
-  actionMenuHeaderText: { flex: 1, gap: 3 },
-  actionMenuEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    color: Palette.textSecondary,
-  },
-  actionMenuTitle: { fontSize: 19, fontWeight: "800", color: Palette.text },
-  actionMenuAmount: { fontSize: 16, fontWeight: "800", color: Palette.primary },
-  actionMenuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 58,
-    paddingHorizontal: 10,
-    borderRadius: 15,
-    backgroundColor: Palette.surface,
-  },
-  actionMenuItemIcon: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 11,
-    backgroundColor: Palette.mint,
-  },
-  actionMenuDeleteIcon: { backgroundColor: "#F9E4E0" },
-  actionMenuItemText: { fontSize: 16, fontWeight: "700", color: Palette.text },
-  actionMenuDeleteText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Palette.error,
-  },
-  actionMenuCancel: {
-    alignItems: "center",
-    minHeight: 48,
-    justifyContent: "center",
-    marginTop: 6,
-    borderRadius: 15,
-    backgroundColor: Palette.segment,
-  },
-  actionMenuCancelText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: Palette.text,
-  },
   modalBackdrop: {
     flex: 1,
     alignItems: "center",

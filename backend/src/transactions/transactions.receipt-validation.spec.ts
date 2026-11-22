@@ -26,7 +26,9 @@ describe('POST /transactions/from-receipt límites de importe y cantidad', () =>
 
   const prisma = {
     apartment: { findUnique: jest.fn() },
-    transaction: { create: jest.fn() },
+    receipt: { create: jest.fn() },
+    expense: { createMany: jest.fn() },
+    transaction: { createMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -68,8 +70,10 @@ describe('POST /transactions/from-receipt límites de importe y cantidad', () =>
     prisma.apartment.findUnique.mockResolvedValue({
       user_apartments: [{ user_id: pagador }, { user_id: companero }],
     });
-    prisma.transaction.create.mockImplementation(({ data }) => data);
-    prisma.$transaction.mockImplementation((operaciones: unknown[]) => Promise.all(operaciones));
+    prisma.receipt.create.mockImplementation(({ data }) => Promise.resolve(data));
+    prisma.expense.createMany.mockResolvedValue({ count: 1 });
+    prisma.transaction.createMany.mockResolvedValue({ count: 1 });
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
   });
 
   it('acepta un ticket de 10.000,00 €', async () => {
@@ -93,7 +97,7 @@ describe('POST /transactions/from-receipt límites de importe y cantidad', () =>
 
     expect(response.body.message).toContain('Receipt total must not exceed 10000.00');
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.createMany).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -113,7 +117,7 @@ describe('POST /transactions/from-receipt límites de importe y cantidad', () =>
     // El mensaje dice qué campo está mal
     expect(response.body.message.join(' ')).toContain(campo);
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.createMany).not.toHaveBeenCalled();
   });
 
   it('bloquea un ticket con más productos de los permitidos', async () => {

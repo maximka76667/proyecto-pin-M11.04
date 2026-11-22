@@ -21,6 +21,8 @@ export type ChoreFormValues = {
   title: string;
   description: string;
   duration_minutes: number;
+  // null = sin indicar: el backend la calcula con la duración al crear y no la toca al editar
+  points: number | null;
   category: ChoreCategory;
   frequency: ChoreFrequency;
 };
@@ -43,6 +45,7 @@ const emptyValues: ChoreFormValues = {
   title: '',
   description: '',
   duration_minutes: 30,
+  points: null,
   category: 'other',
   frequency: 'weekly',
 };
@@ -61,6 +64,8 @@ type ChoreFormProps = {
   subtitle: string;
   submitLabel: string;
   initialValues?: ChoreFormValues;
+  // Si se da, el campo de puntos no se puede editar y este texto explica por qué
+  pointsLockedReason?: string;
   children?: ReactNode;
   onSubmit: (values: ChoreFormValues) => Promise<void>;
 };
@@ -71,12 +76,16 @@ export function ChoreForm({
   subtitle,
   submitLabel,
   initialValues = emptyValues,
+  pointsLockedReason,
   children,
   onSubmit,
 }: ChoreFormProps) {
   const [title, setTitle] = useState(initialValues.title);
   const [description, setDescription] = useState(initialValues.description);
   const [durationMinutes, setDurationMinutes] = useState(String(initialValues.duration_minutes));
+  const [points, setPoints] = useState(
+    initialValues.points === null ? '' : String(initialValues.points),
+  );
   const [category, setCategory] = useState(initialValues.category);
   const [frequency, setFrequency] = useState(initialValues.frequency);
   const [error, setError] = useState('');
@@ -92,6 +101,14 @@ export function ChoreForm({
       setError('La duración debe estar entre 1 y 1440 minutos.');
       return;
     }
+    const parsedPoints = points.trim() === '' ? null : Number(points);
+    if (
+      parsedPoints !== null &&
+      (!Number.isInteger(parsedPoints) || parsedPoints < 1 || parsedPoints > 1000)
+    ) {
+      setError('Los puntos deben ser un número entero entre 1 y 1000.');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -100,6 +117,7 @@ export function ChoreForm({
         title: title.trim(),
         description: description.trim(),
         duration_minutes: parsedDuration,
+        points: parsedPoints,
         category,
         frequency,
       });
@@ -151,6 +169,19 @@ export function ChoreForm({
           accessibilityLabel="Duración de la tarea en minutos"
           keyboardType="number-pad"
         />
+
+        <Text style={styles.label}>Puntos (opcional)</Text>
+        <TextInput
+          value={points}
+          onChangeText={setPoints}
+          placeholder="Automático según la duración"
+          placeholderTextColor={Palette.textSecondary}
+          style={[styles.input, pointsLockedReason ? styles.inputLocked : null]}
+          accessibilityLabel="Puntos que da la tarea"
+          keyboardType="number-pad"
+          editable={!pointsLockedReason}
+        />
+        {pointsLockedReason ? <Text style={styles.hint}>{pointsLockedReason}</Text> : null}
 
         <Text style={styles.label}>Detalles (opcional)</Text>
         <TextInput
@@ -249,6 +280,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   descriptionInput: { minHeight: 88, paddingTop: 14 },
+  inputLocked: { opacity: 0.55 },
+  hint: { fontSize: 12, lineHeight: 17, color: Palette.textSecondary },
   frequencyRow: { flexDirection: 'row', gap: 8 },
   categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   category: {

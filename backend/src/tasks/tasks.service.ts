@@ -26,6 +26,9 @@ import {
   TaskPreferenceItemDto,
   TaskPreferenceType,
 } from './dto/set-task-preferences.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { TAREA_ASIGNADA, TareaAsignada } from './task.events';
+import { defaultTaskPoints } from './task-points';
 
 // Integrante con la franja ocupada; solo la hora, nunca el título del evento
 type BusyMember = { id: string; full_name: string; busy: { start: string; end: string } };
@@ -38,6 +41,8 @@ export class TasksService {
     private readonly prisma: PrismaService,
     // Opcional: sin él (p. ej. en los tests que solo dan Prisma) se usan los eventos ya guardados
     @Optional() private readonly googleCalendar?: GoogleCalendarService,
+    // Opcional por lo mismo: sin él no se emiten eventos y, por tanto, no hay avisos (UT1019)
+    @Optional() private readonly events?: EventEmitter2,
   ) { }
 
   findAll(apartmentId?: string) {
@@ -72,13 +77,17 @@ export class TasksService {
       );
     }
 
+    const durationMinutes = createTaskDto.duration_minutes ?? 30;
     try {
       return await this.prisma.task.create({
         data: {
           apartment_id: createTaskDto.apartment_id,
           title,
           description: createTaskDto.description?.trim() || null,
-          duration_minutes: createTaskDto.duration_minutes ?? 30,
+          duration_minutes: durationMinutes,
+          points:
+            createTaskDto.points ??
+            defaultTaskPoints(durationMinutes, TaskPriority.medium),
           frequency: createTaskDto.frequency,
           status: TaskStatus.pending,
           category: createTaskDto.category ?? TaskCategory.other,
@@ -214,6 +223,21 @@ export class TasksService {
         }),
       ]);
       const assignments = results.slice(0, userIds.length);
+      // Evento de dominio: NotificationsListener avisa a cada persona asignada (UT1019)
+      await this.events?.emitAsync(
+        TAREA_ASIGNADA,
+        new TareaAsignada({
+          taskId,
+          apartmentId: task.apartment_id,
+          assignerId: currentUserId,
+          dueDate,
+          dueTime: assignmentDto.due_time,
+          assignments: userIds.map((userId, index) => ({
+            id: assignments[index].id,
+            user_id: userId,
+          })),
+        }),
+      );
       return assignmentDto.user_ids ? assignments : assignments[0];
     } catch (error) {
       if (
@@ -284,6 +308,9 @@ export class TasksService {
     await this.asegurarMiembro(task.apartment_id, userId);
     // PA-1010.01: las tareas con un intercambio pendiente quedan bloqueadas.
     await this.assertNoPendingSwapForAssignments(await this.assignmentIdsOfTask(id));
+    if (updateTaskDto.points !== undefined) {
+      await this.assertPointsNotLockedByVerification(id, updateTaskDto.points);
+    }
 
     try {
       return await this.prisma.task.update({
@@ -416,6 +443,29 @@ export class TasksService {
   // Lanza ForbiddenException si el usuario no pertenece al piso (versión pública de asegurarMiembro).
   async assertMember(apartmentId: string, userId: string) {
     return this.asegurarMiembro(apartmentId, userId);
+  }
+
+  // UT1021: mientras una asignación de la tarea espera verificación no se pueden cambiar sus
+  // puntos. El verificador confirma el valor que ve y los puntos se pagan al verificar, así que
+  // cambiarlos en medio haría que se pagara otra cosa. Enviar el mismo valor no es un cambio
+  // (el formulario de edición reenvía todos los campos)
+  private async assertPointsNotLockedByVerification(taskId: string, newPoints: number) {
+    if (typeof this.prisma.taskAssignment.findFirst !== 'function') return;
+    const inVerification = await this.prisma.taskAssignment.findFirst({
+      where: { task_id: taskId, status: AssignmentStatus.waiting_verification },
+      select: { id: true },
+    });
+    if (!inVerification) return;
+
+    const current = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { points: true },
+    });
+    if (current && current.points !== newPoints) {
+      throw new ConflictException(
+        'No se pueden cambiar los puntos de una tarea mientras está esperando verificación',
+      );
+    }
   }
 
   // Ids de las asignaciones de una tarea (vacío si el mock de prisma no soporta findMany).
@@ -606,7 +656,7 @@ export class TasksService {
   // Un campo que no se envía no se toca. @IsOptional deja pasar null, pero el nombre,
   // la frecuencia y la categoría son obligatorios: null no puede vaciarlos
   private datosEditados(updateTaskDto: UpdateTaskDto) {
-    const { title, description, frequency, category, duration_minutes } = updateTaskDto;
+    const { title, description, frequency, category, duration_minutes, points } = updateTaskDto;
     if (title === null) {
       throw new BadRequestException('El nombre de la tarea es obligatorio');
     }
@@ -626,6 +676,8 @@ export class TasksService {
     if (frequency !== undefined) data.frequency = frequency;
     if (category !== undefined) data.category = category;
     if (duration_minutes !== undefined) data.duration_minutes = duration_minutes;
+    // Los puntos solo cambian si se envían: editar la duración no los recalcula
+    if (points !== undefined) data.points = points;
     return data;
   }
 

@@ -3,9 +3,7 @@ import {
   Get,
   Post,
   Body,
-  Patch,
   Param,
-  Delete,
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
@@ -13,7 +11,6 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { SettleDebtDto } from './dto/settle-debt.dto';
-import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { CreateReceiptTransactionDto } from './dto/create-receipt-transaction.dto';
 
 @Controller('transactions')
@@ -21,8 +18,12 @@ export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Post()
-  create(@Body() createTransactionDto: CreateTransactionDto) {
-    return this.transactionsService.create(createTransactionDto);
+  create(
+    @Body() createTransactionDto: CreateTransactionDto,
+    @CurrentUser() userId: string,
+  ) {
+    // El usuario de la sesión solo decide quién no recibe el aviso de cobro (UT1018)
+    return this.transactionsService.create(createTransactionDto, userId);
   }
 
   @Post('from-receipt')
@@ -45,30 +46,6 @@ export class TransactionsController {
   getPublicApartmentBalance(@Param('inviteCode') inviteCode: string) {
     return this.transactionsService.getPublicApartmentBalance(inviteCode);
   }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.transactionsService.findOne(id);
-  }
-
-  @Patch(':id')
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateTransactionDto: UpdateTransactionDto,
-    @CurrentUser() userId: string,
-  ) {
-    return this.transactionsService.update(id, updateTransactionDto, userId);
-  }
-
-  @Delete(':id')
-  remove(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() userId: string,
-  ) {
-    return this.transactionsService.remove(id, userId);
-  }
-
-  
 
   @Get(':apartmentId/my-summary')
   getMyPersonalSummary(

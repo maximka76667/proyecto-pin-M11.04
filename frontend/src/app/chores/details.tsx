@@ -25,6 +25,7 @@ type TaskDetails = {
   title: string;
   description: string | null;
   duration_minutes: number;
+  points: number;
   frequency: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
   status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
   assignments: {
@@ -34,6 +35,8 @@ type TaskDetails = {
     due_date: string;
     due_time: string | null;
     status: string;
+    verifier_id?: string | null;
+    rejection_reason?: string | null;
   }[];
 };
 
@@ -144,7 +147,8 @@ export default function ChoreDetailsScreen() {
   }>();
   const [task, setTask] = useState<TaskDetails | null>(null);
   const [members, setMembers] = useState<HouseMember[]>([]);
-  const [completed, setCompleted] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState('');
   // sin taskId no hay nada que cargar: el error se muestra desde el principio
   const [loading, setLoading] = useState(Boolean(taskId));
   const [error, setError] = useState(taskId ? '' : 'No se encontró la tarea.');
@@ -407,6 +411,61 @@ export default function ChoreDetailsScreen() {
   const myAssignment = task?.assignments.find((item) => item.user_id === USER_ID);
   const apartmentId = task?.apartment_id;
   const myAssignmentId = myAssignment?.id;
+  // Una tarea completada o esperando verificación no se puede intercambiar: cambiar su dueño
+  // haría que los puntos fueran a quien no la hizo (el servidor también lo rechaza)
+  const swapLocked =
+    myAssignment?.status === 'completed' || myAssignment?.status === 'waiting_verification';
+  const canRequestSwap = Boolean(myAssignment) && !swapLocked;
+  // La que se puede marcar como hecha: una asignación mía que aún no está completada ni
+  // esperando a que otro compañero la verifique
+  const myOpenAssignment = task?.assignments.find(
+    (item) =>
+      item.user_id === USER_ID &&
+      item.status !== 'completed' &&
+      item.status !== 'rejected' &&
+      item.status !== 'waiting_verification',
+  );
+  const myWaitingAssignment = task?.assignments.find(
+    (item) => item.user_id === USER_ID && item.status === 'waiting_verification',
+  );
+  const iCompletedIt = !myOpenAssignment && !myWaitingAssignment && Boolean(myAssignment) &&
+    task?.assignments.some((item) => item.user_id === USER_ID && item.status === 'completed');
+  const verifierName = members.find(({ id }) => id === myWaitingAssignment?.verifier_id)?.full_name;
+
+  // Marca la tarea como hecha: si hay más gente en el piso, un compañero elegido al azar tiene
+  // que verificarla antes de que cuente (y den puntos); si vives solo, se completa directamente
+  const completeAssignment = async () => {
+    if (!myOpenAssignment || !task) return;
+    setCompleting(true);
+    setCompleteError('');
+    try {
+      const result = await api(
+        'POST',
+        `/tasks/assignments/${encodeURIComponent(myOpenAssignment.id)}/submit`,
+      ) as { status: string; verifier: { id: string; full_name: string } | null };
+      setTask((current) =>
+        current
+          ? {
+            ...current,
+            assignments: current.assignments.map((item) =>
+              item.id === myOpenAssignment.id
+                ? { ...item, status: result.status, verifier_id: result.verifier?.id ?? null, rejection_reason: null }
+                : item,
+            ),
+          }
+          : current,
+      );
+      setAssignmentNotice(
+        result.status === 'completed'
+          ? `¡Hecho! Has ganado ${task.points} puntos.`
+          : `Enviada a verificar a ${result.verifier?.full_name ?? 'un compañero'}. Ganarás los puntos cuando la confirme.`,
+      );
+    } catch (e) {
+      setCompleteError(errorMessage(e));
+    } finally {
+      setCompleting(false);
+    }
+  };
 
   // PA-1010.05: la solicitud de intercambio que envió el usuario con esta tarea se cancela desde
   // la propia tarea. Se vuelve a mirar al volver a la pantalla (p. ej. tras pedir el cambio)
@@ -466,7 +525,7 @@ export default function ChoreDetailsScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.topBar}>
           <Text style={styles.title}>Detalles de la tarea</Text>
-          <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Cerrar">
+          <Pressable onPress={() => router.dismissTo('/chores')} hitSlop={12} accessibilityLabel="Cerrar">
             <MaterialCommunityIcons name="close" size={23} color={Palette.text} />
           </Pressable>
         </View>
@@ -479,7 +538,7 @@ export default function ChoreDetailsScreen() {
           </View>
           <Text style={styles.choreTitle}>{task.title}</Text>
           <Text style={styles.meta}>
-            {frequencyLabels[task.frequency] ?? task.frequency} · {assignmentDate ?? 'En cualquier momento'}
+            {frequencyLabels[task.frequency] ?? task.frequency} · {assignmentDate ?? 'En cualquier momento'} · {task.points} pts
           </Text>
           {task.description ? <Text style={styles.description}>{task.description}</Text> : null}
         </View> : null}
@@ -495,7 +554,7 @@ export default function ChoreDetailsScreen() {
                     {item.user.full_name} · {formatAssignmentDay(item.due_date, {
                       month: 'short',
                       day: 'numeric',
-                    })} · {formatSlot(item.due_time, task.duration_minutes)} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status}
+                    })} · {formatSlot(item.due_time, task.duration_minutes)} · {item.status === 'completed' ? 'completada' : item.status === 'pending' ? 'pendiente' : item.status === 'waiting_verification' ? 'esperando verificación' : item.status}
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -520,12 +579,40 @@ export default function ChoreDetailsScreen() {
 
         {task ? <>
           <Text style={styles.sectionLabel}>¿QUÉ QUIERES HACER?</Text>
+          {myOpenAssignment?.status === 'pending' && myOpenAssignment.rejection_reason ? (
+            <View style={styles.rejectionCard}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={20} color={Palette.error} />
+              <View style={styles.rejectionText}>
+                <Text style={styles.rejectionTitle}>Te han devuelto esta tarea</Text>
+                <Text style={styles.rejectionReason}>{myOpenAssignment.rejection_reason}</Text>
+              </View>
+            </View>
+          ) : null}
           <Pressable
-            onPress={() => setCompleted(true)}
-            style={[styles.actionButton, completed && styles.completedButton]}>
-            <MaterialCommunityIcons name="check-circle-outline" size={18} color={Palette.onPrimary} />
-            <Text style={styles.actionText}>{completed ? 'Marcada como hecha' : 'Marcar como hecha'}</Text>
+            disabled={!myOpenAssignment || completing}
+            onPress={() => void completeAssignment()}
+            style={[
+              styles.actionButton,
+              iCompletedIt && styles.completedButton,
+              myWaitingAssignment && styles.waitingButton,
+              !myOpenAssignment && !iCompletedIt && !myWaitingAssignment && styles.disabledButton,
+            ]}>
+            {completing ? (
+              <ActivityIndicator color={Palette.onPrimary} />
+            ) : (
+              <MaterialCommunityIcons name="check-circle-outline" size={18} color={Palette.onPrimary} />
+            )}
+            <Text style={styles.actionText}>
+              {iCompletedIt
+                ? 'Marcada como hecha'
+                : myWaitingAssignment
+                  ? `Esperando verificación${verifierName ? ` de ${verifierName}` : ''}`
+                  : myOpenAssignment
+                  ? `Marcar como hecha (+${task.points} pts)`
+                  : 'Solo quien la tiene asignada puede marcarla'}
+            </Text>
           </Pressable>
+          {completeError ? <Text style={styles.error}>{completeError}</Text> : null}
           <Pressable
             disabled={membersLoading}
             onPress={openAssignmentDialog}
@@ -549,7 +636,7 @@ export default function ChoreDetailsScreen() {
             </Pressable>
           ) : (
             <Pressable
-              disabled={!myAssignment}
+              disabled={!canRequestSwap}
               onPress={() =>
                 myAssignment &&
                 router.push({
@@ -557,12 +644,14 @@ export default function ChoreDetailsScreen() {
                   params: { assignmentId: myAssignment.id, taskId },
                 })
               }
-              style={[styles.secondaryButton, !myAssignment && styles.disabledButton]}>
+              style={[styles.secondaryButton, !canRequestSwap && styles.disabledButton]}>
               <MaterialCommunityIcons name="swap-horizontal" size={18} color={Palette.primary} />
               <Text style={styles.secondaryText}>
-                {myAssignment
-                  ? 'Solicitar un cambio'
-                  : 'Solo puedes cambiar una tarea tuya'}
+                {!myAssignment
+                  ? 'Solo puedes cambiar una tarea tuya'
+                  : swapLocked
+                    ? 'No se puede cambiar una tarea completada o en verificación'
+                    : 'Solicitar un cambio'}
               </Text>
             </Pressable>
           )}
@@ -842,6 +931,11 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
   },
   completedButton: { backgroundColor: '#4C8B6F' },
+  waitingButton: { backgroundColor: Palette.sun },
+  rejectionCard: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.error, backgroundColor: Palette.surface },
+  rejectionText: { flex: 1, gap: 2 },
+  rejectionTitle: { fontSize: 14, fontWeight: '800', color: Palette.error },
+  rejectionReason: { fontSize: 14, color: Palette.text },
   actionText: { fontSize: 15, fontWeight: '800', color: Palette.onPrimary },
   secondaryButton: {
     flexDirection: 'row',

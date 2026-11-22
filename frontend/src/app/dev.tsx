@@ -23,9 +23,9 @@ import {
   api,
   errorMessage,
   ScannedTicket,
-  Transaction,
   TransactionCategory,
 } from '@/lib/api';
+import { ExpenseItem, ExpenseListEntry, ReceiptEntry } from '@/lib/expenses';
 import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
 const CATEGORIES: TransactionCategory[] = ['utilities', 'maintenance', 'supplies', 'other'];
@@ -52,7 +52,7 @@ const TABS: { value: Tab; label: string; title: string; subtitle: string }[] = [
     value: 'expenses',
     label: 'Gastos',
     title: 'Gastos',
-    subtitle: 'Crea, edita y elimina gastos para probar la API.',
+    subtitle: 'Crea gastos, edítalos con su versión y bórralos; los tickets muestran sus productos.',
   },
   {
     value: 'scanner',
@@ -317,25 +317,25 @@ function ApartmentItem({
 }
 
 function DevExpenses({ showError }: { showError: ShowError }) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [entries, setEntries] = useState<ExpenseListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  // Empty filter = all expenses
+  // Empty filter = the expenses of every apartment of the current user
   const [filterApartmentId, setFilterApartmentId] = useState('');
 
   const [apartmentId, setApartmentId] = useState('');
   const [fromUserId, setFromUserId] = useState('');
-  const [toUserId, setToUserId] = useState('');
+  const [toUserIds, setToUserIds] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<TransactionCategory>('other');
 
-  const loadTransactions = useCallback(async () => {
+  const loadExpenses = useCallback(async () => {
     setLoading(true);
     try {
       const filter = filterApartmentId.trim();
       const query = filter ? `?apartment_id=${encodeURIComponent(filter)}` : '';
-      setTransactions(await api('GET', `/transactions${query}`));
+      setEntries((await api('GET', `/expenses${query}`)) as ExpenseListEntry[]);
     } catch (e) {
       showError('Load expenses', e);
     } finally {
@@ -344,22 +344,26 @@ function DevExpenses({ showError }: { showError: ShowError }) {
   }, [filterApartmentId, showError]);
 
   useEffect(() => {
-    loadTransactions();
+    loadExpenses();
     // Only on mount, the filter is applied with the Reload button
   }, []);
 
-  const createTransaction = async () => {
+  // POST /transactions creates one expense (without receipt) with a debt per person
+  const createExpense = async () => {
     setCreating(true);
     try {
       await api('POST', '/transactions', {
         apartment_id: apartmentId.trim(),
         from_user_id: fromUserId.trim(),
-        to_user_id: toUserId.trim(),
+        to_user_ids: toUserIds
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean),
         amount: amount.trim(),
         category,
       });
       setAmount('');
-      await loadTransactions();
+      await loadExpenses();
     } catch (e) {
       showError('Create expense', e);
     } finally {
@@ -367,10 +371,15 @@ function DevExpenses({ showError }: { showError: ShowError }) {
     }
   };
 
-  const updateTransaction = async (id: string, changes: Partial<Transaction>) => {
+  // wrongVersion sends a version nobody has: the backend must answer 409, as when someone
+  // else edited the expense first
+  const updateExpense = async (item: ExpenseItem, newAmount: string, wrongVersion: boolean) => {
     try {
-      await api('PATCH', `/transactions/${id}`, changes);
-      await loadTransactions();
+      await api('PATCH', `/expenses/${item.id}`, {
+        version: wrongVersion ? item.version + 1 : item.version,
+        amount: newAmount.trim(),
+      });
+      await loadExpenses();
       return true;
     } catch (e) {
       showError('Update expense', e);
@@ -378,12 +387,21 @@ function DevExpenses({ showError }: { showError: ShowError }) {
     }
   };
 
-  const deleteTransaction = async (id: string) => {
+  const deleteExpense = async (item: ExpenseItem) => {
     try {
-      await api('DELETE', `/transactions/${id}`);
-      await loadTransactions();
+      await api('DELETE', `/expenses/${item.id}?version=${item.version}`);
+      await loadExpenses();
     } catch (e) {
       showError('Delete expense', e);
+    }
+  };
+
+  const deleteReceipt = async (receipt: ReceiptEntry) => {
+    try {
+      await api('DELETE', `/receipts/${receipt.id}?version=${receipt.version}`);
+      await loadExpenses();
+    } catch (e) {
+      showError('Delete receipt', e);
     }
   };
 
@@ -406,10 +424,10 @@ function DevExpenses({ showError }: { showError: ShowError }) {
           autoCapitalize="none"
         />
         <Field
-          label="A cargo de (ID del usuario)"
-          placeholder="UUID del usuario"
-          value={toUserId}
-          onChangeText={setToUserId}
+          label="Comparten el gasto (IDs separados por comas)"
+          placeholder="UUID, UUID… (puede incluir a quien paga)"
+          value={toUserIds}
+          onChangeText={setToUserIds}
           autoCapitalize="none"
         />
         <Field
@@ -420,15 +438,15 @@ function DevExpenses({ showError }: { showError: ShowError }) {
           keyboardType="decimal-pad"
         />
         <CategoryPicker value={category} onChange={setCategory} />
-        <PrimaryButton title="Crear gasto" onPress={createTransaction} loading={creating} />
+        <PrimaryButton title="Crear gasto" onPress={createExpense} loading={creating} />
       </View>
 
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>
-          {filterApartmentId.trim() ? 'Gastos filtrados' : 'Todos los gastos'}{' '}
-          <Text style={styles.count}>({transactions.length})</Text>
+          {filterApartmentId.trim() ? 'Gastos del hogar' : 'Mis gastos'}{' '}
+          <Text style={styles.count}>({entries.length})</Text>
         </Text>
-        <IconButton icon="refresh" label="Recargar" onPress={loadTransactions} />
+        <IconButton icon="refresh" label="Recargar" onPress={loadExpenses} />
       </View>
       <Field
         label="Filtrar por ID del hogar (opcional)"
@@ -438,51 +456,103 @@ function DevExpenses({ showError }: { showError: ShowError }) {
         autoCapitalize="none"
       />
 
-      {loading && transactions.length === 0 ? (
+      {loading && entries.length === 0 ? (
         <ActivityIndicator color={Palette.primary} />
-      ) : transactions.length === 0 ? (
+      ) : entries.length === 0 ? (
         <View style={styles.empty}>
           <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
           <Text style={styles.emptyText}>Todavía no hay gastos. Crea el primero arriba.</Text>
         </View>
       ) : (
-        transactions.map((transaction) => (
-          <TransactionItem
-            key={transaction.id}
-            transaction={transaction}
-            onSave={(changes) => updateTransaction(transaction.id, changes)}
-            onDelete={() => deleteTransaction(transaction.id)}
-          />
-        ))
+        entries.map((entry) =>
+          entry.kind === 'receipt' ? (
+            <View key={entry.id} style={styles.group}>
+              <ReceiptNode receipt={entry} onDelete={() => deleteReceipt(entry)} />
+              {entry.items.map((item) => (
+                <ExpenseNode
+                  key={item.id}
+                  item={item}
+                  onSave={(newAmount, wrongVersion) => updateExpense(item, newAmount, wrongVersion)}
+                  onDelete={() => deleteExpense(item)}
+                />
+              ))}
+            </View>
+          ) : (
+            <ExpenseNode
+              key={entry.id}
+              item={entry}
+              onSave={(newAmount, wrongVersion) => updateExpense(entry, newAmount, wrongVersion)}
+              onDelete={() => deleteExpense(entry)}
+            />
+          ),
+        )
       )}
     </>
   );
 }
 
-function TransactionItem({
-  transaction,
+// A scanned ticket: its total is the sum of its products, which are listed under it
+function ReceiptNode({ receipt, onDelete }: { receipt: ReceiptEntry; onDelete: () => Promise<void> }) {
+  const [deleting, setDeleting] = useState(false);
+
+  const remove = async () => {
+    // Avoid sending the DELETE twice on double click
+    if (deleting) return;
+    setDeleting(true);
+    await onDelete();
+    setDeleting(false);
+  };
+
+  return (
+    <View style={styles.item}>
+      <View style={styles.itemIcon}>
+        <MaterialCommunityIcons name="receipt-text-outline" size={22} color={Palette.onPrimary} />
+      </View>
+
+      <View style={styles.itemInfo}>
+        <Text style={styles.itemName}>Ticket · {Number(receipt.total_amount).toFixed(2)} €</Text>
+        <Text style={styles.itemId} numberOfLines={1}>
+          receipt: {receipt.id} (v{receipt.version})
+        </Text>
+        <Text style={styles.itemId} numberOfLines={1}>
+          payer: {receipt.payer.id} · {receipt.items.length} items
+        </Text>
+      </View>
+
+      <View style={styles.itemActions}>
+        {deleting ? (
+          <ActivityIndicator color={Palette.error} style={styles.iconButton} />
+        ) : (
+          <IconButton icon="trash-can-outline" color={Palette.error} onPress={remove} />
+        )}
+      </View>
+    </View>
+  );
+}
+
+// One expense: a manual one, a settlement or a product of a ticket, with its debts
+function ExpenseNode({
+  item,
   onSave,
   onDelete,
 }: {
-  transaction: Transaction;
-  onSave: (changes: Partial<Transaction>) => Promise<boolean>;
+  item: ExpenseItem;
+  onSave: (amount: string, wrongVersion: boolean) => Promise<boolean>;
   onDelete: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [amount, setAmount] = useState(transaction.amount);
-  const [category, setCategory] = useState(transaction.category);
+  const [amount, setAmount] = useState(item.total_amount);
 
   const startEditing = () => {
-    setAmount(transaction.amount);
-    setCategory(transaction.category);
+    setAmount(item.total_amount);
     setEditing(true);
   };
 
-  const save = async () => {
+  const save = async (wrongVersion: boolean) => {
     setSaving(true);
-    const ok = await onSave({ amount: amount.trim(), category });
+    const ok = await onSave(amount, wrongVersion);
     setSaving(false);
     if (ok) setEditing(false);
   };
@@ -498,20 +568,21 @@ function TransactionItem({
   if (editing) {
     return (
       <View style={[styles.card, styles.cardEditing]}>
-        <Text style={styles.cardTitle}>Editar gasto</Text>
+        <Text style={styles.cardTitle}>Editar gasto (v{item.version})</Text>
         <Field
           label="Importe"
           value={amount}
           onChangeText={(value) => setAmount(limitTransactionAmountInput(value))}
           keyboardType="decimal-pad"
         />
-        <CategoryPicker value={category} onChange={setCategory} />
         <View style={styles.row}>
           <IconButton icon="close" label="Cancelar" onPress={() => setEditing(false)} />
           <View style={styles.flex}>
-            <PrimaryButton title="Guardar" onPress={save} loading={saving} />
+            <PrimaryButton title="Guardar" onPress={() => save(false)} loading={saving} />
           </View>
         </View>
+        {/* Sends a version nobody has, to see the 409 the app shows when two people edit at once */}
+        <IconButton icon="alert-outline" label="Guardar con versión errónea (409)" onPress={() => save(true)} />
       </View>
     );
   }
@@ -523,33 +594,40 @@ function TransactionItem({
       </View>
 
       <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{Number(transaction.amount).toFixed(2)} €</Text>
+        <Text style={styles.itemName}>
+          {item.concept ?? 'Sin concepto'} · {Number(item.total_amount).toFixed(2)} €
+        </Text>
         <View style={styles.badge}>
           <MaterialCommunityIcons name="tag-outline" size={12} color={Palette.primary} />
-          <Text style={styles.badgeText}>{CATEGORY_LABELS[transaction.category] ?? transaction.category}</Text>
+          <Text style={styles.badgeText}>
+            {item.type === 'SETTLEMENT' ? 'Liquidación · ' : ''}
+            {CATEGORY_LABELS[item.category as TransactionCategory] ?? item.category}
+          </Text>
         </View>
         <Text style={styles.itemId} numberOfLines={1}>
-          id: {transaction.id}
+          id: {item.id} (v{item.version})
         </Text>
         <Text style={styles.itemId} numberOfLines={1}>
-          apartment: {transaction.apartment_id}
+          payer: {item.payer.id}
+          {item.payer_participates ? ' (también reparte)' : ''}
         </Text>
-        <Text style={styles.itemId} numberOfLines={1}>
-          from: {transaction.from_user_id}
-        </Text>
-        <Text style={styles.itemId} numberOfLines={1}>
-          to: {transaction.to_user_id}
-        </Text>
+        {item.shares.map((share) => (
+          <Text key={share.transaction_id} style={styles.itemId} numberOfLines={1}>
+            {share.user.id} debe {Number(share.amount).toFixed(2)} €
+          </Text>
+        ))}
       </View>
 
-      <View style={styles.itemActions}>
-        <IconButton icon="pencil-outline" onPress={startEditing} />
-        {deleting ? (
-          <ActivityIndicator color={Palette.error} style={styles.iconButton} />
-        ) : (
-          <IconButton icon="trash-can-outline" color={Palette.error} onPress={remove} />
-        )}
-      </View>
+      {item.canEdit ? (
+        <View style={styles.itemActions}>
+          <IconButton icon="pencil-outline" onPress={startEditing} />
+          {deleting ? (
+            <ActivityIndicator color={Palette.error} style={styles.iconButton} />
+          ) : (
+            <IconButton icon="trash-can-outline" color={Palette.error} onPress={remove} />
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -855,6 +933,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     color: Palette.textSecondary,
+  },
+  group: {
+    gap: 12,
   },
   item: {
     flexDirection: 'row',

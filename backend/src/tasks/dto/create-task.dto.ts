@@ -26,6 +26,13 @@ export class CreateTaskDto {
   @Max(1440)
   duration_minutes?: number;
 
+  // Si no se envía se calcula con la duración y la prioridad
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  points?: number;
+
   @IsEnum(TaskFrequency)
   frequency: TaskFrequency;
 
