@@ -2,6 +2,7 @@ import { router, type Href } from 'expo-router';
 
 import { clearCurrentSessionIds } from '@/constants/dev-session';
 import { api, setAuthToken } from '@/lib/api';
+import { quitarPush } from '@/lib/push';
 
 // Cierre de sesión (PA-1015.05 y PA-1015.06).
 // 1. Avisa al backend para que anule la sesión allí y el token deje de valer aunque alguien lo
@@ -13,6 +14,8 @@ export function logout() {
   try {
     // api() lee el token al construir la petición, así que sale antes de borrarlo
     void api('POST', '/auth/logout').catch(() => undefined);
+    // Este móvil deja de recibir las notificaciones push de la cuenta (también antes de borrarlo)
+    quitarPush();
     setAuthToken(null);
     clearCurrentSessionIds();
   } catch {

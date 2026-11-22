@@ -567,13 +567,19 @@ export class TaskPlannerService {
     return busy;
   }
 
-  // Preferencias de tareas (UT1020). Hasta que esa funcionalidad esté en la rama principal
-  // no hay de dónde leerlas y el reparto solo usa puntos y disponibilidad
+  // Preferencias de tareas (UT1020): «prefiero», «evito» o sin marcar (indiferente).
+  // La clave es «usuario|tarea», la misma que lee el planificador
   private async loadPreferences(
-    _apartmentId: string,
-    _userIds: string[],
+    apartmentId: string,
+    userIds: string[],
   ): Promise<Record<string, Preference>> {
-    return {};
+    const rows = await this.prisma.taskPreference.findMany({
+      where: { user_id: { in: userIds }, task: { apartment_id: apartmentId } },
+      select: { user_id: true, task_id: true, preference: true },
+    });
+    const preferences: Record<string, Preference> = {};
+    for (const row of rows) preferences[`${row.user_id}|${row.task_id}`] = row.preference;
+    return preferences;
   }
 
   private describe(

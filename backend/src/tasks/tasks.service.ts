@@ -21,6 +21,13 @@ import { CreateTaskAssignmentDto } from './dto/create-task-assignment.dto';
 import { TaskAvailabilityQueryDto } from './dto/task-availability-query.dto';
 import { toHHmm } from '../availability/availability.service';
 import { GoogleCalendarService } from '../availability/google-calendar.service';
+import {
+  SetTaskPreferencesDto,
+  TaskPreferenceItemDto,
+  TaskPreferenceType,
+} from './dto/set-task-preferences.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { TAREA_ASIGNADA, TareaAsignada } from './task.events';
 import { defaultTaskPoints } from './task-points';
 
 // Integrante con la franja ocupada; solo la hora, nunca el título del evento
@@ -34,6 +41,8 @@ export class TasksService {
     private readonly prisma: PrismaService,
     // Opcional: sin él (p. ej. en los tests que solo dan Prisma) se usan los eventos ya guardados
     @Optional() private readonly googleCalendar?: GoogleCalendarService,
+    // Opcional por lo mismo: sin él no se emiten eventos y, por tanto, no hay avisos (UT1019)
+    @Optional() private readonly events?: EventEmitter2,
   ) { }
 
   findAll(apartmentId?: string) {
@@ -214,6 +223,21 @@ export class TasksService {
         }),
       ]);
       const assignments = results.slice(0, userIds.length);
+      // Evento de dominio: NotificationsListener avisa a cada persona asignada (UT1019)
+      await this.events?.emitAsync(
+        TAREA_ASIGNADA,
+        new TareaAsignada({
+          taskId,
+          apartmentId: task.apartment_id,
+          assignerId: currentUserId,
+          dueDate,
+          dueTime: assignmentDto.due_time,
+          assignments: userIds.map((userId, index) => ({
+            id: assignments[index].id,
+            user_id: userId,
+          })),
+        }),
+      );
       return assignmentDto.user_ids ? assignments : assignments[0];
     } catch (error) {
       if (
@@ -284,6 +308,9 @@ export class TasksService {
     await this.asegurarMiembro(task.apartment_id, userId);
     // PA-1010.01: las tareas con un intercambio pendiente quedan bloqueadas.
     await this.assertNoPendingSwapForAssignments(await this.assignmentIdsOfTask(id));
+    if (updateTaskDto.points !== undefined) {
+      await this.assertPointsNotLockedByVerification(id, updateTaskDto.points);
+    }
 
     try {
       return await this.prisma.task.update({
@@ -418,6 +445,29 @@ export class TasksService {
     return this.asegurarMiembro(apartmentId, userId);
   }
 
+  // UT1021: mientras una asignación de la tarea espera verificación no se pueden cambiar sus
+  // puntos. El verificador confirma el valor que ve y los puntos se pagan al verificar, así que
+  // cambiarlos en medio haría que se pagara otra cosa. Enviar el mismo valor no es un cambio
+  // (el formulario de edición reenvía todos los campos)
+  private async assertPointsNotLockedByVerification(taskId: string, newPoints: number) {
+    if (typeof this.prisma.taskAssignment.findFirst !== 'function') return;
+    const inVerification = await this.prisma.taskAssignment.findFirst({
+      where: { task_id: taskId, status: AssignmentStatus.waiting_verification },
+      select: { id: true },
+    });
+    if (!inVerification) return;
+
+    const current = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { points: true },
+    });
+    if (current && current.points !== newPoints) {
+      throw new ConflictException(
+        'No se pueden cambiar los puntos de una tarea mientras está esperando verificación',
+      );
+    }
+  }
+
   // Ids de las asignaciones de una tarea (vacío si el mock de prisma no soporta findMany).
   private async assignmentIdsOfTask(taskId: string): Promise<string[]> {
     if (typeof this.prisma.taskAssignment.findMany !== 'function') return [];
@@ -446,6 +496,133 @@ export class TasksService {
       throw new ConflictException(
         'No puedes modificar una tarea mientras tiene un intercambio pendiente',
       );
+    }
+  }
+
+  async getUserPreferences(apartmentId: string | undefined, userId: string) {
+    let targetApartmentId = apartmentId;
+    if (!targetApartmentId) {
+      const userApt = await this.prisma.userApartment.findFirst({
+        where: { user_id: userId },
+        select: { apartment_id: true },
+      });
+      if (!userApt) {
+        throw new BadRequestException('El usuario no pertenece a ningún hogar');
+      }
+      targetApartmentId = userApt.apartment_id;
+    }
+
+    await this.asegurarMiembro(targetApartmentId, userId);
+
+    const tasks = await this.prisma.task.findMany({
+      where: { apartment_id: targetApartmentId },
+      include: {
+        preferences: {
+          where: { user_id: userId },
+        },
+      },
+      orderBy: { title: 'asc' },
+    });
+
+    return tasks.map((t) => {
+      const pref =
+        t.preferences && t.preferences.length > 0
+          ? t.preferences[0].preference
+          : TaskPreferenceType.indifferent;
+
+      return {
+        id: t.id,
+        apartment_id: t.apartment_id,
+        title: t.title,
+        description: t.description,
+        duration_minutes: t.duration_minutes,
+        category: t.category,
+        priority: t.priority,
+        frequency: t.frequency,
+        preference: pref,
+      };
+    });
+  }
+
+  async setUserPreferences(dto: SetTaskPreferencesDto, userId: string) {
+    const { apartment_id } = dto;
+    if (!apartment_id) {
+      throw new BadRequestException('El id del hogar es obligatorio');
+    }
+
+    await this.asegurarMiembro(apartment_id, userId);
+
+    const items: TaskPreferenceItemDto[] = [];
+    if (dto.preferences && dto.preferences.length > 0) {
+      items.push(...dto.preferences);
+    } else if (dto.task_id && dto.preference) {
+      items.push({ task_id: dto.task_id, preference: dto.preference });
+    }
+
+    if (items.length === 0) {
+      throw new BadRequestException('Debes enviar al menos una preferencia');
+    }
+
+    // PA 3: Validación estricta antes de escribir en la base de datos
+    for (const item of items) {
+      const task = await this.buscarTarea(item.task_id);
+      if (task.apartment_id !== apartment_id) {
+        throw new BadRequestException(
+          'La tarea no pertenece a tu hogar actual',
+        );
+      }
+    }
+
+    // Guardar / actualizar atómicamente todas las preferencias (PA 2 y PA 4)
+    const operations = items.map((item) =>
+      this.prisma.taskPreference.upsert({
+        where: {
+          user_id_task_id: {
+            user_id: userId,
+            task_id: item.task_id,
+          },
+        },
+        create: {
+          user_id: userId,
+          task_id: item.task_id,
+          preference: item.preference,
+        },
+        update: {
+          preference: item.preference,
+        },
+      }),
+    );
+
+    const saved = await this.prisma.$transaction(operations);
+
+    return {
+      message: 'Preferencias guardadas correctamente',
+      count: saved.length,
+      preferences: saved,
+    };
+  }
+
+  async removeUserPreference(taskId: string, userId: string) {
+    const task = await this.buscarTarea(taskId);
+    await this.asegurarMiembro(task.apartment_id, userId);
+
+    try {
+      return await this.prisma.taskPreference.delete({
+        where: {
+          user_id_task_id: {
+            user_id: userId,
+            task_id: taskId,
+          },
+        },
+      });
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Preferencia no encontrada');
+      }
+      this.handlePrismaError(error);
     }
   }
 

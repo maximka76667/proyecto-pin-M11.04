@@ -4,11 +4,26 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'node:crypto';
-import { ExpenseType, Prisma, TransactionCategory } from '@prisma/client';
+import { ExpenseType, Prisma, Transaction, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import {
+  GASTO_CREADO,
+  GastoCreado,
+  PAGO_CONFIRMADO,
+  PAGO_MARCADO,
+  PAGO_RECHAZADO,
+  PagoConfirmado,
+  PagoMarcado,
+  PagoRechazado,
+  TICKET_CREADO,
+  TicketCreado,
+  type MoneyNotice,
+} from './expense.events';
 import { buildExpenseRows, MAX_RECEIPT_TOTAL_CENTS } from './expense-rows';
 import { centsToAmount } from './expense-split';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
@@ -72,9 +87,12 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
-  ) { }
+    // Opcional: sin él (p. ej. en los tests que no lo dan) no se emiten eventos ni hay avisos
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
-  async create(createTransactionDto: CreateTransactionDto) {
+  // `currentUserId` es quien crea el gasto: no recibe aviso de su propio gasto aunque sea deudor
+  async create(createTransactionDto: CreateTransactionDto, currentUserId?: string) {
     const hasMultipleDebtors = Boolean(
       createTransactionDto.to_user_ids?.length,
     );
@@ -116,6 +134,11 @@ export class TransactionsService {
       this.handlePrismaError(error);
     }
 
+    // Evento de dominio: NotificationsListener manda el «Aviso de cobro» a cada deudor (UT1018)
+    await this.events?.emitAsync(
+      GASTO_CREADO,
+      new GastoCreado(transactions, currentUserId ?? payerId),
+    );
     return hasMultipleDebtors ? transactions : transactions[0];
   }
 
@@ -213,6 +236,22 @@ export class TransactionsService {
       await tx.expense.createMany({ data: expenses });
       await tx.transaction.createMany({ data: transactions });
     });
+
+    // Evento de dominio: NotificationsListener manda un «Aviso de cobro» por persona con su
+    // parte de todo el ticket, no uno por producto (UT1018)
+    await this.events?.emitAsync(
+      TICKET_CREADO,
+      new TicketCreado(
+        {
+          id: receiptId,
+          apartment_id: dto.apartment_id,
+          payer_id: payerId,
+          category: dto.category,
+        },
+        transactions,
+        payerId,
+      ),
+    );
 
     return {
       receipt_id: receiptId,
@@ -499,8 +538,9 @@ export class TransactionsService {
 
     // Comprobar que no hay aviso y crearlo van en una transacción Serializable: si llegan
     // dos peticiones a la vez, Postgres aborta una (P2034) en lugar de crear dos avisos
+    let pago: MoneyNotice;
     try {
-      return await this.prisma.$transaction(
+      pago = await this.prisma.$transaction(
         async (tx) => {
           const avisoPrevio = await tx.transaction.findFirst({
             where: {
@@ -545,15 +585,21 @@ export class TransactionsService {
       }
       throw error;
     }
+
+    // Evento de dominio, fuera de la transacción Serializable para no alargarla: aviso al
+    // acreedor (UT1018)
+    await this.events?.emitAsync(PAGO_MARCADO, new PagoMarcado(pago));
+    return pago;
   }
 
   // El acreedor confirma que le ha llegado el dinero: el aviso pasa a ser un pago
   async confirmPayment(transactionId: string, userId: string) {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
+    let confirmado: Transaction;
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const confirmado = await tx.transaction.update({
+      confirmado = await this.prisma.$transaction(async (tx) => {
+        const fila = await tx.transaction.update({
           // Las condiciones van también en la escritura para que sea atómica: si otra petición
           // lo ha confirmado o rechazado entretanto, Prisma no encuentra la fila (P2025) y no se
           // toca nada más. Esta escritura va siempre la primera
@@ -566,10 +612,10 @@ export class TransactionsService {
         });
         // La liquidación (Expense) cambia a la vez que su deuda
         await tx.expense.update({
-          where: { id: confirmado.expense_id },
+          where: { id: fila.expense_id },
           data: { category: TransactionCategory.payment },
         });
-        return confirmado;
+        return fila;
       });
     } catch (error) {
       if (
@@ -582,14 +628,19 @@ export class TransactionsService {
       }
       this.handlePrismaError(error);
     }
+
+    // Evento de dominio: aviso al deudor de que su pago ha llegado (UT1018)
+    await this.events?.emitAsync(PAGO_CONFIRMADO, new PagoConfirmado(confirmado));
+    return confirmado;
   }
 
   // El acreedor dice que no le ha llegado: se descarta el aviso y la deuda sigue en pie
   async rejectPayment(transactionId: string, userId: string) {
     await this.asegurarAvisoDelAcreedor(transactionId, userId);
 
+    let rechazado: Transaction;
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      rechazado = await this.prisma.$transaction(async (tx) => {
         const descartado = await tx.transaction.delete({
           // Igual que al confirmar: nunca se borra una fila que ya no sea un aviso pendiente, y
           // esta escritura va la primera. Solo si se ha borrado el aviso se borra su liquidación
@@ -613,6 +664,10 @@ export class TransactionsService {
       }
       this.handlePrismaError(error);
     }
+
+    // Evento de dominio: aviso al deudor de que su pago no ha llegado (UT1018)
+    await this.events?.emitAsync(PAGO_RECHAZADO, new PagoRechazado(rechazado));
+    return rechazado;
   }
 
   private accionesDisponibles(

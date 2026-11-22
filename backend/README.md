@@ -77,6 +77,42 @@ BACKEND_URL=http://localhost:3000
 EMAIL_VERIFICATION_REDIRECT_URI=http://localhost:8081/auth
 ```
 
+### Notificaciones de tareas (UT1019)
+
+Cada usuario tiene avisos de las tareas de su piso: una asignación nueva, una solicitud de
+intercambio y su aceptación o rechazo, y las tareas que vencen en las próximas 24 horas.
+
+- `GET /notifications?apartment_id=<piso>`: los avisos del usuario en ese piso, del más reciente
+  al más antiguo.
+- `GET /notifications/unread-count?apartment_id=<piso>`: cuántos quedan sin leer.
+- `PATCH /notifications/:id/read`: marca uno como leído. Responde 403 si el aviso es de otra
+  persona.
+
+Los avisos de asignación e intercambio se guardan cuando ocurre el evento. Los recordatorios de
+vencimiento no usan ningún proceso programado: se crean al consultar los avisos. Con
+`reminders=false` (interruptor «Recordatorios de tareas» del perfil) ni se crean ni se devuelven.
+
+La migración `20261113120000_task_notifications` crea la tabla `Notification`. Aplícala con
+`npx prisma migrate deploy`.
+
+### Notificaciones de gastos (UT1018)
+
+Los avisos de los gastos van en la misma tabla y salen por los mismos endpoints:
+
+- Gasto nuevo (formulario o escáner de tickets): «Aviso de cobro» a cada deudor con su parte.
+  Quien crea el gasto no recibe aviso.
+- Gasto editado (importe, concepto o categoría) o borrado: aviso al deudor de esa parte.
+- Deuda marcada como pagada: aviso al acreedor. Al confirmar o rechazar el pago, aviso al deudor,
+  y el aviso del acreedor pasa a leído.
+
+`GET /notifications` y `GET /notifications/unread-count` aceptan `category=tasks` o
+`category=finances` para quedarse con unos u otros (los filtros «Tareas» y «Gastos» del panel).
+El filtro de Prisma exige a la vez el usuario y el piso (`AND`).
+
+La migración `20261117120000_finance_notifications` añade los tipos nuevos al enum
+`NotificationType`. Va después de la de la UT1019; aplícalas en orden con
+`npx prisma migrate deploy`.
+
 ### Al desplegar
 
 ```env

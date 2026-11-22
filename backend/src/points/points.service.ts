@@ -19,9 +19,11 @@ export function monthKey(date: Date): string {
 export class PointsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Completar directamente (sin verificación) solo es posible en un piso de una sola persona.
+  // Con más miembros, la tarea la confirma otro (TaskVerificationsService) y es ahí donde se
+  // registran los puntos; este método rechaza el atajo para que no se pueda saltar la verificación.
   // Marca la asignación como hecha y registra los puntos de la tarea en el ledger, todo en una
-  // transacción. Es el ÚNICO sitio donde se otorgan puntos: cuando exista la verificación solo
-  // hay que mover esta llamada al momento en que otra persona confirma la tarea.
+  // transacción.
   async completeAssignment(assignmentId: string, userId: string) {
     const assignment = await this.prisma.taskAssignment.findUnique({
       where: { id: assignmentId },
@@ -45,6 +47,17 @@ export class PointsService {
     }
     if (assignment.status === AssignmentStatus.rejected) {
       throw new ConflictException('No puedes completar una tarea rechazada');
+    }
+    if (assignment.status === AssignmentStatus.waiting_verification) {
+      throw new ConflictException('Esta tarea está esperando que otro miembro la verifique');
+    }
+    const otherMembers = await this.prisma.userApartment.count({
+      where: { apartment_id: assignment.task.apartment_id, user_id: { not: userId } },
+    });
+    if (otherMembers > 0) {
+      throw new ConflictException(
+        'Esta tarea la tiene que verificar otro miembro del piso: márcala como hecha para enviarla a verificar',
+      );
     }
 
     // PA-1010.01: una asignación con un intercambio pendiente queda bloqueada

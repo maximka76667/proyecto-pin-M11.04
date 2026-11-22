@@ -21,6 +21,10 @@ describe('Pruebas de aceptación de autenticación y contraseñas', () => {
     email: 'alex@ejemplo.com',
     full_name: 'Alex Morgan',
     password_hash: '',
+    // Cuenta con el email ya confirmado: desde la verificación por email (UT1014 PA-06) el
+    // login rechaza a quien no lo ha confirmado, y aquí se prueba el cambio de contraseña
+    email_verified_at: new Date('2026-11-01T00:00:00.000Z'),
+    google_subject: null,
   };
   const sesiones = new Map<string, { user_id: string; expires_at: Date }>();
 

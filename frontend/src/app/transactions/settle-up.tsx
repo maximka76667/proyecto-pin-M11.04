@@ -11,11 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette } from '@/constants/onboarding';
 import { api, errorMessage } from '@/lib/api';
-
-const APARTMENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const CURRENT_USER_ID = '22222222-2222-2222-2222-222222222222';
 
 type SettleAction = 'marcar_pagado' | 'confirmar_pago' | 'rechazar_pago';
 type SettleUpRow = {
@@ -101,8 +99,9 @@ export default function SettleUpScreen() {
         ) : null}
 
         {rows.map((row) => {
-          const isCurrentUserDebtor = row.deudorId === CURRENT_USER_ID;
-          const isCurrentUserCreditor = row.acreedorId === CURRENT_USER_ID;
+          // El rol lo calcula el backend con el usuario del token
+          const isCurrentUserDebtor = row.rol === 'deudor';
+          const isCurrentUserCreditor = row.rol === 'acreedor';
 
           return (
             <View key={`${row.deudorId}-${row.acreedorId}-${row.pagoPendienteId ?? 'pending'}`} style={styles.card}>

@@ -16,6 +16,8 @@ describe('TransactionsService.createFromReceipt', () => {
   const PAGADOR = 'user-pagador';
   const ANA = 'user-ana';
   const BRUNO = 'user-bruno';
+  const LUIS = 'user-luis';
+  const MARTA = 'user-marta';
   const AJENO = 'user-ajeno';
 
   const prisma = {
@@ -71,7 +73,7 @@ describe('TransactionsService.createFromReceipt', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prisma.apartment.findUnique.mockResolvedValue({
-      user_apartments: [{ user_id: PAGADOR }, { user_id: ANA }, { user_id: BRUNO }],
+      user_apartments: [PAGADOR, ANA, BRUNO, LUIS, MARTA].map((user_id) => ({ user_id })),
     });
     prisma.receipt.create.mockImplementation(({ data }) => Promise.resolve(data));
     prisma.expense.createMany.mockImplementation(({ data }) =>
@@ -158,6 +160,53 @@ describe('TransactionsService.createFromReceipt', () => {
       apartment_id: PISO,
       items: items.map((item, i) => ({ name: `Producto ${i}`, ...item })),
       category: 'supplies',
+    });
+
+    it('PA · mantiene en el total el producto sin asignar y no crea deuda por él', async () => {
+      const resultado = await service.createFromReceipt(
+        porProducto([
+          { unit_price: '5.00', quantity: 1, assigned_to: [] },
+          { unit_price: '2.00', quantity: 1, assigned_to: [ANA] },
+        ]),
+        PAGADOR,
+      );
+
+      expect(resultado.total).toBe('7.00');
+      expect(resultado.unassigned_total).toBe('5.00');
+      expect(deudas()).toEqual({ [ANA]: '2.00' });
+    });
+
+    it('PA · asigna cada producto solo a la persona seleccionada y conserva el total del ticket', async () => {
+      const resultado = await service.createFromReceipt(
+        porProducto([
+          { unit_price: '6.00', quantity: 1, assigned_to: [LUIS] },
+          { unit_price: '10.00', quantity: 1, assigned_to: [MARTA] },
+        ]),
+        PAGADOR,
+      );
+
+      expect(resultado.total).toBe('16.00');
+      expect(deudas()).toEqual({ [LUIS]: '6.00', [MARTA]: '10.00' });
+    });
+
+    it('PA · reparte un producto por igual entre Ana y Luis sin imputarlo a otros integrantes', async () => {
+      const resultado = await service.createFromReceipt(
+        porProducto([{ unit_price: '8.00', quantity: 1, assigned_to: [ANA, LUIS] }]),
+        PAGADOR,
+      );
+
+      expect(resultado.total).toBe('8.00');
+      expect(deudas()).toEqual({ [ANA]: '4.00', [LUIS]: '4.00' });
+    });
+
+    it('PA · imputa el producto únicamente a Luis y conserva correctamente el importe total', async () => {
+      const resultado = await service.createFromReceipt(
+        porProducto([{ unit_price: '6.00', quantity: 1, assigned_to: [LUIS] }]),
+        PAGADOR,
+      );
+
+      expect(resultado.total).toBe('6.00');
+      expect(deudas()).toEqual({ [LUIS]: '6.00' });
     });
 
     it('cada uno debe solo lo de los productos que tiene asignados', async () => {

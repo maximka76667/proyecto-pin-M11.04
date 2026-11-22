@@ -30,6 +30,7 @@ describe('TaskPlannerService', () => {
     task: { findMany: jest.fn(), updateMany: jest.fn() },
     taskAssignment: { findMany: jest.fn(), create: jest.fn() },
     user: { findMany: jest.fn() },
+    taskPreference: { findMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -58,6 +59,7 @@ describe('TaskPlannerService', () => {
       { id: ANA, availability_blocks: [], google_busy_blocks: [] },
       { id: LUIS, availability_blocks: [], google_busy_blocks: [] },
     ]);
+    prisma.taskPreference.findMany.mockResolvedValue([]);
     prisma.task.updateMany.mockResolvedValue({ count: 1 });
     prisma.taskAssignment.create.mockResolvedValue({});
     prisma.$transaction.mockImplementation((ops: Promise<unknown>[]) =>
@@ -91,6 +93,44 @@ describe('TaskPlannerService', () => {
         { user_id: ANA, user_name: 'Ana', before: 60, after: 60 },
         { user_id: LUIS, user_name: 'Luis', before: 0, after: 30 },
       ]);
+    });
+
+    it('con los mismos puntos, da la tarea a quien la prefiere', async () => {
+      prisma.taskPoints.groupBy.mockResolvedValue([]);
+      // Sin preferencias el empate lo gana Ana (por id)
+      expect((await service.preview(APARTMENT, ANA, TODAY)).assignments[0].user_id).toBe(ANA);
+
+      prisma.taskPreference.findMany.mockResolvedValue([
+        { user_id: LUIS, task_id: TASK, preference: 'prefer' },
+      ]);
+
+      const plan = await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(plan.assignments[0].user_id).toBe(LUIS);
+    });
+
+    it('con los mismos puntos, se la quita a quien la evita', async () => {
+      prisma.taskPoints.groupBy.mockResolvedValue([]);
+      prisma.taskPreference.findMany.mockResolvedValue([
+        { user_id: ANA, task_id: TASK, preference: 'avoid' },
+      ]);
+
+      const plan = await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(plan.assignments[0].user_id).toBe(LUIS);
+    });
+
+    it('lee solo las preferencias de este hogar y de sus miembros', async () => {
+      await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(prisma.taskPreference.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            user_id: { in: [ANA, LUIS] },
+            task: { apartment_id: APARTMENT },
+          },
+        }),
+      );
     });
 
     it('no guarda nada', async () => {
