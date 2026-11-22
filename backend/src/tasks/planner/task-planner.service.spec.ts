@@ -1,6 +1,8 @@
 import {
   ConflictException,
   ForbiddenException,
+  InternalServerErrorException,
+  Logger,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -583,6 +585,118 @@ describe('TaskPlannerService', () => {
         const [nh, nm] = nueva.time.split(':').map(Number);
         expect(nh * 60 + nm).toBeGreaterThanOrEqual(fin);
       }
+    });
+  });
+
+  describe('sin tareas que repartir', () => {
+    beforeEach(() => {
+      prisma.task.findMany.mockResolvedValue([]);
+    });
+
+    it('la propuesta sale vacía y los puntos no cambian', async () => {
+      const plan = await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(plan.assignments).toEqual([]);
+      expect(plan.unassigned).toEqual([]);
+      expect(plan.points).toEqual([
+        { user_id: ANA, user_name: 'Ana', before: 60, after: 60 },
+        { user_id: LUIS, user_name: 'Luis', before: 0, after: 0 },
+      ]);
+    });
+
+    it('no ejecuta el algoritmo de reparto', async () => {
+      const planner = jest.requireActual<typeof import('./plan')>('./plan');
+      const spy = jest.spyOn(planner, 'planAssignments');
+
+      await service.preview(APARTMENT, ANA, TODAY);
+
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('apply no escribe nada', async () => {
+      await expect(service.apply(APARTMENT, ANA, undefined, TODAY)).resolves.toEqual({
+        created: 0,
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('errores inesperados', () => {
+    const FRIENDLY =
+      'Hubo un problema al calcular el reparto automático. Inténtalo de nuevo más tarde o asigna las tareas manualmente.';
+    let logError: jest.SpyInstance;
+
+    beforeEach(() => {
+      logError = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    // Lo que ve la persona: el mensaje amable y nada del error técnico
+    const expectFriendly = async (call: Promise<unknown>, message = FRIENDLY) => {
+      const error = await call.then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(InternalServerErrorException);
+      expect((error as InternalServerErrorException).message).toBe(message);
+      expect(JSON.stringify((error as InternalServerErrorException).getResponse())).not.toMatch(
+        /db down|ECONNRESET|stack/i,
+      );
+    };
+
+    it('si falla la base de datos al calcular, devuelve un mensaje amable', async () => {
+      prisma.task.findMany.mockRejectedValue(new Error('db down'));
+
+      await expectFriendly(service.preview(APARTMENT, ANA, TODAY));
+    });
+
+    it('si falla el propio cálculo, devuelve el mismo mensaje', async () => {
+      jest.spyOn(service as unknown as { plan: () => unknown }, 'plan').mockImplementation(() => {
+        throw new TypeError('respuesta corrupta');
+      });
+
+      await expectFriendly(service.preview(APARTMENT, ANA, TODAY));
+      await expectFriendly(service.apply(APARTMENT, ANA, undefined, TODAY));
+    });
+
+    it('el detalle técnico se registra en el log del servidor', async () => {
+      prisma.task.findMany.mockRejectedValue(new Error('db down'));
+
+      await service.preview(APARTMENT, ANA, TODAY).catch(() => undefined);
+
+      expect(logError).toHaveBeenCalledTimes(1);
+      expect(String(logError.mock.calls[0][0])).toContain('db down');
+    });
+
+    it('si falla al guardar, no queda nada guardado y avisa con el mensaje amable', async () => {
+      prisma.$transaction.mockRejectedValue(new Error('ECONNRESET'));
+
+      await expectFriendly(service.apply(APARTMENT, ANA, undefined, TODAY));
+      // Todo va en una sola transacción: ninguna escritura fuera de ella
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.task.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('al comprobar una edición, el mensaje es el de comprobar', async () => {
+      prisma.user.findMany.mockRejectedValue(new Error('db down'));
+
+      await expectFriendly(
+        service.validate(APARTMENT, ANA, [], TODAY),
+        'No se ha podido comprobar el reparto. Inténtalo de nuevo en unos segundos.',
+      );
+    });
+
+    it('los errores esperados no se esconden tras el mensaje genérico', async () => {
+      prisma.userApartment.findUnique.mockResolvedValue(null);
+
+      await expect(service.preview(APARTMENT, ANA, TODAY)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(logError).not.toHaveBeenCalled();
     });
   });
 

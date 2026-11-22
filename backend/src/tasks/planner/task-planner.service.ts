@@ -1,7 +1,9 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   Optional,
   UnprocessableEntityException,
@@ -30,7 +32,13 @@ const PLANNABLE_STATUSES: TaskStatus[] = [
   TaskStatus.in_progress,
 ];
 
-const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+// Lo único que ve la persona cuando el cálculo o el guardado fallan por un error inesperado
+const PLAN_FAILED =
+  'Hubo un problema al calcular el reparto automático. Inténtalo de nuevo más tarde o asigna las tareas manualmente.';
+const VALIDATE_FAILED =
+  'No se ha podido comprobar el reparto. Inténtalo de nuevo en unos segundos.';
+
+const TIME_PATTERN =/^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 // Una asignación tal como llega del cliente o del planificador
 export interface PlanItem {
@@ -90,10 +98,35 @@ export class TaskPlannerService {
   // Calcula el reparto de la semana siguiente sin guardar nada
   async preview(apartmentId: string, userId: string, today?: DateKey) {
     await this.assertMember(apartmentId, userId);
-    const context = await this.loadContext(apartmentId, today, true);
-    const result = this.plan(context);
-    this.assertCoherent(context, result);
-    return this.describe(context, result);
+    return this.guarded('preview', PLAN_FAILED, async () => {
+      const context = await this.loadContext(apartmentId, today, true);
+      const result = this.plan(context);
+      this.assertCoherent(context, result);
+      return this.describe(context, result);
+    });
+  }
+
+  // Un error esperado (HttpException: no eres del piso, el reparto cambió, no es válido...)
+  // llega tal cual al cliente. Cualquier otro (base de datos caída, fallo del cálculo, datos
+  // corruptos) se registra con todo el detalle en el servidor y el cliente solo recibe un
+  // mensaje que puede enseñar. Como las escrituras van en una transacción, un fallo no deja
+  // nada guardado a medias
+  private async guarded<T>(
+    operation: string,
+    message: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error(
+        `Ha fallado ${operation} del reparto: ${
+          error instanceof Error ? (error.stack ?? error.message) : String(error)
+        }`,
+      );
+      throw new InternalServerErrorException(message);
+    }
   }
 
   // Comprueba las asignaciones tal como están en pantalla (ya editadas). No guarda nada.
@@ -106,9 +139,14 @@ export class TaskPlannerService {
     today?: DateKey,
   ) {
     await this.assertMember(apartmentId, userId);
-    const context = await this.loadContext(apartmentId, today, false);
-    const checks = this.check(context, items);
-    return { valid: checks.every((c) => c.issues.length === 0), items: checks };
+    return this.guarded('validate', VALIDATE_FAILED, async () => {
+      const context = await this.loadContext(apartmentId, today, false);
+      const checks = this.check(context, items);
+      return {
+        valid: checks.every((c) => c.issues.length === 0),
+        items: checks,
+      };
+    });
   }
 
   // Crea las asignaciones. Sin `items` aplica el reparto automático. En los dos casos se
@@ -122,6 +160,16 @@ export class TaskPlannerService {
     today?: DateKey,
   ) {
     await this.assertMember(apartmentId, userId);
+    return this.guarded('apply', PLAN_FAILED, () =>
+      this.applyPlan(apartmentId, items, today),
+    );
+  }
+
+  private async applyPlan(
+    apartmentId: string,
+    items: PlanItem[] | undefined,
+    today: DateKey | undefined,
+  ) {
     const context = await this.loadContext(apartmentId, today, true);
 
     let toCreate: PlanItem[];
@@ -230,6 +278,17 @@ export class TaskPlannerService {
   }
 
   private plan(context: PlanContext) {
+    // Sin nada que repartir no se ejecuta el algoritmo: el reparto es vacío y los puntos
+    // se quedan como estaban
+    if (context.occurrences.length === 0) {
+      return {
+        assignments: [],
+        unassigned: [],
+        projectedPoints: Object.fromEntries(
+          context.members.map((member) => [member.id, member.points]),
+        ),
+      } satisfies ReturnType<typeof planAssignments>;
+    }
     return planAssignments({
       members: context.members,
       occurrences: context.occurrences,
