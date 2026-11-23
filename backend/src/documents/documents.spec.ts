@@ -67,7 +67,15 @@ describe('UT1023 · documentos de la casa', () => {
       );
     });
     prisma.apartmentDocument.count.mockImplementation(() => Promise.resolve(filas.length));
-    prisma.apartmentDocument.findMany.mockImplementation(() => Promise.resolve(filas));
+    prisma.apartmentDocument.findMany.mockImplementation(({ where }) =>
+      Promise.resolve(
+        filas.filter(
+          (fila) =>
+            fila.apartment_id === where.apartment_id &&
+            (where.category === undefined || fila.category === where.category),
+        ),
+      ),
+    );
     // Una copia, como la base de datos real: si devolviera la propia fila, el update
     // posterior cambiaría también lo que el servicio leyó antes
     prisma.apartmentDocument.findUnique.mockImplementation(({ where }) => {
@@ -140,6 +148,19 @@ describe('UT1023 · documentos de la casa', () => {
   };
 
   describe('subir', () => {
+    it('PA-01 · sube un PDF de 2 MB y guarda casa y usuario uploader en los metadatos', async () => {
+      const res = await subir(base, archivoPdf(pdf(2 * MB))).expect(201);
+
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+      expect(storage.upload.mock.calls[0][1]).toHaveLength(2 * MB);
+      expect(prisma.apartmentDocument.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ apartment_id: PISO, created_by: ALEX, updated_by: ALEX }),
+        }),
+      );
+      expect(res.body.name).toBe('Contrato');
+    });
+
     it('acepta un PDF, lo guarda con ruta generada y no devuelve storage_path', async () => {
       const res = await subir(base, archivoPdf()).expect(201);
 
@@ -158,14 +179,25 @@ describe('UT1023 · documentos de la casa', () => {
       expect(storage.upload.mock.calls[0][0]).toMatch(/\.png$/);
     });
 
-    it('rechaza un vídeo aunque se llame .pdf y diga application/pdf', async () => {
+    it('PA-02 · rechaza un ejecutable o formato no admitido sin guardar archivo ni registro', async () => {
+      const res = await subir(base, {
+        b: Buffer.from('MZ\x90\x00instalador'),
+        name: 'instalador.exe',
+        type: 'application/x-msdownload',
+      }).expect(400);
+      expect(mensajes(res.body)).toContain('El archivo debe ser un PDF, JPG, PNG o WebP');
+      expect(storage.upload).not.toHaveBeenCalled();
+      expect(prisma.apartmentDocument.create).not.toHaveBeenCalled();
+    });
+
+    it('PA-04 · rechaza un ejecutable renombrado como PDF al comprobar su firma real', async () => {
       const res = await subir(base, { b: VIDEO, name: 'peli.pdf', type: 'application/pdf' }).expect(400);
       expect(mensajes(res.body)).toContain('El archivo debe ser un PDF, JPG, PNG o WebP');
       expect(storage.upload).not.toHaveBeenCalled();
       expect(prisma.apartmentDocument.create).not.toHaveBeenCalled();
     });
 
-    it('rechaza un archivo de más de 10 MB', async () => {
+    it('PA-03 · rechaza un archivo mayor de 10 MB antes de guardarlo', async () => {
       const res = await subir(base, archivoPdf(pdf(10 * MB + 1024))).expect(400);
       expect(mensajes(res.body)).toContain('El archivo no puede superar los 10 MB');
       expect(storage.upload).not.toHaveBeenCalled();
@@ -196,7 +228,7 @@ describe('UT1023 · documentos de la casa', () => {
       await subir(base).expect(400);
     });
 
-    it('exige nombre y no admite más de 80 caracteres', async () => {
+    it('PA-05 · exige el título del documento y valida su longitud', async () => {
       await subir({ apartment_id: PISO, name: '   ', url: GOOGLE }).expect(400);
       await subir({ apartment_id: PISO, url: GOOGLE }).expect(400);
       await subir({ apartment_id: PISO, name: 'a'.repeat(81), url: GOOGLE }).expect(400);
@@ -221,10 +253,30 @@ describe('UT1023 · documentos de la casa', () => {
   });
 
   describe('listar', () => {
-    it('lista los documentos del piso a un miembro', async () => {
-      sembrar();
-      const res = await request(app.getHttpServer()).get(`/documents?apartment_id=${PISO}`).expect(200);
+    it('PA-06 · filtra por categoría y limita el resultado a la casa del miembro', async () => {
+      sembrar({ name: 'Factura luz', category: 'Facturas' });
+      filas.push({
+        id: '11111111-1111-4111-8111-111111111111',
+        apartment_id: PISO,
+        name: 'Contrato',
+        category: 'Contratos',
+        kind: 'file',
+      });
+      filas.push({
+        id: '22222222-2222-4222-8222-222222222222',
+        apartment_id: OTRO_PISO,
+        name: 'Factura ajena',
+        category: 'Facturas',
+        kind: 'file',
+      });
+      const res = await request(app.getHttpServer())
+        .get(`/documents?apartment_id=${PISO}&category=Facturas`)
+        .expect(200);
       expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({ name: 'Factura luz', category: 'Facturas' });
+      expect(prisma.apartmentDocument.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { apartment_id: PISO, category: 'Facturas' } }),
+      );
     });
 
     it('prohíbe listar un piso ajeno y valida el id', async () => {
@@ -320,6 +372,14 @@ describe('UT1023 · documentos de la casa', () => {
   });
 
   describe('abrir', () => {
+    it('PA-07 · permite consultar el documento de otro miembro y genera una URL firmada temporal', async () => {
+      miembros.add(`${BEA}:${PISO}`);
+      sembrar({ created_by: BEA, name: 'Contrato de alquiler' });
+      const detalle = await request(app.getHttpServer()).get(`/documents/${DOC}/access`).expect(200);
+      expect(detalle.body).toMatchObject({ name: 'Contrato de alquiler' });
+      expect(storage.signedUrl).toHaveBeenCalledWith(`${PISO}/viejo.pdf`, 300);
+    });
+
     it('un archivo se abre con un enlace firmado de 5 minutos', async () => {
       sembrar();
       const res = await request(app.getHttpServer()).get(`/documents/${DOC}/access`).expect(200);
@@ -334,11 +394,23 @@ describe('UT1023 · documentos de la casa', () => {
       expect(storage.signedUrl).not.toHaveBeenCalled();
     });
 
-    it('un ajeno no obtiene ningún enlace', async () => {
+    it('PA-08 · deniega el detalle y la descarga de un documento de otra casa', async () => {
       sembrar();
       miembros.clear();
       await request(app.getHttpServer()).get(`/documents/${DOC}/access`).expect(403);
       expect(storage.signedUrl).not.toHaveBeenCalled();
     });
+  });
+
+  it('PA-09 · devuelve 401 sin sesión autenticada', async () => {
+    const entornoAnterior = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      await request(app.getHttpServer()).get(`/documents?apartment_id=${PISO}`).expect(401);
+      await request(app.getHttpServer()).get(`/documents/${DOC}/access`).expect(401);
+    } finally {
+      if (entornoAnterior === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = entornoAnterior;
+    }
   });
 });
