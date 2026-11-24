@@ -215,3 +215,45 @@ Every test failure that exposed a real problem, with what happened to it. Does n
 | 2 | `transactions.aislamiento.spec.ts` · `POST /transactions` | **This test revealed a vulnerability:** a user who belongs only to household A can create an expense in household B, naming B's members as payer and debtor. Status received: **201 Created** instead of 403/404. Measured with the before/after comparison of household B's data: the request created 1 `Expense` (payer Carla, 99.00, concept "Gasto falso de Ana") and 1 `Transaction` (Carla → Dani, 99.00) in household B, so Dani's balance changed by 99.00 without any member of B taking part. Evidence: the `toEqual` diff of the test output (+26 lines, 2 added rows). In-memory Prisma, not Postgres | `TransactionsService.create` never checks that the caller, the payer or the debtors belong to `apartment_id`, and the payer comes from the body, not from the session (from code reading; the measured behavior above is consistent with it) | Fixed. Fix applied in `backend/src/transactions/transactions.service.ts` (`create`), **confirmed: `POST /transactions` now returns 403 and household B's data is unchanged (before/after comparison passes); `npm test -- transactions` passes, 14 suites / 177 tests**: (1) the caller must be a member of `apartment_id`, otherwise 403 (`asegurarMiembro`, same check as settle-up), done before anything else so an outsider gets 403 whatever they send; (2) the payer and every debtor must be members, otherwise 400 `All participants must belong to the apartment` (new private `asegurarParticipantes`, one query); the payer is still free to be a flatmate, not forced to be the caller; (3) `currentUserId` is now a required parameter (before it was optional, and the controller always passed it). `transactions.create.spec.ts` mock gained `userApartment.findUnique/findMany` |
 | 3 | `transactions.aislamiento.spec.ts` · `GET /transactions/:apartmentId/my-summary` | **Missing access check (no data leak measured):** a user outside household B gets **200** instead of 403/404 when asking for B's personal summary. The response contained none of B's member names or amounts (checked against the names, concept and amounts of B's data), and B's data was unchanged. The body's shape was not inspected | `TransactionsService.getPersonalSummary` goes straight to the balance calculation without `asegurarMiembro`, unlike `getSettleUp` and `markAsPaid` in the same service (from code reading). The summary is filtered by the caller, so an outsider appears in no payment, which is probably why nothing leaks | Fixed. Fix applied in `backend/src/transactions/transactions.service.ts` (`getPersonalSummary` calls `asegurarMiembro(apartmentId, userId)` first, so an outsider gets 403, as in `getSettleUp`), **confirmed: the isolation test passes and the full suite passes (60 suites, 862 tests passed, 1 skipped, which is an unrelated pending test in `documents.spec.ts`)**. The Prisma fakes of `transactions.service.spec.ts` and `scanner.revision-manual.spec.ts` gained `userApartment.findUnique` |
 | 4 | `transactions.aislamiento.spec.ts` · `POST /transactions/from-receipt` | **Wrong response to an outsider (nothing was written):** a user outside household B who sends a valid receipt for B gets **400** instead of 403/404. Measured: B's data was unchanged and the body contained none of B's names, concept or amounts | `TransactionsService.createFromReceipt` looks the apartment up and, if the caller is not a member, throws `BadRequestException('The current user must belong to the apartment')`. By code reading, a nonexistent apartment gives 404 `Apartment not found`, so an outsider can tell a real apartment id from a made-up one (not measured by a test) | Fixed. Fix applied in `backend/src/transactions/transactions.service.ts` (`createFromReceipt`), **confirmed: the isolation test passes and the full suite passes (60 suites, 868 tests passed, 1 skipped, an unrelated pending test in `documents.spec.ts`)**: the two `throw`s after the existing apartment lookup are replaced by one: if the apartment does not exist or the caller is not a member, `ForbiddenException('No perteneces a este piso')` (403). A real apartment the caller does not belong to and a made-up one now give the same answer, so the existence difference is closed. No extra Prisma query was needed (the lookup already returned the members), so no spec fake changed. Still 400 for a payload with a total ≤ 0 or > 10000.00 (checked before the lookup, it only looks at the request) and for a participant who is not a member |
+
+## 11. Coverage (measured)
+
+Measured by the user on 2026-11-24, Node 24.18.1, with `cd backend && npm run test:cov` (Jest built-in coverage, Istanbul, `collectCoverageFrom: src/**`). Result of that run: 61 suites passed, 882 tests passed, 1 skipped (`documents.spec.ts`, `PA-06`, a pending test unrelated to these requirements). The full per-file report was not saved to a file.
+
+### Files of the requirements
+
+| File | Statements | Branches | Functions | Lines | Uncovered lines |
+|---|---|---|---|---|---|
+| `balance-calculator.ts` | 100 | 100 | 100 | 100 | none |
+| `expense-split.ts` | 100 | 100 | 100 | 100 | none |
+| `expenses.service.ts` | 100 | 92.85 | 100 | 100 | branches at 80, 190, 277, 380-404 |
+| `transactions.service.ts` | 96.29 | 83.45 | 96.29 | 96.55 | 193, 298, 304, 341, 351, 638, 674 |
+| Folder `src/transactions` | 98.34 | 86.56 | 98.18 | 98.44 | |
+| Whole backend (context only) | 83.18 | 69.22 | 83.61 | 84.55 | |
+
+### How it changed
+
+The first measurement was taken before the settle-up and error-path tests. The uncovered lines then were the whole settle-up screen for a member (combining debts with pending notices, roles, available actions), the 404/409 answers of confirm and reject, and the "no debtor" 400. Tests added for them: `transactions.settle-up.spec.ts` (11 tests) and one test in `transactions.create.spec.ts`.
+
+| | % Statements | % Branches | % Functions | % Lines |
+|---|---|---|---|---|
+| `transactions.service.ts` before | 84.72 | 62.40 | 81.48 | 85.22 |
+| `transactions.service.ts` after | 96.29 | 83.45 | 96.29 | 96.55 |
+| Whole backend before | 82.47 | 67.83 | 82.48 | 83.83 |
+| Whole backend after | 83.18 | 69.22 | 83.61 | 84.55 |
+
+### Why it is not 100%
+
+`balance-calculator.ts` and `expense-split.ts` are at 100% and also have property tests (500 and 1000 random cases), which check results and not only that the lines ran. The rest is left uncovered on purpose:
+
+- **`transactions.service.ts` 298, 304, 638, 674: translation of Prisma errors** (`handlePrismaError`: record not found, foreign key violation, rethrow of any other error). They need a database error that the fakes and the in-memory Prisma do not produce. Left as future work.
+- **`transactions.service.ts` 341, 351: public balance by invite code** (`GET /transactions/public-balance/:inviteCode`). Out of scope for this delivery: the endpoint is public by design and is not part of RNF-01 or the two functional requirements.
+- **`transactions.service.ts` 193: "Receipt total must be positive".** Probably unreachable through HTTP, because the DTO already rejects a zero or negative unit price before the service runs (not verified by a test). It stays as a defensive check.
+- **`expenses.service.ts` 80, 190, 277, 380-404: branches only** (every line and function is covered): the default of an optional constructor parameter (the event emitter), one side of a conditional on whether the payer shares the expense, an `if` on an update result and some `??` / `?.` fallbacks. Statement and line coverage is 100%; these are the untaken alternatives of conditions already exercised.
+- **Whole backend 83.18 / 69.22 / 83.61 / 84.55:** the figure includes modules outside these requirements (`push` at 0%, `mail`, `auth/password`, `documents-storage`, module and `main` files). It is given only as context; the figures that matter are the four files above.
+
+### What coverage does and does not show
+
+- It shows that a line or branch was executed, not that its result was correct. That is why the two pure functions also have property tests.
+- Several specs use hand-made fakes of Prisma or the in-memory Prisma (`test/prisma-en-memoria.ts`), not Postgres. Coverage and the read-back checks of RNF-01 prove what the services do, not what Postgres does.
+- 100% was not a goal: the cases were chosen from the acceptance cases of each requirement, and coverage was used afterwards to find a real gap (the settle-up screen), which is what led to the tests listed above.
