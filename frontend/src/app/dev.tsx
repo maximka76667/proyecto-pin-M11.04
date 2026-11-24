@@ -18,13 +18,7 @@ import { ReceiptEditor, ReceiptItem, toReceiptItems } from '@/components/receipt
 import { ReceiptExpense, receiptRequestItems, ReceiptSplit } from '@/components/receipt-split';
 import { scanTicket, TicketScanner } from '@/components/ticket-scanner';
 import { Palette, Radius } from '@/constants/onboarding';
-import {
-  Apartment,
-  api,
-  errorMessage,
-  ScannedTicket,
-  TransactionCategory,
-} from '@/lib/api';
+import { Apartment, api, errorMessage, ScannedTicket, TransactionCategory } from '@/lib/api';
 import { ExpenseItem, ExpenseListEntry, ReceiptEntry } from '@/lib/expenses';
 import { limitTransactionAmountInput } from '@/lib/transaction-amount';
 
@@ -52,7 +46,8 @@ const TABS: { value: Tab; label: string; title: string; subtitle: string }[] = [
     value: 'expenses',
     label: 'Gastos',
     title: 'Gastos',
-    subtitle: 'Crea gastos, edítalos con su versión y bórralos; los tickets muestran sus productos.',
+    subtitle:
+      'Crea gastos, edítalos con su versión y bórralos; los tickets muestran sus productos.',
   },
   {
     value: 'scanner',
@@ -185,7 +180,12 @@ function DevApartments({ showError }: { showError: ShowError }) {
     <>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Nuevo hogar</Text>
-        <Field label="Nombre" placeholder="p. ej. Piso Centro" value={name} onChangeText={setName} />
+        <Field
+          label="Nombre"
+          placeholder="p. ej. Piso Centro"
+          value={name}
+          onChangeText={setName}
+        />
         <Field
           label="Dirección"
           placeholder="p. ej. Calle Mayor 3, Valencia"
@@ -460,7 +460,11 @@ function DevExpenses({ showError }: { showError: ShowError }) {
         <ActivityIndicator color={Palette.primary} />
       ) : entries.length === 0 ? (
         <View style={styles.empty}>
-          <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
+          <MaterialCommunityIcons
+            name="receipt-text-outline"
+            size={32}
+            color={Palette.textSecondary}
+          />
           <Text style={styles.emptyText}>Todavía no hay gastos. Crea el primero arriba.</Text>
         </View>
       ) : (
@@ -492,7 +496,13 @@ function DevExpenses({ showError }: { showError: ShowError }) {
 }
 
 // A scanned ticket: its total is the sum of its products, which are listed under it
-function ReceiptNode({ receipt, onDelete }: { receipt: ReceiptEntry; onDelete: () => Promise<void> }) {
+function ReceiptNode({
+  receipt,
+  onDelete,
+}: {
+  receipt: ReceiptEntry;
+  onDelete: () => Promise<void>;
+}) {
   const [deleting, setDeleting] = useState(false);
 
   const remove = async () => {
@@ -582,7 +592,11 @@ function ExpenseNode({
           </View>
         </View>
         {/* Sends a version nobody has, to see the 409 the app shows when two people edit at once */}
-        <IconButton icon="alert-outline" label="Guardar con versión errónea (409)" onPress={() => save(true)} />
+        <IconButton
+          icon="alert-outline"
+          label="Guardar con versión errónea (409)"
+          onPress={() => save(true)}
+        />
       </View>
     );
   }
@@ -679,14 +693,24 @@ function DevScanner({ showError }: { showError: ShowError }) {
           onError={(e) => showError('Scan ticket', e)}
         />
         {image && !scanning ? (
-          <IconButton icon="refresh" label="Escanear la misma foto de nuevo" onPress={() => scanAgain(image)} />
+          <IconButton
+            icon="refresh"
+            label="Escanear la misma foto de nuevo"
+            onPress={() => scanAgain(image)}
+          />
         ) : null}
         {image ? (
           <Image source={{ uri: image.uri }} style={styles.preview} resizeMode="contain" />
         ) : (
           <View style={styles.empty}>
-            <MaterialCommunityIcons name="receipt-text-outline" size={32} color={Palette.textSecondary} />
-            <Text style={styles.emptyText}>Elige una foto de ticket para enviarla a POST /scanner/ticket.</Text>
+            <MaterialCommunityIcons
+              name="receipt-text-outline"
+              size={32}
+              color={Palette.textSecondary}
+            />
+            <Text style={styles.emptyText}>
+              Elige una foto de ticket para enviarla a POST /scanner/ticket.
+            </Text>
           </View>
         )}
         {scanning ? <ActivityIndicator color={Palette.primary} /> : null}

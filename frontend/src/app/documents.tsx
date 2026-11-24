@@ -124,7 +124,11 @@ export default function Documents() {
         ) : null}
         {docs?.length === 0 ? (
           <View style={styles.empty}>
-            <MaterialCommunityIcons name="folder-open-outline" size={40} color={Palette.textSecondary} />
+            <MaterialCommunityIcons
+              name="folder-open-outline"
+              size={40}
+              color={Palette.textSecondary}
+            />
             <Text style={styles.emptyText}>
               Aún no hay documentos. Sube el contrato, las facturas o las normas de la casa.
             </Text>
@@ -139,7 +143,11 @@ export default function Documents() {
               accessibilityRole="button"
               accessibilityLabel={`Abrir ${doc.name}`}>
               <View style={styles.iconBox}>
-                <MaterialCommunityIcons name={documentIcon(doc)} size={24} color={Palette.primary} />
+                <MaterialCommunityIcons
+                  name={documentIcon(doc)}
+                  size={24}
+                  color={Palette.primary}
+                />
               </View>
               <View style={styles.cardText}>
                 <Text style={styles.cardTitle} numberOfLines={2}>
@@ -161,7 +169,11 @@ export default function Documents() {
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={`Editar ${doc.name}`}>
-              <MaterialCommunityIcons name="pencil-outline" size={21} color={Palette.textSecondary} />
+              <MaterialCommunityIcons
+                name="pencil-outline"
+                size={21}
+                color={Palette.textSecondary}
+              />
             </Pressable>
             <Pressable
               onPress={() => setToDelete(doc)}
@@ -304,7 +316,10 @@ function DocumentForm({
 
           {source === 'file' ? (
             <View style={styles.block}>
-              <Pressable onPress={() => void pick()} style={styles.pickButton} accessibilityRole="button">
+              <Pressable
+                onPress={() => void pick()}
+                style={styles.pickButton}
+                accessibilityRole="button">
                 <MaterialCommunityIcons name="paperclip" size={20} color={Palette.primary} />
                 <Text style={styles.pickText} numberOfLines={1}>
                   {picked

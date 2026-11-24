@@ -140,7 +140,11 @@ export default function RequestSwapScreen() {
               {sendingId === candidate.id ? (
                 <ActivityIndicator color={Palette.primary} />
               ) : (
-                <MaterialCommunityIcons name="chevron-right" size={22} color={Palette.textSecondary} />
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={22}
+                  color={Palette.textSecondary}
+                />
               )}
             </Pressable>
           ))}

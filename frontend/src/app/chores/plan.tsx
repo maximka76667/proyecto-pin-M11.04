@@ -74,8 +74,16 @@ function Skeleton({ height, width = '100%' }: { height: number; width?: `${numbe
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
-        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.timing(pulse, {
+          toValue: 0.4,
+          duration: 700,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
       ]),
     );
     animation.start();
@@ -87,7 +95,10 @@ function Skeleton({ height, width = '100%' }: { height: number; width?: `${numbe
 export default function PlanScreen() {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   const [items, setItems] = useState<EditableItem[]>([]);
-  const [validated, setValidated] = useState<{ signature: string; result: ValidationResponse } | null>(null);
+  const [validated, setValidated] = useState<{
+    signature: string;
+    result: ValidationResponse;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   // Recalculando la propuesta (al cambiar el interruptor) sin esconder lo que ya se ve
@@ -153,11 +164,13 @@ export default function PlanScreen() {
     const timer = setTimeout(() => {
       const assignments = JSON.parse(signature) as unknown[];
       if (assignments.length === 0) return;
-      void (api('POST', '/tasks/plan/validate', {
-        apartment_id: APARTMENT_ID,
-        assignments,
-        ...(ignoreCalendar ? { ignore_calendar: true } : {}),
-      }) as Promise<ValidationResponse>)
+      void (
+        api('POST', '/tasks/plan/validate', {
+          apartment_id: APARTMENT_ID,
+          assignments,
+          ...(ignoreCalendar ? { ignore_calendar: true } : {}),
+        }) as Promise<ValidationResponse>
+      )
         .then((result) => {
           if (!stale) setValidated({ signature, result });
         })
@@ -174,11 +187,9 @@ export default function PlanScreen() {
   const serverChecked = signature !== null && validated?.signature === signature;
   const serverIssues = (index: number) =>
     serverChecked ? (validated?.result.items[index]?.issues ?? []) : [];
-  const hasProblems =
-    !allFormatsValid || (serverChecked && validated?.result.valid === false);
+  const hasProblems = !allFormatsValid || (serverChecked && validated?.result.valid === false);
   const checking = allFormatsValid && !serverChecked && items.length > 0;
-  const canApply =
-    !applying && !refreshing && !hasProblems && serverChecked && items.length > 0;
+  const canApply = !applying && !refreshing && !hasProblems && serverChecked && items.length > 0;
 
   const setTime = (index: number, timeText: string) => {
     setError('');
@@ -225,8 +236,8 @@ export default function PlanScreen() {
 
         {plan ? (
           <Text style={styles.subtitle}>
-            Del {dayLabel(plan.week.from)} al {dayLabel(plan.week.to)}. Se reparte según los
-            puntos de cada persona y su disponibilidad. Puedes cambiar las horas antes de aplicar.
+            Del {dayLabel(plan.week.from)} al {dayLabel(plan.week.to)}. Se reparte según los puntos
+            de cada persona y su disponibilidad. Puedes cambiar las horas antes de aplicar.
           </Text>
         ) : null}
 

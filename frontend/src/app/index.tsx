@@ -8,27 +8,34 @@ import { Palette } from '@/constants/onboarding';
 import { getCurrentUser, hasAuthToken, type CurrentUser } from '@/lib/api';
 
 export default function Welcome() {
-  const { inviteCode, verified } = useLocalSearchParams<{ inviteCode?: string; verified?: string }>();
+  const { inviteCode, verified } = useLocalSearchParams<{
+    inviteCode?: string;
+    verified?: string;
+  }>();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [checked, setChecked] = useState(false);
-  useFocusEffect(useCallback(() => {
-    if (!hasAuthToken()) {
-      router.replace('/auth' as Href);
-      return;
-    }
-    let active = true;
-    void getCurrentUser()
-      .then((currentUser) => {
-        if (active) setUser(currentUser);
-      })
-      .catch(() => {
-        if (active) setUser(null);
-      })
-      .finally(() => {
-        if (active) setChecked(true);
-      });
-    return () => { active = false; };
-  }, []));
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasAuthToken()) {
+        router.replace('/auth' as Href);
+        return;
+      }
+      let active = true;
+      void getCurrentUser()
+        .then((currentUser) => {
+          if (active) setUser(currentUser);
+        })
+        .catch(() => {
+          if (active) setUser(null);
+        })
+        .finally(() => {
+          if (active) setChecked(true);
+        });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   if (!checked) {
     return (
@@ -103,7 +110,9 @@ function CatHome({ name, verified }: { name: string; verified: boolean }) {
 function VerificationNotice() {
   return (
     <View style={styles.verificationNotice} accessibilityLiveRegion="polite">
-      <Text style={styles.verificationNoticeText}>Email verificado correctamente. Bienvenido a Room8.</Text>
+      <Text style={styles.verificationNoticeText}>
+        Email verificado correctamente. Bienvenido a Room8.
+      </Text>
     </View>
   );
 }

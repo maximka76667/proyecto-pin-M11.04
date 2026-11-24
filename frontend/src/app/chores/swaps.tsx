@@ -35,10 +35,10 @@ type SwapRequest = {
 };
 
 function slot(assignment: SwapAssignment) {
-  const day = new Date(`${assignment.due_date.slice(0, 10)}T00:00:00`).toLocaleDateString(
-    'es-ES',
-    { month: 'short', day: 'numeric' },
-  );
+  const day = new Date(`${assignment.due_date.slice(0, 10)}T00:00:00`).toLocaleDateString('es-ES', {
+    month: 'short',
+    day: 'numeric',
+  });
   return `${day}${assignment.due_time ? ` · ${assignment.due_time}` : ''}`;
 }
 
@@ -91,12 +91,8 @@ export default function SwapsInboxScreen() {
     }
   };
 
-  const received = requests.filter(
-    (r) => r.status === 'pending' && r.to_user_id === USER_ID,
-  );
-  const sentPending = requests.filter(
-    (r) => r.status === 'pending' && r.from_user_id === USER_ID,
-  );
+  const received = requests.filter((r) => r.status === 'pending' && r.to_user_id === USER_ID);
+  const sentPending = requests.filter((r) => r.status === 'pending' && r.from_user_id === USER_ID);
   const sentCompleted = requests.filter(
     (r) => r.status === 'completed' && r.from_user_id === USER_ID,
   );
@@ -131,12 +127,7 @@ export default function SwapsInboxScreen() {
               <Pressable
                 disabled={actingId !== null}
                 onPress={() =>
-                  void act(
-                    request.id,
-                    'POST',
-                    '/accept',
-                    'Intercambio realizado con éxito',
-                  )
+                  void act(request.id, 'POST', '/accept', 'Intercambio realizado con éxito')
                 }
                 style={[styles.actionButton, styles.accept]}>
                 {actingId === request.id ? (
@@ -148,12 +139,7 @@ export default function SwapsInboxScreen() {
               <Pressable
                 disabled={actingId !== null}
                 onPress={() =>
-                  void act(
-                    request.id,
-                    'POST',
-                    '/reject',
-                    'Solicitud de intercambio rechazada',
-                  )
+                  void act(request.id, 'POST', '/reject', 'Solicitud de intercambio rechazada')
                 }
                 style={[styles.actionButton, styles.reject]}>
                 <Text style={styles.rejectText}>Rechazar cambio</Text>
@@ -178,12 +164,7 @@ export default function SwapsInboxScreen() {
               <Pressable
                 disabled={actingId !== null}
                 onPress={() =>
-                  void act(
-                    request.id,
-                    'DELETE',
-                    '',
-                    'Solicitud de intercambio cancelada',
-                  )
+                  void act(request.id, 'DELETE', '', 'Solicitud de intercambio cancelada')
                 }
                 style={[styles.actionButton, styles.reject]}>
                 {actingId === request.id ? (

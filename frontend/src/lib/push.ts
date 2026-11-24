@@ -16,8 +16,7 @@ import { destination, type NotificationType } from '@/lib/notifications';
 //   - Expo Go en Android: no (Expo lo quitó en el SDK 53); hace falta un build de desarrollo.
 //   - Web: no; Metro usa push.web.ts, que no hace nada, y los avisos se quedan en el panel.
 const EXPO_GO_ANDROID =
-  Platform.OS === 'android' &&
-  Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+  Platform.OS === 'android' && Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 // Con la app abierta, la notificación también se enseña arriba, como con la app cerrada
 Notifications.setNotificationHandler({
@@ -58,8 +57,7 @@ export async function registrarPush() {
     }
 
     // Lo escribe `eas init` en app.json (extra.eas.projectId)
-    const projectId =
-      Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
     if (!projectId) {
       console.warn('Notificaciones push desactivadas: falta el projectId de EAS en app.json');
       return;
@@ -92,8 +90,7 @@ export function quitarPush() {
 export function escucharToques() {
   const abrir = (respuesta: Notifications.NotificationResponse) => {
     const data = respuesta.notification.request.content.data as
-      | { type?: unknown; reference_id?: unknown }
-      | undefined;
+      { type?: unknown; reference_id?: unknown } | undefined;
     if (typeof data?.type !== 'string') return;
     const destino = destination({
       type: data.type as NotificationType,
