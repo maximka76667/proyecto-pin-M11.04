@@ -1,0 +1,157 @@
+------------------------------------|---------|----------|---------|---------|---------------------------------------------------------------------------------------------
+File                                | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s                                                                           
+------------------------------------|---------|----------|---------|---------|---------------------------------------------------------------------------------------------
+All files                           |   83.18 |    69.22 |   83.61 |   84.55 |                                                                                             
+ src                                |   35.41 |     37.5 |   66.66 |   30.95 |                                                                                             
+  app.controller.ts                 |     100 |       75 |     100 |     100 | 6                                                                                           
+  app.module.ts                     |       0 |      100 |       0 |       0 | 1-49                                                                                        
+  app.service.ts                    |     100 |      100 |     100 |     100 |                                                                                             
+  app.setup.ts                      |     100 |      100 |     100 |     100 |                                                                                             
+  main.ts                           |       0 |        0 |       0 |       0 | 1-19                                                                                        
+ src/apartments                     |   60.21 |    52.17 |   63.63 |    59.3 |                                                                                             
+  apartments.controller.ts          |      88 |    77.77 |   66.66 |   86.95 | 56,64,69                                                                                    
+  apartments.module.ts              |       0 |      100 |     100 |       0 | 1-9                                                                                         
+  apartments.service.ts             |   54.83 |    35.71 |   61.53 |   52.54 | 38,50,56,67,95-106,135-189                                                                  
+ src/apartments/dto                 |     100 |      100 |     100 |     100 |                                                                                             
+  create-apartment.dto.ts           |     100 |      100 |     100 |     100 |                                                                                             
+  join-apartment.dto.ts             |     100 |      100 |     100 |     100 |                                                                                             
+  update-apartment.dto.ts           |     100 |      100 |     100 |     100 |                                                                                             
+ src/auth                           |   78.57 |    71.42 |   89.28 |   83.43 |                                                                                             
+  auth.controller.ts                |   72.97 |    58.33 |   77.77 |   71.87 | 23,57,62-69                                                                                 
+  auth.middleware.ts                |     100 |     87.5 |     100 |     100 | 16                                                                                          
+  auth.module.ts                    |       0 |      100 |       0 |       0 | 1-37                                                                                        
+  auth.service.ts                   |   86.77 |    75.28 |     100 |   94.28 | 59,130-133,155                                                                              
+ src/auth/dto                       |     100 |      100 |     100 |     100 |                                                                                             
+  login.dto.ts                      |     100 |      100 |     100 |     100 |                                                                                             
+  register.dto.ts                   |     100 |      100 |     100 |     100 |                                                                                             
+ src/auth/password                  |   56.48 |    41.42 |   23.07 |   58.06 |                                                                                             
+  password-policy.ts                |     100 |      100 |     100 |     100 |                                                                                             
+  password-throttler.guard.ts       |   45.45 |        0 |       0 |    37.5 | 15-21                                                                                       
+  password.controller.ts            |   84.21 |       75 |      25 |   82.35 | 24,32,40                                                                                    
+  password.service.ts               |   41.53 |    35.41 |      25 |   43.63 | 75-175                                                                                      
+ src/auth/password/dto              |   96.77 |        0 |       0 |   96.66 |                                                                                             
+  change-password.dto.ts            |     100 |      100 |     100 |     100 |                                                                                             
+  forgot-password.dto.ts            |    87.5 |        0 |       0 |   85.71 | 6                                                                                           
+  reset-password.dto.ts             |     100 |      100 |     100 |     100 |                                                                                             
+ src/availability                   |    76.2 |    53.84 |   76.05 |   80.35 |                                                                                             
+  availability.controller.ts        |   75.55 |       50 |      50 |   79.48 | 16,28,35-38,46,55,75                                                                        
+  availability.module.ts            |     100 |      100 |     100 |     100 |                                                                                             
+  availability.service.ts           |   94.18 |    61.81 |   88.46 |   94.66 | 26,53,121,210                                                                               
+  google-calendar.service.ts        |   67.52 |    51.44 |   75.75 |   73.29 | 22-23,42-59,69-70,128-139,177-185,231,265-277,297,303-307                                   
+ src/availability/dto               |     100 |       50 |     100 |     100 |                                                                                             
+  replace-availability.dto.ts       |     100 |       50 |     100 |     100 | 29                                                                                          
+ src/common                         |     100 |    88.88 |     100 |     100 |                                                                                             
+  current-user.decorator.ts         |     100 |    88.88 |     100 |     100 | 18                                                                                          
+  dev-session.ts                    |     100 |      100 |     100 |     100 |                                                                                             
+ src/common/validators              |   87.71 |     92.3 |      75 |   89.13 |                                                                                             
+  match.validator.ts                |    90.9 |      100 |      75 |   88.88 | 20                                                                                          
+  matches-if-present.validator.ts   |   84.61 |    85.71 |      75 |      90 | 21                                                                                          
+  max-bytes.validator.ts            |    90.9 |      100 |      75 |   88.88 | 20                                                                                          
+  not-equal-to.validator.ts         |   85.71 |       90 |      75 |    90.9 | 22                                                                                          
+  required-text.validator.ts        |    87.5 |      100 |      75 |   85.71 | 19                                                                                          
+ src/documents                      |   79.38 |       75 |   76.66 |    80.7 |                                                                                             
+  document-file.ts                  |   94.11 |    83.33 |     100 |     100 | 34                                                                                          
+  documents-storage.service.ts      |   18.51 |        0 |       0 |      12 | 14-71                                                                                       
+  documents.controller.ts           |     100 |    81.25 |     100 |     100 | 36-60                                                                                       
+  documents.module.ts               |       0 |      100 |     100 |       0 | 1-10                                                                                        
+  documents.service.ts              |   90.09 |    83.82 |   86.66 |   93.25 | 57,120,149-150,178,230                                                                      
+  google-link.ts                    |     100 |      100 |     100 |     100 |                                                                                             
+ src/documents/dto                  |     100 |       50 |     100 |     100 |                                                                                             
+  document.dto.ts                   |     100 |       50 |     100 |     100 | 8-11                                                                                        
+ src/mail                           |   42.18 |    36.58 |   33.33 |   40.67 |                                                                                             
+  mail.module.ts                    |       0 |      100 |     100 |       0 | 1-6                                                                                         
+  mail.service.ts                   |   45.76 |    36.58 |   33.33 |   42.85 | 49-76,107-112,127-156,187-199                                                               
+ src/notifications                  |   97.09 |    71.09 |     100 |   98.42 |                                                                                             
+  notification.events.ts            |     100 |      100 |     100 |     100 |                                                                                             
+  notifications.controller.ts       |     100 |    78.57 |     100 |     100 | 20-37                                                                                       
+  notifications.listener.ts         |     100 |       75 |     100 |     100 | 51-137                                                                                      
+  notifications.module.ts           |     100 |      100 |     100 |     100 |                                                                                             
+  notifications.service.ts          |   96.09 |    67.03 |     100 |   97.89 | 227-233,451                                                                                 
+ src/notifications/dto              |     100 |      100 |     100 |     100 |                                                                                             
+  notifications-query.dto.ts        |     100 |      100 |     100 |     100 |                                                                                             
+ src/points                         |   85.88 |    76.11 |   86.66 |   86.66 |                                                                                             
+  points.controller.ts              |   71.42 |    44.44 |      50 |   68.42 | 32-35,45-48                                                                                 
+  points.module.ts                  |       0 |      100 |     100 |       0 | 1-9                                                                                         
+  points.service.ts                 |     100 |    87.75 |     100 |     100 | 20,126-128,167-168                                                                          
+ src/points/dto                     |     100 |      100 |     100 |     100 |                                                                                             
+  complete-assignment.dto.ts        |     100 |      100 |     100 |     100 |                                                                                             
+ src/prisma                         |   41.66 |      100 |       0 |    37.5 |                                                                                             
+  prisma.module.ts                  |       0 |      100 |     100 |       0 | 1-9                                                                                         
+  prisma.service.ts                 |   71.42 |      100 |       0 |      60 | 10-14                                                                                       
+ src/push                           |       0 |        0 |       0 |       0 |                                                                                             
+  push.controller.ts                |       0 |        0 |       0 |       0 | 1-21                                                                                        
+  push.listener.ts                  |       0 |        0 |       0 |       0 | 1-18                                                                                        
+  push.module.ts                    |       0 |      100 |     100 |       0 | 1-12                                                                                        
+  push.service.ts                   |       0 |        0 |       0 |       0 | 1-126                                                                                       
+ src/push/dto                       |       0 |      100 |     100 |       0 |                                                                                             
+  push-token.dto.ts                 |       0 |      100 |     100 |       0 | 1-10                                                                                        
+ src/scanner                        |   91.48 |     93.5 |   92.85 |   93.75 |                                                                                             
+  scanner.controller.ts             |     100 |       75 |     100 |     100 | 12                                                                                          
+  scanner.module.ts                 |       0 |      100 |     100 |       0 | 1-9                                                                                         
+  scanner.service.ts                |   97.46 |    94.52 |   91.66 |   98.55 | 121                                                                                         
+ src/tasks                          |   87.29 |     70.6 |   94.16 |   87.52 |                                                                                             
+  task-points.ts                    |     100 |      100 |     100 |     100 |                                                                                             
+  task-swaps.service.ts             |      85 |    65.38 |     100 |   84.61 | 135,181-189,250,261,282,335,361,380,418-424,427,448-454,468                                 
+  task-verifications.controller.ts  |     100 |    83.33 |     100 |     100 | 18-45                                                                                       
+  task-verifications.service.ts     |      96 |     87.5 |     100 |   96.73 | 100,187,290                                                                                 
+  task.events.ts                    |     100 |      100 |     100 |     100 |                                                                                             
+  tasks.controller.ts               |   89.28 |     67.5 |   89.47 |   88.88 | 135-138,156-164                                                                             
+  tasks.module.ts                   |     100 |      100 |     100 |     100 |                                                                                             
+  tasks.service.ts                  |   81.88 |    68.27 |   90.19 |   82.42 | ...,505-512,550,558-559,563,606-625,637,661,664,667,693,723,755-756,767-768,806,831,839-843 
+ src/tasks/dto                      |   98.46 |    68.75 |     100 |     100 |                                                                                             
+  create-swap-request.dto.ts        |     100 |      100 |     100 |     100 |                                                                                             
+  create-task-assignment.dto.ts     |     100 |      100 |     100 |     100 |                                                                                             
+  create-task.dto.ts                |     100 |       75 |     100 |     100 | 37-41                                                                                       
+  reject-assignment.dto.ts          |     100 |       50 |     100 |     100 | 7                                                                                           
+  set-task-preferences.dto.ts       |     100 |      100 |     100 |     100 |                                                                                             
+  task-availability-query.dto.ts    |     100 |      100 |     100 |     100 |                                                                                             
+  task-time.ts                      |    87.5 |       50 |     100 |     100 | 9-11                                                                                        
+  update-task.dto.ts                |     100 |      100 |     100 |     100 |                                                                                             
+ src/tasks/entities                 |       0 |      100 |     100 |       0 |                                                                                             
+  task.entity.ts                    |       0 |      100 |     100 |       0 | 1                                                                                           
+ src/tasks/planner                  |   93.04 |    81.95 |   86.81 |   93.01 |                                                                                             
+  calendar-time.ts                  |   47.05 |        0 |   28.57 |      50 | 14,19,36-52                                                                                 
+  intervals.ts                      |     100 |      100 |     100 |     100 |                                                                                             
+  occurrences.ts                    |     100 |      100 |     100 |     100 |                                                                                             
+  plan.ts                           |     100 |      100 |     100 |     100 |                                                                                             
+  task-planner.controller.ts        |    64.7 |    56.25 |       0 |      60 | 10,20-23,34,47                                                                              
+  task-planner.service.ts           |   95.54 |    79.82 |   94.54 |   95.58 | 360,603-610,647-649                                                                         
+  types.ts                          |     100 |      100 |     100 |     100 |                                                                                             
+ src/tasks/planner/dto              |   88.88 |      100 |       0 |   88.88 |                                                                                             
+  plan-apartment.dto.ts             |   88.88 |      100 |       0 |   88.88 | 43,61                                                                                       
+ src/transactions                   |   98.34 |    86.56 |   98.18 |   98.44 |                                                                                             
+  balance-calculator.ts             |     100 |      100 |     100 |     100 |                                                                                             
+  categorias.ts                     |     100 |      100 |     100 |     100 |                                                                                             
+  expense-rows.ts                   |     100 |      100 |     100 |     100 |                                                                                             
+  expense-split.ts                  |     100 |      100 |     100 |     100 |                                                                                             
+  expense.events.ts                 |     100 |      100 |     100 |     100 |                                                                                             
+  expenses.controller.ts            |     100 |       75 |     100 |     100 | 18-32                                                                                       
+  expenses.service.ts               |     100 |    92.85 |     100 |     100 | 80,190,277,380-404                                                                          
+  transactions.controller.ts        |     100 |       75 |     100 |     100 | 18-70                                                                                       
+  transactions.module.ts            |     100 |      100 |     100 |     100 |                                                                                             
+  transactions.service.ts           |   96.29 |    83.45 |   96.29 |   96.55 | 193,298,304,341,351,638,674                                                                 
+ src/transactions/dto               |   98.43 |    66.66 |     100 |     100 |                                                                                             
+  create-receipt-transaction.dto.ts |     100 |       75 |     100 |     100 | 83                                                                                          
+  create-transaction.dto.ts         |     100 |    66.66 |     100 |     100 | 64-74                                                                                       
+  not-future-date.validator.ts      |      90 |       50 |     100 |     100 | 12                                                                                          
+  settle-debt.dto.ts                |     100 |      100 |     100 |     100 |                                                                                             
+  update-expense.dto.ts             |     100 |    66.66 |     100 |     100 | 40-51                                                                                       
+ src/transactions/entities          |       0 |      100 |     100 |       0 |                                                                                             
+  transaction.entity.ts             |       0 |      100 |     100 |       0 | 1                                                                                           
+ src/users                          |   78.66 |    65.65 |   65.51 |   78.35 |                                                                                             
+  avatar-image.ts                   |    90.9 |    76.92 |     100 |   93.75 | 36                                                                                          
+  users.controller.ts               |   82.75 |       75 |      50 |   81.48 | 26,65,70,75,80                                                                              
+  users.module.ts                   |     100 |      100 |     100 |     100 |                                                                                             
+  users.service.ts                  |   73.11 |    61.42 |   66.66 |   73.56 | 54,122-142,206,220,246-254,274-281,299-315                                                  
+ src/users/dto                      |     100 |      100 |     100 |     100 |                                                                                             
+  create-user.dto.ts                |     100 |      100 |     100 |     100 |                                                                                             
+  update-user.dto.ts                |     100 |      100 |     100 |     100 |                                                                                             
+ src/users/entities                 |       0 |      100 |     100 |       0 |                                                                                             
+  user.entity.ts                    |       0 |      100 |     100 |       0 | 1                                                                                           
+------------------------------------|---------|----------|---------|---------|---------------------------------------------------------------------------------------------
+
+Test Suites: 61 passed, 61 total
+Tests:       1 skipped, 882 passed, 883 total
+Snapshots:   0 total
+Time:        13.641 s
+Ran all test suites.

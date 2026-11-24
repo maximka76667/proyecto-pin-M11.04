@@ -9,5 +9,6 @@
         { "directory": "backend" },
         { "directory": "frontend" }
     ],
-    "prettier.requireConfig": true
+    "prettier.requireConfig": true,
+    "markdown.validate.enabled": true
 }

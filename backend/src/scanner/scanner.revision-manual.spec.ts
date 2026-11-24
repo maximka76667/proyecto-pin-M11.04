@@ -163,6 +163,21 @@ function crearBaseFalsa() {
         );
       },
     },
+    // Quien pide su resumen tiene que vivir en el piso. No va al registro: no es lo que se prueba
+    userApartment: {
+      findUnique: ({
+        where,
+      }: {
+        where: { user_id_apartment_id: { user_id: string; apartment_id: string } };
+      }) => {
+        const { user_id, apartment_id } = where.user_id_apartment_id;
+        return Promise.resolve(
+          apartment_id === APARTMENT_ID && MIEMBROS.includes(user_id)
+            ? { user_id }
+            : null,
+        );
+      },
+    },
     receipt: {
       create: ({ data }: { data: Fila }) => {
         registro.push('receipt.create');

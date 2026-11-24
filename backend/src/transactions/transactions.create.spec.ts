@@ -19,6 +19,7 @@ describe('POST /transactions (UT998)', () => {
   const prisma = {
     expense: { create: jest.fn() },
     transaction: { createMany: jest.fn() },
+    userApartment: { findUnique: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -63,6 +64,12 @@ describe('POST /transactions (UT998)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Todos los usuarios del test viven en el piso: quien llama y los ids que se piden
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: payer });
+    prisma.userApartment.findMany.mockImplementation(
+      ({ where }: { where: { user_id: { in: string[] } } }) =>
+        Promise.resolve(where.user_id.in.map((user_id) => ({ user_id }))),
+    );
     prisma.expense.create.mockResolvedValue({});
     prisma.transaction.createMany.mockResolvedValue({ count: 1 });
     // La transacción interactiva recibe el cliente; en el test es el propio mock
@@ -164,6 +171,33 @@ describe('POST /transactions (UT998)', () => {
       .expect(400);
 
     expect(response.body.message.join(' ')).toContain(field);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.expense.create).not.toHaveBeenCalled();
+  });
+
+  // RF-01 PA-04: el pagador es obligatorio
+  it('rechaza con 400 un gasto sin pagador (from_user_id) y no toca la base de datos', async () => {
+    const { from_user_id: _pagador, ...sinPagador } = validBody;
+
+    const response = await request(app.getHttpServer())
+      .post('/transactions')
+      .send(sinPagador)
+      .expect(400);
+
+    expect(response.body.message).toContain('from_user_id must be a UUID');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.expense.create).not.toHaveBeenCalled();
+  });
+
+  it('rechaza con 400 un gasto sin ningún deudor y no toca la base de datos', async () => {
+    const { to_user_id: _deudor, ...sinDeudor } = validBody;
+
+    const response = await request(app.getHttpServer())
+      .post('/transactions')
+      .send(sinDeudor)
+      .expect(400);
+
+    expect(response.body.message).toBe('At least one debtor must be specified');
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.expense.create).not.toHaveBeenCalled();
   });

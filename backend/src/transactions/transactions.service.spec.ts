@@ -91,6 +91,16 @@ function crearPrismaFalso(transacciones: TransaccionFalsa[]) {
     );
 
   return {
+    // Estos tests prueban los balances, no quién puede verlos (eso está en
+    // transactions.aislamiento.spec.ts): aquí todos los usuarios viven en el piso que piden
+    userApartment: {
+      findUnique: ({
+        where,
+      }: {
+        where: { user_id_apartment_id: { user_id: string } };
+      }) =>
+        Promise.resolve({ user_id: where.user_id_apartment_id.user_id }),
+    },
     transaction: {
       findMany: ({
         where,

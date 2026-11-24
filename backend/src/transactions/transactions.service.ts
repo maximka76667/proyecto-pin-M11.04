@@ -92,7 +92,7 @@ export class TransactionsService {
   ) {}
 
   // `currentUserId` es quien crea el gasto: no recibe aviso de su propio gasto aunque sea deudor
-  async create(createTransactionDto: CreateTransactionDto, currentUserId?: string) {
+  async create(createTransactionDto: CreateTransactionDto, currentUserId: string) {
     const hasMultipleDebtors = Boolean(
       createTransactionDto.to_user_ids?.length,
     );
@@ -102,11 +102,21 @@ export class TransactionsService {
         ? [createTransactionDto.to_user_id]
         : [];
 
+    // RNF-01: antes de nada, quien llama tiene que vivir en el piso. Va primero para que a
+    // alguien de fuera no le cambie la respuesta según lo que mande (ni siquiera un 400)
+    await this.asegurarMiembro(createTransactionDto.apartment_id, currentUserId);
+
     if (debtorIds.length === 0) {
       throw new BadRequestException('At least one debtor must be specified');
     }
 
     const payerId = createTransactionDto.from_user_id;
+    // El pagador lo elige quien llama (puede registrar que pagó un compañero), pero tanto él
+    // como los deudores tienen que ser del mismo piso
+    await this.asegurarParticipantes(createTransactionDto.apartment_id, [
+      payerId,
+      ...debtorIds,
+    ]);
     if (debtorIds.every((id) => id === payerId)) {
       return [];
     }
@@ -137,7 +147,7 @@ export class TransactionsService {
     // Evento de dominio: NotificationsListener manda el «Aviso de cobro» a cada deudor (UT1018)
     await this.events?.emitAsync(
       GASTO_CREADO,
-      new GastoCreado(transactions, currentUserId ?? payerId),
+      new GastoCreado(transactions, currentUserId),
     );
     return hasMultipleDebtors ? transactions : transactions[0];
   }
@@ -192,17 +202,13 @@ export class TransactionsService {
         user_apartments: { select: { user_id: true } },
       },
     });
-    if (!apartment) {
-      throw new NotFoundException('Apartment not found');
-    }
-
+    // RNF-01: un piso que no existe y un piso ajeno dan la misma respuesta (403), como en
+    // asegurarMiembro: así quien no es del piso no puede saber si existe
     const memberIds = new Set(
-      apartment.user_apartments.map(({ user_id }) => user_id),
+      (apartment?.user_apartments ?? []).map(({ user_id }) => user_id),
     );
-    if (!memberIds.has(payerId)) {
-      throw new BadRequestException(
-        'The current user must belong to the apartment',
-      );
+    if (!apartment || !memberIds.has(payerId)) {
+      throw new ForbiddenException('No perteneces a este piso');
     }
     const assignedIds = lines.flatMap(({ ids }) => ids);
     if (assignedIds.some((id) => !memberIds.has(id))) {
@@ -307,6 +313,9 @@ export class TransactionsService {
     apartmentId: string,
     userId: string,
   ): Promise<RespuestaMiBalancePersonal> {
+    // RNF-01: solo los miembros del piso piden su resumen, como en getSettleUp
+    await this.asegurarMiembro(apartmentId, userId);
+
     const payments = await this.getPagoMinimo(apartmentId);
     const userNames = await this.getPaymentUserNames(payments);
     return this.buildPersonalSummary(payments, userId, userNames);
@@ -691,6 +700,21 @@ export class TransactionsService {
 
     if (!miembro) {
       throw new ForbiddenException('No perteneces a este piso');
+    }
+  }
+
+  // Todos los ids tienen que ser miembros del piso, si no es un 400 (como en createFromReceipt)
+  private async asegurarParticipantes(apartmentId: string, userIds: string[]) {
+    const esperados = new Set(userIds);
+    const miembros = await this.prisma.userApartment.findMany({
+      where: { apartment_id: apartmentId, user_id: { in: [...esperados] } },
+      select: { user_id: true },
+    });
+
+    if (miembros.length !== esperados.size) {
+      throw new BadRequestException(
+        'All participants must belong to the apartment',
+      );
     }
   }
 
