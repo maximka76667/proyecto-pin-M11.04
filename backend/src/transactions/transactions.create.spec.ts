@@ -189,6 +189,19 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.expense.create).not.toHaveBeenCalled();
   });
 
+  it('rechaza con 400 un gasto sin ningún deudor y no toca la base de datos', async () => {
+    const { to_user_id: _deudor, ...sinDeudor } = validBody;
+
+    const response = await request(app.getHttpServer())
+      .post('/transactions')
+      .send(sinDeudor)
+      .expect(400);
+
+    expect(response.body.message).toBe('At least one debtor must be specified');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.expense.create).not.toHaveBeenCalled();
+  });
+
   it('no crea una deuda cuando el pagador es la única persona seleccionada', async () => {
     const response = await request(app.getHttpServer())
       .post('/transactions')
