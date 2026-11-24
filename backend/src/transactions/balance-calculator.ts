@@ -9,22 +9,28 @@ export interface Pago {
   monto: number;
 }
 
+// Algoritmo voraz: empareja siempre al mayor acreedor con el mayor deudor. Garantiza como
+// máximo n-1 pagos (no asegura el mínimo absoluto). Trabaja en céntimos enteros para que no
+// haya restos de coma flotante: cada balance se redondea a céntimos al entrar y cualquier
+// balance distinto de cero, aunque sea de 1 céntimo, se salda.
 export function calcularMinimosPagos(balances: BalanceUsuario[]): Pago[] {
-  const acreedores = balances
-    .filter((usuario) => usuario.balanceNeto > 0.01)
-    .map((usuario) => ({
-      ...usuario,
-      montoRestante: usuario.balanceNeto,
-    }));
-  const deudores = balances
-    .filter((usuario) => usuario.balanceNeto < -0.01)
-    .map((usuario) => ({
-      ...usuario,
-      montoRestante: Math.abs(usuario.balanceNeto),
-    }));
+  const aCentimos = (euros: number) => Math.round(euros * 100);
 
-  acreedores.sort((a, b) => b.montoRestante - a.montoRestante);
-  deudores.sort((a, b) => b.montoRestante - a.montoRestante);
+  const acreedores = balances
+    .map((usuario) => ({
+      userId: usuario.userId,
+      restante: aCentimos(usuario.balanceNeto),
+    }))
+    .filter((usuario) => usuario.restante > 0);
+  const deudores = balances
+    .map((usuario) => ({
+      userId: usuario.userId,
+      restante: -aCentimos(usuario.balanceNeto),
+    }))
+    .filter((usuario) => usuario.restante > 0);
+
+  acreedores.sort((a, b) => b.restante - a.restante);
+  deudores.sort((a, b) => b.restante - a.restante);
 
   const pagos: Pago[] = [];
   let acreedorIndex = 0;
@@ -33,24 +39,19 @@ export function calcularMinimosPagos(balances: BalanceUsuario[]): Pago[] {
   while (acreedorIndex < acreedores.length && deudorIndex < deudores.length) {
     const acreedor = acreedores[acreedorIndex];
     const deudor = deudores[deudorIndex];
-    const monto = Math.min(
-      acreedor.montoRestante,
-      deudor.montoRestante,
-    );
+    const centimos = Math.min(acreedor.restante, deudor.restante);
 
-    if (monto > 0.01) {
-      pagos.push({
-        deudorId: deudor.userId,
-        acreedorId: acreedor.userId,
-        monto: parseFloat(monto.toFixed(2)),
-      });
-    }
+    pagos.push({
+      deudorId: deudor.userId,
+      acreedorId: acreedor.userId,
+      monto: centimos / 100,
+    });
 
-    acreedor.montoRestante -= monto;
-    deudor.montoRestante -= monto;
+    acreedor.restante -= centimos;
+    deudor.restante -= centimos;
 
-    if (acreedor.montoRestante <= 0.01) acreedorIndex++;
-    if (deudor.montoRestante <= 0.01) deudorIndex++;
+    if (acreedor.restante === 0) acreedorIndex++;
+    if (deudor.restante === 0) deudorIndex++;
   }
 
   return pagos;

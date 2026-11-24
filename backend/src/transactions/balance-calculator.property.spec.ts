@@ -28,7 +28,7 @@ describe('calcularMinimosPagos (propiedades)', () => {
     );
   });
 
-  it('los pagos dejan todos los balances a cero (tolerancia de 1 céntimo)', () => {
+  it('los pagos dejan todos los balances exactamente a cero (en céntimos)', () => {
     fc.assert(
       fc.property(balancesArb, (balances) => {
         ejecuciones++;
@@ -44,7 +44,7 @@ describe('calcularMinimosPagos (propiedades)', () => {
             .reduce((total, p) => total + Math.round(p.monto * 100), 0);
           const resultado =
             Math.round(usuario.balanceNeto * 100) + pagado - cobrado;
-          return Math.abs(resultado) <= 1;
+          return resultado === 0;
         });
       }),
       { numRuns: NUM_RUNS, seed: SEED },
@@ -62,7 +62,7 @@ describe('calcularMinimosPagos (propiedades)', () => {
 
   it('no genera pagos de cero ni de menos de un céntimo (todos >= 0,01 €)', () => {
     // Un pago de exactamente 0,01 € es válido: es el resto real de un balance en céntimos.
-    // Contraejemplo de la propiedad "> 0,01": [-0.09, -0.05, 0.04, 0.10]
+    // Con el cálculo en coma flotante, [-0.09, -0.05, 0.04, 0.10] fallaba con "> 0,01"
     fc.assert(
       fc.property(balancesArb, (balances) => {
         return calcularMinimosPagos(balances).every((p) => p.monto >= 0.01);
