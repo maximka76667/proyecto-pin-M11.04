@@ -168,6 +168,20 @@ describe('POST /transactions (UT998)', () => {
     expect(prisma.expense.create).not.toHaveBeenCalled();
   });
 
+  // RF-01 PA-04: el pagador es obligatorio
+  it('rechaza con 400 un gasto sin pagador (from_user_id) y no toca la base de datos', async () => {
+    const { from_user_id: _pagador, ...sinPagador } = validBody;
+
+    const response = await request(app.getHttpServer())
+      .post('/transactions')
+      .send(sinPagador)
+      .expect(400);
+
+    expect(response.body.message).toContain('from_user_id must be a UUID');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.expense.create).not.toHaveBeenCalled();
+  });
+
   it('no crea una deuda cuando el pagador es la única persona seleccionada', async () => {
     const response = await request(app.getHttpServer())
       .post('/transactions')
