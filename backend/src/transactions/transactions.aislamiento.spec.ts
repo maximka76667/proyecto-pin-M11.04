@@ -208,8 +208,8 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
     sembrar();
   });
 
-  const comoAna = () => {
-    const autorizacion = `Bearer ${TOKENS[ANA]}`;
+  const como = (usuario: string) => {
+    const autorizacion = `Bearer ${TOKENS[usuario]}`;
     const servidor = () => request(app.getHttpServer());
     return {
       get: (url: string) => servidor().get(url).set('Authorization', autorizacion),
@@ -220,6 +220,7 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
       delete: (url: string) => servidor().delete(url).set('Authorization', autorizacion),
     };
   };
+  const comoAna = () => como(ANA);
 
   // Lo común a los 12 endpoints: la petición se anota, se bloquea, la respuesta no cuenta nada
   // del piso B y los datos del piso B no han cambiado. Se bloquea con 403/404, salvo en las dos
@@ -354,5 +355,33 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
         category: 'supplies',
       }),
     );
+  });
+
+  // Fuera de los 12 endpoints y de su recuento: es la segunda comprobación de POST /transactions.
+  // Beto sí es del piso A, así que pasa la primera (403); lo que falla es meter en su gasto a
+  // alguien de otro hogar
+  it.each([
+    ['un pagador de otro hogar', { from_user_id: CARLA, to_user_id: ANA }],
+    ['un deudor de otro hogar', { from_user_id: BETO, to_user_id: DANI }],
+  ])('POST /transactions con %s responde 400 y no guarda nada', async (_, personas) => {
+    const todo = () =>
+      structuredClone({
+        Receipt: db.filasDe('Receipt'),
+        Expense: db.filasDe('Expense'),
+        Transaction: db.filasDe('Transaction'),
+      });
+    const antes = todo();
+
+    const respuesta = await como(BETO).post('/transactions', {
+      apartment_id: PISO_A,
+      ...personas,
+      amount: '20.00',
+      concept: 'Cena con alguien de fuera',
+      category: 'supplies',
+    });
+
+    expect(todo()).toEqual(antes);
+    expect(respuesta.status).toBe(400);
+    expect(respuesta.body.message).toBe('All participants must belong to the apartment');
   });
 });
