@@ -92,7 +92,7 @@ export class TransactionsService {
   ) {}
 
   // `currentUserId` es quien crea el gasto: no recibe aviso de su propio gasto aunque sea deudor
-  async create(createTransactionDto: CreateTransactionDto, currentUserId?: string) {
+  async create(createTransactionDto: CreateTransactionDto, currentUserId: string) {
     const hasMultipleDebtors = Boolean(
       createTransactionDto.to_user_ids?.length,
     );
@@ -102,11 +102,21 @@ export class TransactionsService {
         ? [createTransactionDto.to_user_id]
         : [];
 
+    // RNF-01: antes de nada, quien llama tiene que vivir en el piso. Va primero para que a
+    // alguien de fuera no le cambie la respuesta según lo que mande (ni siquiera un 400)
+    await this.asegurarMiembro(createTransactionDto.apartment_id, currentUserId);
+
     if (debtorIds.length === 0) {
       throw new BadRequestException('At least one debtor must be specified');
     }
 
     const payerId = createTransactionDto.from_user_id;
+    // El pagador lo elige quien llama (puede registrar que pagó un compañero), pero tanto él
+    // como los deudores tienen que ser del mismo piso
+    await this.asegurarParticipantes(createTransactionDto.apartment_id, [
+      payerId,
+      ...debtorIds,
+    ]);
     if (debtorIds.every((id) => id === payerId)) {
       return [];
     }
@@ -137,7 +147,7 @@ export class TransactionsService {
     // Evento de dominio: NotificationsListener manda el «Aviso de cobro» a cada deudor (UT1018)
     await this.events?.emitAsync(
       GASTO_CREADO,
-      new GastoCreado(transactions, currentUserId ?? payerId),
+      new GastoCreado(transactions, currentUserId),
     );
     return hasMultipleDebtors ? transactions : transactions[0];
   }
@@ -691,6 +701,21 @@ export class TransactionsService {
 
     if (!miembro) {
       throw new ForbiddenException('No perteneces a este piso');
+    }
+  }
+
+  // Todos los ids tienen que ser miembros del piso, si no es un 400 (como en createFromReceipt)
+  private async asegurarParticipantes(apartmentId: string, userIds: string[]) {
+    const esperados = new Set(userIds);
+    const miembros = await this.prisma.userApartment.findMany({
+      where: { apartment_id: apartmentId, user_id: { in: [...esperados] } },
+      select: { user_id: true },
+    });
+
+    if (miembros.length !== esperados.size) {
+      throw new BadRequestException(
+        'All participants must belong to the apartment',
+      );
     }
   }
 

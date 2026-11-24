@@ -19,6 +19,7 @@ describe('POST /transactions (UT998)', () => {
   const prisma = {
     expense: { create: jest.fn() },
     transaction: { createMany: jest.fn() },
+    userApartment: { findUnique: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -63,6 +64,12 @@ describe('POST /transactions (UT998)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Todos los usuarios del test viven en el piso: quien llama y los ids que se piden
+    prisma.userApartment.findUnique.mockResolvedValue({ user_id: payer });
+    prisma.userApartment.findMany.mockImplementation(
+      ({ where }: { where: { user_id: { in: string[] } } }) =>
+        Promise.resolve(where.user_id.in.map((user_id) => ({ user_id }))),
+    );
     prisma.expense.create.mockResolvedValue({});
     prisma.transaction.createMany.mockResolvedValue({ count: 1 });
     // La transacción interactiva recibe el cliente; en el test es el propio mock
