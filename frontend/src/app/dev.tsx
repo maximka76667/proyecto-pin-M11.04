@@ -134,6 +134,7 @@ function DevApartments({ showError }: { showError: ShowError }) {
   }, [showError]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial
     loadApartments();
   }, [loadApartments]);
 
@@ -344,8 +345,10 @@ function DevExpenses({ showError }: { showError: ShowError }) {
   }, [filterApartmentId, showError]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial
     loadExpenses();
     // Only on mount, the filter is applied with the Reload button
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // POST /transactions creates one expense (without receipt) with a debt per person

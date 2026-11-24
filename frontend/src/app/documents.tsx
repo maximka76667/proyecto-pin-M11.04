@@ -70,8 +70,8 @@ export default function Documents() {
     try {
       const access: DocumentAccess = await api('GET', `/documents/${doc.id}/access`);
       if (Platform.OS === 'web') {
-        if (tab) tab.location.href = access.url;
-        else window.location.href = access.url;
+        if (tab) tab.location.replace(access.url);
+        else window.location.assign(access.url);
       } else {
         await WebBrowser.openBrowserAsync(access.url);
       }

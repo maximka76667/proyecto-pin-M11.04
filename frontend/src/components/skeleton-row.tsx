@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Platform, StyleSheet, View } from 'react-native';
 
 import { Palette } from '@/constants/onboarding';
@@ -6,7 +6,7 @@ import { Palette } from '@/constants/onboarding';
 // Marcador de una fila (icono y dos líneas de texto) mientras carga. Tiene el mismo tamaño que las
 // filas de las tarjetas de ajustes, para que no se mueva nada cuando llegan los datos
 export function SkeletonRow({ label = 'Cargando' }: { label?: string }) {
-  const opacity = useRef(new Animated.Value(0.45)).current;
+  const opacity = useState(() => new Animated.Value(0.45))[0];
 
   useEffect(() => {
     // El driver nativo no existe en web

@@ -4,7 +4,6 @@ import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-ro
 import { ReactNode, useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Platform,

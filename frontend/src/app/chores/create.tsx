@@ -1,22 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { ChoreForm } from '@/components/chore-form';
 import { APARTMENT_ID } from '@/constants/dev-session';
 import { Palette, Radius } from '@/constants/onboarding';
-import { api, errorMessage } from '@/lib/api';
-const frequencies = [
-  { value: 'once', label: 'Una vez' },
-  { value: 'weekly', label: 'Semanal' },
-  { value: 'daily', label: 'Diaria' },
-] as const;
-
-const categories = [
-  { value: 'cleaning', label: 'Limpieza', icon: 'broom' },
-  { value: 'maintenance', label: 'Mantenimiento', icon: 'tools' },
-  { value: 'shopping', label: 'Compras', icon: 'cart-outline' },
-  { value: 'other', label: 'Otra', icon: 'dots-horizontal' },
-] as const;
+import { api } from '@/lib/api';
 
 export default function CreateChoreScreen() {
   return (

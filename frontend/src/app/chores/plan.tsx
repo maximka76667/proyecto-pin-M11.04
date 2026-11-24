@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Animated,
   Platform,
@@ -70,7 +70,7 @@ function validTime(text: string) {
 
 // Bloque gris que late mientras se calcula el reparto
 function Skeleton({ height, width = '100%' }: { height: number; width?: `${number}%` }) {
-  const pulse = useRef(new Animated.Value(0.4)).current;
+  const pulse = useState(() => new Animated.Value(0.4))[0];
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([

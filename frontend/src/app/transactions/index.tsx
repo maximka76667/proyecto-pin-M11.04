@@ -142,6 +142,8 @@ export default function Transactions() {
       return () => {
         active = false;
       };
+    // refreshKey fuerza la recarga aunque no se use dentro del callback
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refreshKey]),
   );
 

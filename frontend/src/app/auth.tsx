@@ -1,9 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 
@@ -66,8 +65,10 @@ export default function Auth() {
       setAuthToken(params.token);
       router.replace(params.verified ? { pathname: '/', params: { verified: '1' } } : '/');
     } else if (params.google_error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacciona a un parámetro de la URL
       setError('No se pudo conectar con Google.');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 'verified' solo se lee junto al token
   }, [params.google_error, params.token]);
 
   const submit = async () => {
