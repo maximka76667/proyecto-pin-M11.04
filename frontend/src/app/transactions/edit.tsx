@@ -1,26 +1,18 @@
-import { ActivityIndicator, Text, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Text, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { api, errorMessage, TransactionCategory } from "@/lib/api";
-import { APARTMENT_ID } from "@/constants/dev-session";
-import { Palette } from "@/constants/onboarding";
-import {
-  ExpenseItem,
-  ExpenseListEntry,
-  findExpense,
-  sharingIds,
-} from "@/lib/expenses";
-import {
-  TransactionForm,
-  TransactionFormValues,
-} from "@/components/transaction-form";
+import { api, errorMessage, TransactionCategory } from '@/lib/api';
+import { APARTMENT_ID } from '@/constants/dev-session';
+import { Palette } from '@/constants/onboarding';
+import { ExpenseItem, ExpenseListEntry, findExpense, sharingIds } from '@/lib/expenses';
+import { TransactionForm, TransactionFormValues } from '@/components/transaction-form';
 
 export default function EditExpenseScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [expense, setExpense] = useState<ExpenseItem | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!id) {
@@ -31,12 +23,12 @@ export default function EditExpenseScreen() {
       try {
         // The list already carries every expense the user can see, with its version
         const list = (await api(
-          "GET",
+          'GET',
           `/expenses?apartment_id=${encodeURIComponent(APARTMENT_ID)}`,
         )) as ExpenseListEntry[];
         const found = findExpense(list, id);
         if (!found) {
-          setError("No se encontró el gasto.");
+          setError('No se encontró el gasto.');
           return;
         }
         setExpense(found);
@@ -46,7 +38,7 @@ export default function EditExpenseScreen() {
     })();
   }, [id]);
 
-  const loadError = error || (!id ? "No se encontró el gasto." : "");
+  const loadError = error || (!id ? 'No se encontró el gasto.' : '');
 
   if (loadError) {
     return (
@@ -68,7 +60,7 @@ export default function EditExpenseScreen() {
 
   const initialValues: Partial<TransactionFormValues> = {
     amount: String(expense.total_amount),
-    concept: expense.concept ?? "",
+    concept: expense.concept ?? '',
     category: expense.category as TransactionCategory,
     date: expense.date.slice(0, 10),
     // The debtors and, if the payer also shares it, the payer
@@ -84,7 +76,7 @@ export default function EditExpenseScreen() {
       onSubmit={async ({ amount, concept, category, date, debtorIds }) => {
         // The version we loaded: if someone edited the expense meanwhile, the backend answers
         // 409 and the form shows its message
-        await api("PATCH", `/expenses/${expense.id}`, {
+        await api('PATCH', `/expenses/${expense.id}`, {
           version: expense.version,
           amount,
           concept,
@@ -93,8 +85,8 @@ export default function EditExpenseScreen() {
           participant_ids: debtorIds,
         });
         router.dismissTo({
-          pathname: "/transactions",
-          params: { notice: "updated" },
+          pathname: '/transactions',
+          params: { notice: 'updated' },
         });
       }}
     />

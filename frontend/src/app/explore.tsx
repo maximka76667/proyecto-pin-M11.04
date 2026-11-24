@@ -61,12 +61,13 @@ export default function TabTwoScreen() {
         <ThemedView style={styles.sectionsWrapper}>
           <Collapsible title="Enrutamiento basado en archivos">
             <ThemedText type="small">
-              Esta aplicación tiene dos pantallas: <ThemedText type="code">src/app/index.tsx</ThemedText> y{' '}
+              Esta aplicación tiene dos pantallas:{' '}
+              <ThemedText type="code">src/app/index.tsx</ThemedText> y{' '}
               <ThemedText type="code">src/app/explore.tsx</ThemedText>
             </ThemedText>
             <ThemedText type="small">
-              El archivo de diseño <ThemedText type="code">src/app/_layout.tsx</ThemedText> configura
-              el navegador de pestañas.
+              El archivo de diseño <ThemedText type="code">src/app/_layout.tsx</ThemedText>{' '}
+              configura el navegador de pestañas.
             </ThemedText>
             <ExternalLink href="https://docs.expo.dev/router/introduction">
               <ThemedText type="linkPrimary">Saber más</ThemedText>
@@ -77,8 +78,8 @@ export default function TabTwoScreen() {
             <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
               <ThemedText type="small">
                 Puedes abrir este proyecto en Android, iOS y la web. Para abrir la versión web,
-                pulsa <ThemedText type="smallBold">w</ThemedText> en el terminal donde se ejecuta este
-                proyecto.
+                pulsa <ThemedText type="smallBold">w</ThemedText> en el terminal donde se ejecuta
+                este proyecto.
               </ThemedText>
               <Image
                 source={require('@/assets/images/tutorial-web.png')}
@@ -89,9 +90,9 @@ export default function TabTwoScreen() {
 
           <Collapsible title="Imágenes">
             <ThemedText type="small">
-              Para imágenes estáticas, puedes usar los sufijos <ThemedText type="code">@2x</ThemedText> y{' '}
-              <ThemedText type="code">@3x</ThemedText> para proporcionar archivos para distintas
-              densidades de pantalla.
+              Para imágenes estáticas, puedes usar los sufijos{' '}
+              <ThemedText type="code">@2x</ThemedText> y <ThemedText type="code">@3x</ThemedText>{' '}
+              para proporcionar archivos para distintas densidades de pantalla.
             </ThemedText>
             <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
             <ExternalLink href="https://reactnative.dev/docs/images">

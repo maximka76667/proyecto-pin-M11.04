@@ -4,7 +4,6 @@ import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-ro
 import { ReactNode, useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Platform,
@@ -146,10 +145,12 @@ export default function ProfileScreen() {
           return;
         }
         setPointsLoading(true);
-        void (api(
-          'GET',
-          `/points/me?apartment_id=${encodeURIComponent(apartmentId)}`,
-        ) as Promise<MyPoints>)
+        void (
+          api(
+            'GET',
+            `/points/me?apartment_id=${encodeURIComponent(apartmentId)}`,
+          ) as Promise<MyPoints>
+        )
           .then((result) => {
             if (active) setMyPoints(result);
           })
@@ -371,8 +372,7 @@ export default function ProfileScreen() {
   // Un usuario solo ve un hogar: el de la sesión (APARTMENT_ID), el mismo que usan los avisos y
   // el resto de la app. Ya no se puede cambiar de casa, así que no se listan los demás
   const primaryApartment =
-    profile.apartments.find((apartment) => apartment.id === APARTMENT_ID) ??
-    profile.apartments[0];
+    profile.apartments.find((apartment) => apartment.id === APARTMENT_ID) ?? profile.apartments[0];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -433,21 +433,21 @@ export default function ProfileScreen() {
         <Section label="Hogar">
           {primaryApartment ? (
             <>
-            <Row
-              icon="home-outline"
-              tint={Palette.mint}
-              title={primaryApartment.name}
-              subtitle={`${primaryApartment.members_count} ${
-                primaryApartment.members_count === 1 ? 'compañero' : 'compañeros'
-              }`}
-            />
-            <Row
-              icon="folder-outline"
-              tint={Palette.sun}
-              title="Documentos de la casa"
-              subtitle="Contratos, facturas, normas…"
-              onPress={() => router.push('/documents' as Href)}
-            />
+              <Row
+                icon="home-outline"
+                tint={Palette.mint}
+                title={primaryApartment.name}
+                subtitle={`${primaryApartment.members_count} ${
+                  primaryApartment.members_count === 1 ? 'compañero' : 'compañeros'
+                }`}
+              />
+              <Row
+                icon="folder-outline"
+                tint={Palette.sun}
+                title="Documentos de la casa"
+                subtitle="Contratos, facturas, normas…"
+                onPress={() => router.push('/documents' as Href)}
+              />
             </>
           ) : (
             <Row
@@ -485,9 +485,7 @@ export default function ProfileScreen() {
             style={({ pressed }) => [styles.inviteButton, pressed && styles.pressed]}
             onPress={() => handleInvite(primaryApartment.name, primaryApartment.invite_code)}>
             <MaterialCommunityIcons name="account-plus-outline" size={20} color={Palette.primary} />
-            <Text style={styles.inviteButtonText}>
-              Invitar a alguien a {primaryApartment.name}
-            </Text>
+            <Text style={styles.inviteButtonText}>Invitar a alguien a {primaryApartment.name}</Text>
           </Pressable>
         ) : null}
 
@@ -522,7 +520,7 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Recordatorios de tareas</Text>
-              <Text style={styles.rowSubtitle}>{"Avisos antes de que venza una tarea"}</Text>
+              <Text style={styles.rowSubtitle}>{'Avisos antes de que venza una tarea'}</Text>
             </View>
             <Switch
               value={choreReminders}
@@ -810,8 +808,20 @@ const styles = StyleSheet.create({
     color: Palette.textSecondary,
     paddingHorizontal: 4,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 14 },
-  iconTile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  iconTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 15, fontWeight: '700' },
   rowSubtitle: { fontSize: 13, color: Palette.textSecondary },

@@ -34,8 +34,16 @@ const looks: Record<NotificationType, Look> = {
   swap_accepted: { icon: 'check-circle-outline', tint: Palette.mint, color: Palette.primary },
   swap_rejected: { icon: 'close-circle-outline', tint: '#FBE9E7', color: Palette.error },
   verification_requested: { icon: 'clipboard-check-outline', tint: '#FDF1DB', color: '#D97706' },
-  verification_approved: { icon: 'check-decagram-outline', tint: Palette.mint, color: Palette.primary },
-  verification_rejected: { icon: 'clipboard-remove-outline', tint: '#FBE9E7', color: Palette.error },
+  verification_approved: {
+    icon: 'check-decagram-outline',
+    tint: Palette.mint,
+    color: Palette.primary,
+  },
+  verification_rejected: {
+    icon: 'clipboard-remove-outline',
+    tint: '#FBE9E7',
+    color: Palette.error,
+  },
   expense_added: { icon: 'cash-plus', tint: Palette.peach, color: Palette.text },
   expense_updated: { icon: 'pencil-outline', tint: Palette.lavender, color: Palette.text },
   expense_deleted: { icon: 'trash-can-outline', tint: Palette.segment, color: Palette.text },

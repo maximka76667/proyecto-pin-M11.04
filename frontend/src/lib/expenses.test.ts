@@ -98,10 +98,7 @@ describe('sharingIds', () => {
   });
 
   it('leaves the payer out when they do not take part', () => {
-    expect(sharingIds(item({ payer_participates: false }))).toEqual([
-      'ana',
-      'bruno',
-    ]);
+    expect(sharingIds(item({ payer_participates: false }))).toEqual(['ana', 'bruno']);
   });
 });
 

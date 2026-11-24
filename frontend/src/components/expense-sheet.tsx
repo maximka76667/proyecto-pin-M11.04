@@ -1,14 +1,7 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Palette } from "@/constants/onboarding";
+import { Palette } from '@/constants/onboarding';
 import {
   balanceText,
   categoryLabel,
@@ -18,11 +11,11 @@ import {
   ExpenseListEntry,
   myBalanceCents,
   myReceiptBalanceCents,
-} from "@/lib/expenses";
+} from '@/lib/expenses';
 
 // What the delete confirmation needs to know about the expense or receipt being deleted
 export type DeleteTarget = {
-  kind: "expense" | "receipt";
+  kind: 'expense' | 'receipt';
   id: string;
   // the version the user loaded: the backend answers 409 if someone changed it since
   version: number;
@@ -43,7 +36,7 @@ type Props = {
 const money = (amount: string | number) => `${Number(amount).toFixed(2)} €`;
 
 const itemTarget = (item: ExpenseItem): DeleteTarget => ({
-  kind: "expense",
+  kind: 'expense',
   id: item.id,
   version: item.version,
   concept: item.concept,
@@ -67,18 +60,12 @@ function Shares({ item, userId }: { item: ExpenseItem; userId: string }) {
             size={19}
             color={Palette.primary}
           />
-          <Text style={styles.shareText}>
-            {describeShare(item, share, userId)}
-          </Text>
+          <Text style={styles.shareText}>{describeShare(item, share, userId)}</Text>
         </View>
       ))}
       {payerLine ? (
         <View style={styles.shareRow}>
-          <MaterialCommunityIcons
-            name="account-outline"
-            size={19}
-            color={Palette.textSecondary}
-          />
+          <MaterialCommunityIcons name="account-outline" size={19} color={Palette.textSecondary} />
           <Text style={styles.sharePayerText}>{payerLine}</Text>
         </View>
       ) : null}
@@ -106,14 +93,8 @@ function Action({
           color={destructive ? Palette.error : Palette.primary}
         />
       </View>
-      <Text style={destructive ? styles.itemDeleteText : styles.itemText}>
-        {label}
-      </Text>
-      <MaterialCommunityIcons
-        name="chevron-right"
-        size={21}
-        color={Palette.textSecondary}
-      />
+      <Text style={destructive ? styles.itemDeleteText : styles.itemText}>{label}</Text>
+      <MaterialCommunityIcons name="chevron-right" size={21} color={Palette.textSecondary} />
     </Pressable>
   );
 }
@@ -122,12 +103,7 @@ function Action({
 // actions to edit or delete it. Only the person who paid gets the actions.
 export function ExpenseSheet({ entry, userId, onClose, onEdit, onDelete }: Props) {
   return (
-    <Modal
-      visible={entry !== null}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
+    <Modal visible={entry !== null} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => undefined}>
           {entry ? (
@@ -152,14 +128,10 @@ function SheetContent({
   onEdit,
   onDelete,
 }: Props & { entry: ExpenseListEntry }) {
-  const isReceipt = entry.kind === "receipt";
-  const settlement = !isReceipt && entry.type === "SETTLEMENT";
-  const title = isReceipt
-    ? "Ticket"
-    : entry.concept || categoryLabel(entry.category);
-  const myCents = isReceipt
-    ? myReceiptBalanceCents(entry, userId)
-    : myBalanceCents(entry, userId);
+  const isReceipt = entry.kind === 'receipt';
+  const settlement = !isReceipt && entry.type === 'SETTLEMENT';
+  const title = isReceipt ? 'Ticket' : entry.concept || categoryLabel(entry.category);
+  const myCents = isReceipt ? myReceiptBalanceCents(entry, userId) : myBalanceCents(entry, userId);
 
   return (
     <>
@@ -167,23 +139,19 @@ function SheetContent({
       <View style={styles.header}>
         <View style={styles.headerIcon}>
           <MaterialCommunityIcons
-            name={isReceipt ? "receipt-text-outline" : "cash-multiple"}
+            name={isReceipt ? 'receipt-text-outline' : 'cash-multiple'}
             size={23}
             color={Palette.primary}
           />
         </View>
         <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>
-            {isReceipt ? "TICKET" : settlement ? "PAGO" : "GASTO"}
-          </Text>
+          <Text style={styles.eyebrow}>{isReceipt ? 'TICKET' : settlement ? 'PAGO' : 'GASTO'}</Text>
           <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
           <Text style={styles.meta}>
-            {entry.paidByCurrentUser
-              ? "Pagaste tú"
-              : `Pagó ${entry.payer.full_name}`}{" "}
-            · {new Date(entry.date).toLocaleDateString("es-ES")}
+            {entry.paidByCurrentUser ? 'Pagaste tú' : `Pagó ${entry.payer.full_name}`} ·{' '}
+            {new Date(entry.date).toLocaleDateString('es-ES')}
           </Text>
         </View>
         <Text style={styles.amount}>{money(entry.total_amount)}</Text>
@@ -195,7 +163,7 @@ function SheetContent({
           <Text style={styles.mineText}>{balanceText(myCents)}</Text>
         </View>
 
-        {entry.kind === "receipt" ? (
+        {entry.kind === 'receipt' ? (
           <>
             {entry.items.map((item) => (
               <View key={item.id} style={styles.card}>
@@ -203,9 +171,7 @@ function SheetContent({
                   <Text style={styles.cardTitle} numberOfLines={2}>
                     {item.concept || categoryLabel(item.category)}
                   </Text>
-                  <Text style={styles.cardAmount}>
-                    {money(item.total_amount)}
-                  </Text>
+                  <Text style={styles.cardAmount}>{money(item.total_amount)}</Text>
                 </View>
                 <Shares item={item} userId={userId} />
                 {item.canEdit ? (
@@ -213,8 +179,7 @@ function SheetContent({
                     <Pressable
                       onPress={() => onEdit(item.id)}
                       hitSlop={6}
-                      style={styles.cardAction}
-                    >
+                      style={styles.cardAction}>
                       <MaterialCommunityIcons
                         name="pencil-outline"
                         size={16}
@@ -225,8 +190,7 @@ function SheetContent({
                     <Pressable
                       onPress={() => onDelete(itemTarget(item))}
                       hitSlop={6}
-                      style={styles.cardAction}
-                    >
+                      style={styles.cardAction}>
                       <MaterialCommunityIcons
                         name="trash-can-outline"
                         size={16}
@@ -239,9 +203,7 @@ function SheetContent({
               </View>
             ))}
             {!entry.paidByCurrentUser ? (
-              <Text style={styles.muted}>
-                Solo ves los productos en los que participas.
-              </Text>
+              <Text style={styles.muted}>Solo ves los productos en los que participas.</Text>
             ) : null}
           </>
         ) : (
@@ -252,29 +214,25 @@ function SheetContent({
       </ScrollView>
 
       {entry.canEdit ? (
-        entry.kind === "receipt" ? (
+        entry.kind === 'receipt' ? (
           <Action
             icon="trash-can-outline"
             label="Eliminar ticket"
             destructive
             onPress={() =>
               onDelete({
-                kind: "receipt",
+                kind: 'receipt',
                 id: entry.id,
                 version: entry.version,
-                concept: "Ticket",
-                category: "other",
+                concept: 'Ticket',
+                category: 'other',
                 amount: Number(entry.total_amount) || 0,
               })
             }
           />
         ) : (
           <>
-            <Action
-              icon="pencil-outline"
-              label="Editar gasto"
-              onPress={() => onEdit(entry.id)}
-            />
+            <Action icon="pencil-outline" label="Editar gasto" onPress={() => onEdit(entry.id)} />
             <Action
               icon="trash-can-outline"
               label="Eliminar gasto"
@@ -294,14 +252,14 @@ function SheetContent({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(31,42,36,0.45)",
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(31,42,36,0.45)',
   },
   sheet: {
-    width: "100%",
+    width: '100%',
     maxWidth: 560,
-    maxHeight: "90%",
+    maxHeight: '90%',
     gap: 6,
     padding: 24,
     paddingTop: 12,
@@ -310,7 +268,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.background,
   },
   handle: {
-    alignSelf: "center",
+    alignSelf: 'center',
     width: 42,
     height: 5,
     marginBottom: 20,
@@ -318,29 +276,29 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.border,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
     marginBottom: 10,
   },
   headerIcon: {
     width: 46,
     height: 46,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 15,
     backgroundColor: Palette.mint,
   },
   headerText: { flex: 1, gap: 3 },
   eyebrow: {
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: '800',
     letterSpacing: 1,
     color: Palette.textSecondary,
   },
-  title: { fontSize: 19, fontWeight: "800", color: Palette.text },
+  title: { fontSize: 19, fontWeight: '800', color: Palette.text },
   meta: { fontSize: 12, color: Palette.textSecondary },
-  amount: { fontSize: 18, fontWeight: "800", color: Palette.text },
+  amount: { fontSize: 18, fontWeight: '800', color: Palette.text },
   body: { flexGrow: 0 },
   bodyContent: { gap: 10, paddingBottom: 8 },
   mine: {
@@ -352,11 +310,11 @@ const styles = StyleSheet.create({
   mineOwes: { backgroundColor: Palette.peach },
   mineLabel: {
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: '800',
     letterSpacing: 1,
     color: Palette.text,
   },
-  mineText: { fontSize: 17, fontWeight: "800", color: Palette.text },
+  mineText: { fontSize: 17, fontWeight: '800', color: Palette.text },
   card: {
     gap: 10,
     padding: 12,
@@ -366,29 +324,29 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
   },
   cardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 12,
   },
-  cardTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: Palette.text },
-  cardAmount: { fontSize: 15, fontWeight: "700", color: Palette.text },
-  cardActions: { flexDirection: "row", gap: 18 },
-  cardAction: { flexDirection: "row", alignItems: "center", gap: 6 },
-  cardActionText: { fontSize: 14, fontWeight: "700", color: Palette.primary },
+  cardTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: Palette.text },
+  cardAmount: { fontSize: 15, fontWeight: '700', color: Palette.text },
+  cardActions: { flexDirection: 'row', gap: 18 },
+  cardAction: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  cardActionText: { fontSize: 14, fontWeight: '700', color: Palette.primary },
   cardActionDeleteText: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: '700',
     color: Palette.error,
   },
   shares: { gap: 8 },
-  shareRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  shareRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   shareText: { flex: 1, fontSize: 14, color: Palette.text },
   sharePayerText: { flex: 1, fontSize: 14, color: Palette.textSecondary },
   muted: { fontSize: 13, color: Palette.textSecondary },
   item: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
     minHeight: 58,
     paddingHorizontal: 10,
@@ -398,31 +356,31 @@ const styles = StyleSheet.create({
   itemIcon: {
     width: 34,
     height: 34,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 11,
     backgroundColor: Palette.mint,
   },
-  itemIconDelete: { backgroundColor: "#F9E4E0" },
+  itemIconDelete: { backgroundColor: '#F9E4E0' },
   itemText: {
     flex: 1,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: '700',
     color: Palette.text,
   },
   itemDeleteText: {
     flex: 1,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: '700',
     color: Palette.error,
   },
   close: {
-    alignItems: "center",
+    alignItems: 'center',
     minHeight: 48,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginTop: 6,
     borderRadius: 15,
     backgroundColor: Palette.segment,
   },
-  closeText: { fontSize: 15, fontWeight: "800", color: Palette.text },
+  closeText: { fontSize: 15, fontWeight: '800', color: Palette.text },
 });

@@ -126,7 +126,9 @@ export default function VerifyChoresScreen() {
               <Text style={styles.meta}>
                 Hecha por {review.user.full_name} · {review.task.points} puntos
               </Text>
-              {review.task.description ? <Text style={styles.description}>{review.task.description}</Text> : null}
+              {review.task.description ? (
+                <Text style={styles.description}>{review.task.description}</Text>
+              ) : null}
               <Text style={styles.deadline}>{formatDeadline(review.verification_deadline)}</Text>
 
               {rejecting ? (
@@ -155,7 +157,11 @@ export default function VerifyChoresScreen() {
                       disabled={busy}
                       onPress={() => void resolve(review, 'reject')}
                       style={[styles.rejectButton, styles.flex]}>
-                      {busy ? <ActivityIndicator color={Palette.onPrimary} /> : <Text style={styles.buttonText}>Enviar rechazo</Text>}
+                      {busy ? (
+                        <ActivityIndicator color={Palette.onPrimary} />
+                      ) : (
+                        <Text style={styles.buttonText}>Enviar rechazo</Text>
+                      )}
                     </Pressable>
                   </View>
                 </>
@@ -200,24 +206,85 @@ export default function VerifyChoresScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Palette.background },
-  container: { width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32, gap: 14 },
+  container: {
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 32,
+    gap: 14,
+  },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  back: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: Palette.surface, borderWidth: 1, borderColor: Palette.border },
+  back: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.border,
+  },
   eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, color: Palette.primary },
   title: { marginTop: 2, fontSize: 28, fontWeight: '800', color: Palette.text },
   error: { fontSize: 13, color: Palette.error },
   empty: { fontSize: 14, color: Palette.textSecondary, textAlign: 'center', paddingVertical: 24 },
-  card: { gap: 8, padding: 16, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.surface },
+  card: {
+    gap: 8,
+    padding: 16,
+    borderRadius: Radius.input,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+  },
   taskTitle: { fontSize: 17, fontWeight: '800', color: Palette.text },
   meta: { fontSize: 13, color: Palette.textSecondary },
   description: { fontSize: 14, color: Palette.text },
   deadline: { fontSize: 12, color: Palette.textSecondary },
   row: { flexDirection: 'row', gap: 10, marginTop: 6 },
   flex: { flex: 1 },
-  secondaryButton: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 14, borderRadius: Radius.input, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.background },
+  secondaryButton: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: Radius.input,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.background,
+  },
   secondaryText: { fontSize: 14, fontWeight: '700', color: Palette.text },
-  approveButton: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 14, borderRadius: Radius.input, backgroundColor: Palette.primary },
-  rejectButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: Radius.input, backgroundColor: Palette.error },
+  approveButton: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.primary,
+  },
+  rejectButton: {
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: Radius.input,
+    backgroundColor: Palette.error,
+  },
   buttonText: { fontSize: 14, fontWeight: '800', color: Palette.onPrimary },
-  reasonInput: { minHeight: 70, padding: 10, textAlignVertical: 'top', fontSize: 14, color: Palette.text, borderRadius: 10, borderWidth: 1, borderColor: Palette.border, backgroundColor: Palette.background },
+  reasonInput: {
+    minHeight: 70,
+    padding: 10,
+    textAlignVertical: 'top',
+    fontSize: 14,
+    color: Palette.text,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.background,
+  },
 });

@@ -84,10 +84,9 @@ export function fetchNotifications(
     reminders = choreRemindersEnabled(),
   }: { category?: NotificationCategory; reminders?: boolean } = {},
 ) {
-  return api(
-    'GET',
-    `/notifications?${query(apartmentId, reminders, category)}`,
-  ) as Promise<AppNotification[]>;
+  return api('GET', `/notifications?${query(apartmentId, reminders, category)}`) as Promise<
+    AppNotification[]
+  >;
 }
 
 export async function fetchUnreadCount(apartmentId: string, reminders = choreRemindersEnabled()) {

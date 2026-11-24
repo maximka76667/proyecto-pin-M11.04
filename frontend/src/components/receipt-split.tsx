@@ -1,15 +1,11 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import {
-  LIMIT_MESSAGE,
-  ReceiptItem,
-  receiptTotals,
-} from "@/components/receipt-editor";
-import { Palette } from "@/constants/onboarding";
-import { api, ApiError, errorMessage, Member } from "@/lib/api";
-import { splitExpense } from "@/lib/expense-split";
+import { LIMIT_MESSAGE, ReceiptItem, receiptTotals } from '@/components/receipt-editor';
+import { Palette } from '@/constants/onboarding';
+import { api, ApiError, errorMessage, Member } from '@/lib/api';
+import { splitExpense } from '@/lib/expense-split';
 
 // What POST /transactions/from-receipt returns
 export type ReceiptExpense = {
@@ -21,13 +17,11 @@ export type ReceiptExpense = {
 
 // Products shown in the JSON preview of /dev: only the shared ones, without who shares them
 export function receiptRequestItems(items: ReceiptItem[]) {
-  return receiptTotals(items).sharedItems.map(
-    ({ name, quantity, unit_price }) => ({
-      name,
-      quantity,
-      unit_price,
-    }),
-  );
+  return receiptTotals(items).sharedItems.map(({ name, quantity, unit_price }) => ({
+    name,
+    quantity,
+    unit_price,
+  }));
 }
 
 // The items sent to POST /transactions/from-receipt: every product with a price and the people
@@ -77,9 +71,7 @@ const euros = (cents: number) => `${(cents / 100).toFixed(2)} €`;
 // limit with a 400 that names the field (e.g. "items.0.quantity must not be greater than 999")
 export function receiptErrorMessage(e: unknown) {
   const isLimitError =
-    e instanceof ApiError &&
-    e.status === 400 &&
-    /\b(unit_price|quantity|items)\b/.test(e.message);
+    e instanceof ApiError && e.status === 400 && /\b(unit_price|quantity|items)\b/.test(e.message);
   return isLimitError ? LIMIT_MESSAGE : errorMessage(e);
 }
 
@@ -107,15 +99,14 @@ export function ReceiptSplit({
   const payer = members.find(({ isCurrentUser }) => isCurrentUser);
   const allIds = members.map(({ id }) => id);
   // Default: products ticked as shared in the previous step go to everyone, the rest to the payer
-  const assignedOf = (item: ReceiptItem) =>
-    assignments[item.id] ?? (item.shared ? allIds : []);
+  const assignedOf = (item: ReceiptItem) => assignments[item.id] ?? (item.shared ? allIds : []);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const loaded = (await api(
-          "GET",
+          'GET',
           `/apartments/${encodeURIComponent(apartmentId)}/members`,
         )) as Member[];
         if (cancelled) return;
@@ -149,21 +140,19 @@ export function ReceiptSplit({
 
   const createExpense = async () => {
     if (debts.size === 0) {
-      onError(
-        new Error("Asigna al menos un producto a otra persona para repartir el gasto."),
-      );
+      onError(new Error('Asigna al menos un producto a otra persona para repartir el gasto.'));
       return;
     }
     if (totalCents > 1_000_000) {
-      onError(new Error("El gasto no puede superar los 10.000,00 €."));
+      onError(new Error('El gasto no puede superar los 10.000,00 €.'));
       return;
     }
     setSaving(true);
     try {
-      const expense = (await api("POST", "/transactions/from-receipt", {
+      const expense = (await api('POST', '/transactions/from-receipt', {
         apartment_id: apartmentId,
         items: receiptRequestItemsWithAssignees(items, assignedOf),
-        category: "supplies",
+        category: 'supplies',
       })) as ReceiptExpense;
       onCreated(expense);
     } catch (e) {
@@ -174,7 +163,7 @@ export function ReceiptSplit({
   };
 
   const memberLabel = (member: Member) =>
-    member.isCurrentUser ? "Yo" : member.full_name.trim().split(" ")[0];
+    member.isCurrentUser ? 'Yo' : member.full_name.trim().split(' ')[0];
 
   return (
     <>
@@ -182,9 +171,7 @@ export function ReceiptSplit({
       {loadingMembers ? (
         <ActivityIndicator color={Palette.primary} />
       ) : members.length < 2 ? (
-        <Text style={styles.empty}>
-          No hay más miembros en este piso para repartir el gasto.
-        </Text>
+        <Text style={styles.empty}>No hay más miembros en este piso para repartir el gasto.</Text>
       ) : (
         pricedItems.map((item) => {
           const assigned = assignedOf(item);
@@ -192,7 +179,7 @@ export function ReceiptSplit({
             <View key={item.id} style={styles.itemCard}>
               <View style={styles.itemHeader}>
                 <Text style={styles.itemName} numberOfLines={2}>
-                  {item.quantity > 1 ? `${item.quantity} × ` : ""}
+                  {item.quantity > 1 ? `${item.quantity} × ` : ''}
                   {item.name}
                 </Text>
                 <Text style={styles.itemPrice}>
@@ -208,14 +195,13 @@ export function ReceiptSplit({
                       onPress={() => toggleMember(item, member.id)}
                       accessibilityLabel={`${memberLabel(member)}: ${item.name}`}
                       accessibilityState={{ checked: selected }}
-                      style={[styles.chip, selected && styles.chipSelected]}
-                    >
+                      style={[styles.chip, selected && styles.chipSelected]}>
                       {member.avatar_url ? (
                         <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
                       ) : (
                         <View style={styles.memberAvatarPlaceholder}>
                           <Text style={styles.memberAvatarText}>
-                            {member.full_name.trim().charAt(0).toUpperCase() || "?"}
+                            {member.full_name.trim().charAt(0).toUpperCase() || '?'}
                           </Text>
                         </View>
                       )}
@@ -249,18 +235,13 @@ export function ReceiptSplit({
       <Pressable
         onPress={createExpense}
         disabled={saving || loadingMembers}
-        style={styles.primaryButton}
-      >
+        style={styles.primaryButton}>
         {saving ? (
           <ActivityIndicator color={Palette.onPrimary} />
         ) : (
           <>
             <Text style={styles.primaryButtonText}>Crear gasto compartido</Text>
-            <MaterialCommunityIcons
-              name="check"
-              size={20}
-              color={Palette.onPrimary}
-            />
+            <MaterialCommunityIcons name="check" size={20} color={Palette.onPrimary} />
           </>
         )}
       </Pressable>
@@ -269,7 +250,7 @@ export function ReceiptSplit({
 }
 
 const styles = StyleSheet.create({
-  label: { marginTop: 5, fontSize: 13, fontWeight: "800", color: Palette.text },
+  label: { marginTop: 5, fontSize: 13, fontWeight: '800', color: Palette.text },
   empty: { fontSize: 14, color: Palette.textSecondary },
   itemCard: {
     gap: 10,
@@ -279,14 +260,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: Palette.surface,
   },
-  itemHeader: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
-  itemName: { flex: 1, fontSize: 15, fontWeight: "700", color: Palette.text },
-  itemPrice: { fontSize: 15, fontWeight: "800", color: Palette.text },
+  itemHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  itemName: { flex: 1, fontSize: 15, fontWeight: '700', color: Palette.text },
+  itemPrice: { fontSize: 15, fontWeight: '800', color: Palette.text },
   itemHint: { fontSize: 12, color: Palette.textSecondary },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -296,8 +277,8 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.background,
   },
   chipSelected: { borderColor: Palette.primary, backgroundColor: Palette.mint },
-  chipText: { fontSize: 13, fontWeight: "600", color: Palette.textSecondary },
-  chipTextSelected: { color: Palette.text, fontWeight: "800" },
+  chipText: { fontSize: 13, fontWeight: '600', color: Palette.textSecondary },
+  chipTextSelected: { color: Palette.text, fontWeight: '800' },
   memberAvatar: {
     width: 24,
     height: 24,
@@ -308,12 +289,12 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     backgroundColor: Palette.peach,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   memberAvatarText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: '700',
     color: Palette.text,
   },
   splitSummaryBox: {
@@ -322,13 +303,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: Palette.mint,
   },
-  splitSummary: { fontSize: 14, fontWeight: "800", color: Palette.text },
+  splitSummary: { fontSize: 14, fontWeight: '800', color: Palette.text },
   splitLine: { fontSize: 13, color: Palette.text },
   primaryButton: {
     minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
     marginTop: 8,
     borderRadius: 16,
@@ -336,7 +317,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: '800',
     color: Palette.onPrimary,
   },
 });

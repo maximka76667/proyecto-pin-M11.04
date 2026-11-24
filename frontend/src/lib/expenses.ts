@@ -56,14 +56,8 @@ export function myBalanceCents(item: ExpenseItem, userId: string): number {
 }
 
 // The same for a whole receipt: the sum over the items the user can see
-export function myReceiptBalanceCents(
-  receipt: ReceiptEntry,
-  userId: string,
-): number {
-  return receipt.items.reduce(
-    (sum, item) => sum + myBalanceCents(item, userId),
-    0,
-  );
+export function myReceiptBalanceCents(receipt: ReceiptEntry, userId: string): number {
+  return receipt.items.reduce((sum, item) => sum + myBalanceCents(item, userId), 0);
 }
 
 // Everyone who shares an expense, as the edit form needs it: the debtors and, when the payer also
@@ -76,10 +70,7 @@ export function sharingIds(item: ExpenseItem): string[] {
 }
 
 // Finds an expense by id, among the manual ones and inside the receipts
-export function findExpense(
-  list: ExpenseListEntry[],
-  id: string,
-): ExpenseItem | null {
+export function findExpense(list: ExpenseListEntry[], id: string): ExpenseItem | null {
   for (const entry of list) {
     if (entry.kind === 'expense') {
       if (entry.id === id) return entry;
@@ -132,11 +123,7 @@ export function payerShareCents(item: ExpenseItem): number {
 
 // One line of the detail screen: who owes what in this expense, from the point of view of the
 // user looking at it
-export function describeShare(
-  item: ExpenseItem,
-  share: ExpenseShare,
-  userId: string,
-): string {
+export function describeShare(item: ExpenseItem, share: ExpenseShare, userId: string): string {
   const amount = euros(toCents(share.amount));
   const debtor = share.user.full_name;
   const payer = item.payer.full_name;
@@ -159,4 +146,3 @@ export function describePayerShare(item: ExpenseItem, userId: string): string | 
     ? `Tu parte: ${euros(cents)}`
     : `Parte de ${item.payer.full_name}: ${euros(cents)}`;
 }
-

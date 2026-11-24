@@ -1,14 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -29,10 +22,14 @@ type TaskWithPreference = {
   preference: PreferenceType;
 };
 
-function getChoreIcon(title: string, category?: string): keyof typeof MaterialCommunityIcons.glyphMap {
+function getChoreIcon(
+  title: string,
+  category?: string,
+): keyof typeof MaterialCommunityIcons.glyphMap {
   const t = title.toLowerCase();
   if (t.includes('cocin') || t.includes('comid')) return 'pot-steam-outline';
-  if (t.includes('plat') || t.includes('lavar') || t.includes('vajill')) return 'silverware-fork-knife';
+  if (t.includes('plat') || t.includes('lavar') || t.includes('vajill'))
+    return 'silverware-fork-knife';
   if (t.includes('baño') || t.includes('ducha') || t.includes('aseo')) return 'bathtub-outline';
   if (t.includes('barr') || t.includes('freg') || t.includes('suelo')) return 'broom';
   if (t.includes('basur') || t.includes('recicl')) return 'trash-can-outline';
@@ -190,13 +187,11 @@ export function TaskPreferencesView({
               color={Palette.primary}
               style={styles.bannerIcon}
             />
-            <Text style={styles.bannerTitle}>
-              Tus gustos cuentan, el equilibrio primero
-            </Text>
+            <Text style={styles.bannerTitle}>Tus gustos cuentan, el equilibrio primero</Text>
           </View>
           <Text style={styles.bannerBody}>
-            La IA tendrá en cuenta tus preferencias, pero priorizará un reparto
-            equilibrado y la carga de trabajo. Evitar una tarea no la excluye.
+            La IA tendrá en cuenta tus preferencias, pero priorizará un reparto equilibrado y la
+            carga de trabajo. Evitar una tarea no la excluye.
           </Text>
         </View>
 
@@ -207,9 +202,7 @@ export function TaskPreferencesView({
             {tasks.length} {tasks.length === 1 ? 'tarea' : 'tareas'}
           </Text>
         </View>
-        <Text style={styles.sectionHelp}>
-          Elige una sola opción para cada tarea.
-        </Text>
+        <Text style={styles.sectionHelp}>Elige una sola opción para cada tarea.</Text>
 
         {/* Contenido principal: Estados de carga, error y lista */}
         {loading ? (
@@ -235,8 +228,7 @@ export function TaskPreferencesView({
             />
             <Text style={styles.emptyTitle}>No hay tareas registradas</Text>
             <Text style={styles.emptySubtitle}>
-              Crea tareas para tu hogar en la pestaña de Tareas para poder elegir
-              tus preferencias.
+              Crea tareas para tu hogar en la pestaña de Tareas para poder elegir tus preferencias.
             </Text>
           </View>
         ) : (
@@ -247,9 +239,7 @@ export function TaskPreferencesView({
               const isLast = index === tasks.length - 1;
 
               return (
-                <View
-                  key={task.id}
-                  style={[styles.taskItem, !isLast && styles.taskItemDivider]}>
+                <View key={task.id} style={[styles.taskItem, !isLast && styles.taskItemDivider]}>
                   {/* Fila del icono y título de la tarea */}
                   <View style={styles.taskTitleRow}>
                     <MaterialCommunityIcons
@@ -320,9 +310,7 @@ export function TaskPreferencesView({
                 <Text style={styles.saveButtonText}>Guardar preferencias</Text>
               )}
             </Pressable>
-            <Text style={styles.footerHint}>
-              Puedes cambiarlas cuando quieras desde tu perfil.
-            </Text>
+            <Text style={styles.footerHint}>Puedes cambiarlas cuando quieras desde tu perfil.</Text>
           </View>
         ) : null}
       </ScrollView>
