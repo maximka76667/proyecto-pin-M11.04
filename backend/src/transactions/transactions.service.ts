@@ -317,6 +317,9 @@ export class TransactionsService {
     apartmentId: string,
     userId: string,
   ): Promise<RespuestaMiBalancePersonal> {
+    // RNF-01: solo los miembros del piso piden su resumen, como en getSettleUp
+    await this.asegurarMiembro(apartmentId, userId);
+
     const payments = await this.getPagoMinimo(apartmentId);
     const userNames = await this.getPaymentUserNames(payments);
     return this.buildPersonalSummary(payments, userId, userNames);

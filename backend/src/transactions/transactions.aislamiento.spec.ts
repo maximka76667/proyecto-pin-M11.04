@@ -49,7 +49,8 @@ const PAGO_B = 'e0e0e0e0-0000-4000-8000-0000000000b3';
 const AVISO_B = 'f0f0f0f0-0000-4000-8000-0000000000b3';
 
 // Lo que no puede aparecer en ninguna respuesta a Ana
-const SECRETOS_DE_B = ['Carla', 'Dani', 'Compra secreta de B', '30.00', '12.00', '10.00'];
+// (42 es lo que Dani debe en total a Carla: 30,00 + 12,00; en los balances sale como número)
+const SECRETOS_DE_B = ['Carla', 'Dani', 'Compra secreta de B', '30.00', '12.00', '10.00', '42'];
 
 const TOKENS: Record<string, string> = {
   [ANA]: 'token-de-ana',
@@ -75,7 +76,9 @@ const auth = {
     AuthMiddleware,
     { provide: PrismaService, useValue: db.prisma },
     { provide: AuthService, useValue: auth },
-    { provide: UsersService, useValue: {} },
+    // El de verdad: los balances sacan los nombres de aquí, y con `{}` el endpoint fallaba
+    // con un 500 por culpa del test, no del código
+    UsersService,
   ],
 })
 class ModuloDePrueba implements NestModule {
@@ -235,15 +238,17 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
     // Primero lo que importa de verdad: si algo cambió en B, el fallo enseña las filas de más
     expect(datosDeB()).toEqual(antes);
 
+    // Luego lo que cuenta la respuesta, antes del código: si algo se filtra, el fallo lo enseña
+    const cuerpo = JSON.stringify(respuesta.body);
+    for (const secreto of SECRETOS_DE_B) {
+      expect(cuerpo).not.toContain(secreto);
+    }
+
     if (esLista) {
       expect(respuesta.status).toBe(200);
       expect(respuesta.body).toEqual([]);
     } else {
       expect([403, 404]).toContain(respuesta.status);
-    }
-    const cuerpo = JSON.stringify(respuesta.body);
-    for (const secreto of SECRETOS_DE_B) {
-      expect(cuerpo).not.toContain(secreto);
     }
   }
 
@@ -278,6 +283,12 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
   it('DELETE /receipts/:id no deja borrar un ticket de otro hogar', async () => {
     await comprobarBloqueo('DELETE /receipts/:id', () =>
       comoAna().delete(`/receipts/${TICKET_B}?version=1`),
+    );
+  });
+
+  it('GET /transactions/:apartmentId/my-summary no enseña los balances de otro hogar', async () => {
+    await comprobarBloqueo('GET /transactions/:apartmentId/my-summary', () =>
+      comoAna().get(`/transactions/${PISO_B}/my-summary`),
     );
   });
 
