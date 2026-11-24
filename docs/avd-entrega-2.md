@@ -40,7 +40,10 @@ Two to four cases per requirement. Each has a boundary or a case that could fail
 - **PA-02 Estado vacío:** a household with no open debts returns no payments and no NaN, Infinity or 0 € transfers.
 - **PA-03 Ciclo cerrado:** a closed debt cycle produces no payment (already in `transactions.service.spec.ts`).
 **RNF-01 Seguridad y aislamiento por hogar**
-- For the endpoints listed in Task B, 100% of requests from a user outside the household are blocked on the server with HTTP 403 or 404.
+- For the endpoints listed in Task B, 100% of requests from a user outside the household are blocked on the server. "Blocked" means no data of the other household is returned or changed:
+  - Endpoints that address a household or a resource (everything except the two lists below): HTTP **403 or 404**.
+  - The two "mine" lists, `GET /expenses` and `GET /transactions`, return only what the user paid or owes, optionally narrowed by `apartment_id`. For another household they answer **200 with exactly `[]`**. This is accepted as blocked, because it is identical to what a member with no expenses sees, so it reveals nothing about the household. Decided on 2026-11-24.
+  - In the report, count them separately: blocked with 403/404 (N), isolated by filtering with 200 `[]` (2).
 - Prefer **404** for another household's resources, so the response doesn't reveal that the resource exists. If the code returns 403, record that and justify it in the memoria.
 - The response body contains no amounts and no other users' names.
 - The endpoint list must be written down, so "100%" refers to a defined set.
@@ -121,17 +124,17 @@ Do not change the frontend copy of `expense-split.ts` in this task. If the backe
 1. Copy the supertest setup from `transactions.controller.spec.ts` or `transactions.public-balance.spec.ts`.
 2. Set up two households, A and B, with a member of A and existing data in B (at least one expense, one debt, one payment).
 3. **One test per endpoint in the scope list below, for both reads and writes.** A read test checks the response; a write test checks the response and then reads B's data back to prove nothing changed. A 403/404 status alone is not enough, because the write could still have happened.
-4. Expect HTTP 403 or 404 every time. Assert the body contains no amounts or user names.
+4. Expect HTTP 403 or 404 every time, except `GET /expenses` and `GET /transactions`, which expect 200 with a body of exactly `[]`. Assert the body contains no amounts or user names.
 5. Record the number of requests sent, blocked, and the status codes returned.
 **Endpoint scope for RNF-01 (financial household data).** These are the endpoints in the repo that read or change a household's expenses, receipts, debts and payments:
  
-- `GET /expenses` (list) — read
+- `GET /expenses` (list) — read, expects 200 `[]`
 - `PATCH /expenses/:id` — write
 - `DELETE /expenses/:id` — write
 - `DELETE /receipts/:id` — write
 - `POST /transactions` (manual create) — write, with `from_user_id` and debtors from household B
 - `POST /transactions/from-receipt` — write
-- `GET /transactions` — read
+- `GET /transactions` — read, expects 200 `[]`
 - `GET /transactions/:apartmentId/my-summary` — read
 - `GET /transactions/:apartmentId/settle-up` — read
 - `POST /transactions/:apartmentId/settle` — write
@@ -170,3 +173,29 @@ Report these, in this order:
 - When the memoria describes a tool, include one real worked example from the repo (a code listing, not a screenshot).
 - Never claim a result you did not measure.
  
+## 9. Implementation log
+
+Where each test was implemented. Updated after every test is written. Status is what was actually run by the user, not assumed.
+
+| Task / case | File | Test | Status |
+|---|---|---|---|
+| A1 · RF-02 PA-01 | `backend/src/transactions/balance-calculator.property.spec.ts` | 4 properties (exact zero balances, ≤ n−1 payments, every payment ≥ 0.01, direction) · 500 runs, seed 42 | passing |
+| A1 · production change | `backend/src/transactions/balance-calculator.ts` | `calcularMinimosPagos` now works in integer cents (float residue gave 1-cent payments depending on noise) | passing |
+| A2 · RF-01 PA-05 | `backend/src/transactions/expense-split.property.spec.ts` | 4 properties + 1 unit test for empty list · 1000 runs, seed 42 | passing |
+| C · RF-01 PA-04 | `backend/src/transactions/transactions.create.spec.ts` | `rechaza con 400 un gasto sin pagador (from_user_id) y no toca la base de datos` | passing |
+| C · RF-01 PA-01 | `backend/src/transactions/transactions.create.spec.ts` | `acepta el importe máximo de 10000.00` and `an amount over the maximum` (10000.01) in the `it.each` | existing, passing |
+| C · RF-01 PA-02, PA-03 | `backend/src/transactions/transactions.create.spec.ts` | `a zero amount`, `a negative amount`, `an empty concept` in the `it.each` (PATCH equivalents in `expenses.controller.spec.ts`) | existing, passing |
+| B · RNF-01 · `GET /expenses` | `backend/src/transactions/transactions.aislamiento.spec.ts` | `GET /expenses?apartment_id=<piso B> no devuelve los gastos de otro hogar` | passing (200 `[]`) |
+| B · RNF-01 · `PATCH /expenses/:id` | `backend/src/transactions/transactions.aislamiento.spec.ts` | `PATCH /expenses/:id no deja editar un gasto de otro hogar` | passing |
+| B · RNF-01 · `DELETE /expenses/:id` | `backend/src/transactions/transactions.aislamiento.spec.ts` | `DELETE /expenses/:id no deja borrar un gasto de otro hogar` | passing |
+| B · RNF-01 · `DELETE /receipts/:id` | `backend/src/transactions/transactions.aislamiento.spec.ts` | `DELETE /receipts/:id no deja borrar un ticket de otro hogar` | passing |
+| B · RNF-01 · `POST /transactions` | `backend/src/transactions/transactions.aislamiento.spec.ts` | `POST /transactions no deja crear un gasto en otro hogar haciéndose pasar por su pagador` | passing after the fix (403); failed before it, see finding 2 in section 10 |
+
+## 10. Failures and findings
+
+Every test failure that exposed a real problem, with what happened to it. Does not include failures that were only a change of criterion (e.g. `200 []` for the two "mine" lists). Updated whenever a test fails. When the failure is a security problem (RNF-01), the "What failed" cell starts with "**This test revealed a vulnerability:**" followed by what an outsider could read or change. Other defects are described as defects.
+
+| # | Found by | What failed | Cause | Outcome |
+|---|---|---|---|---|
+| 1 | `balance-calculator.property.spec.ts` (property 3) | Counterexample `[-0.09, -0.05, 0.04, 0.10]`: a payment of 0.01 appeared although the code ignores amounts ≤ 0.01 | `calcularMinimosPagos` compared floats against a 0.01 threshold. `0.10 - 0.09 = 0.010000000000000009` is above it, so whether a 1-cent amount was paid depended on float noise. A balance of exactly ±0.01 was ignored, so balances did not always reach zero | Fixed: `balance-calculator.ts` works in integer cents. Property 1 is now exact (tolerance 0). Low severity |
+| 2 | `transactions.aislamiento.spec.ts` · `POST /transactions` | **This test revealed a vulnerability:** a user who belongs only to household A can create an expense in household B, naming B's members as payer and debtor. Status received: **201 Created** instead of 403/404. Measured with the before/after comparison of household B's data: the request created 1 `Expense` (payer Carla, 99.00, concept "Gasto falso de Ana") and 1 `Transaction` (Carla → Dani, 99.00) in household B, so Dani's balance changed by 99.00 without any member of B taking part. Evidence: the `toEqual` diff of the test output (+26 lines, 2 added rows). In-memory Prisma, not Postgres | `TransactionsService.create` never checks that the caller, the payer or the debtors belong to `apartment_id`, and the payer comes from the body, not from the session (from code reading; the measured behavior above is consistent with it) | Fixed. Fix applied in `backend/src/transactions/transactions.service.ts` (`create`), **confirmed: `POST /transactions` now returns 403 and household B's data is unchanged (before/after comparison passes); `npm test -- transactions` passes, 14 suites / 177 tests**: (1) the caller must be a member of `apartment_id`, otherwise 403 (`asegurarMiembro`, same check as settle-up), done before anything else so an outsider gets 403 whatever they send; (2) the payer and every debtor must be members, otherwise 400 `All participants must belong to the apartment` (new private `asegurarParticipantes`, one query); the payer is still free to be a flatmate, not forced to be the caller; (3) `currentUserId` is now a required parameter (before it was optional, and the controller always passed it). `transactions.create.spec.ts` mock gained `userApartment.findUnique/findMany` |
