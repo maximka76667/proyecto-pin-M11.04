@@ -202,17 +202,13 @@ export class TransactionsService {
         user_apartments: { select: { user_id: true } },
       },
     });
-    if (!apartment) {
-      throw new NotFoundException('Apartment not found');
-    }
-
+    // RNF-01: un piso que no existe y un piso ajeno dan la misma respuesta (403), como en
+    // asegurarMiembro: así quien no es del piso no puede saber si existe
     const memberIds = new Set(
-      apartment.user_apartments.map(({ user_id }) => user_id),
+      (apartment?.user_apartments ?? []).map(({ user_id }) => user_id),
     );
-    if (!memberIds.has(payerId)) {
-      throw new BadRequestException(
-        'The current user must belong to the apartment',
-      );
+    if (!apartment || !memberIds.has(payerId)) {
+      throw new ForbiddenException('No perteneces a este piso');
     }
     const assignedIds = lines.flatMap(({ ids }) => ids);
     if (assignedIds.some((id) => !memberIds.has(id))) {

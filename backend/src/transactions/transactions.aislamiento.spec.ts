@@ -262,6 +262,20 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
     );
   });
 
+  it('GET /transactions/:apartmentId/settle-up no enseña las deudas de otro hogar', async () => {
+    await comprobarBloqueo('GET /transactions/:apartmentId/settle-up', () =>
+      comoAna().get(`/transactions/${PISO_B}/settle-up`),
+    );
+  });
+
+  it('GET /transactions?apartment_id=<piso B> no devuelve las deudas de otro hogar', async () => {
+    await comprobarBloqueo(
+      'GET /transactions',
+      () => comoAna().get(`/transactions?apartment_id=${PISO_B}`),
+      { esLista: true },
+    );
+  });
+
   // ─── Escrituras ──────────────────────────────────────────────────────────────────────
 
   it('PATCH /expenses/:id no deja editar un gasto de otro hogar', async () => {
@@ -289,6 +303,42 @@ describe('RNF-01 · Aislamiento por hogar (Ana, del piso A, contra datos del pis
   it('GET /transactions/:apartmentId/my-summary no enseña los balances de otro hogar', async () => {
     await comprobarBloqueo('GET /transactions/:apartmentId/my-summary', () =>
       comoAna().get(`/transactions/${PISO_B}/my-summary`),
+    );
+  });
+
+  it('POST /transactions/:apartmentId/settle no deja avisar de un pago en otro hogar', async () => {
+    // Ana dice que ha pagado a Carla los 42,00 que se deben en el piso B
+    await comprobarBloqueo('POST /transactions/:apartmentId/settle', () =>
+      comoAna().post(`/transactions/${PISO_B}/settle`, {
+        acreedor_id: CARLA,
+        amount: '42.00',
+      }),
+    );
+  });
+
+  it('POST /transactions/:id/confirm no deja confirmar un pago de otro hogar', async () => {
+    // El aviso de Dani a Carla sigue pendiente: solo Carla puede confirmarlo
+    await comprobarBloqueo('POST /transactions/:id/confirm', () =>
+      comoAna().post(`/transactions/${AVISO_B}/confirm`),
+    );
+  });
+
+  it('POST /transactions/:id/reject no deja rechazar un pago de otro hogar', async () => {
+    // Rechazar borra el aviso y su liquidación: la comparación con B enseñaría el borrado
+    await comprobarBloqueo('POST /transactions/:id/reject', () =>
+      comoAna().post(`/transactions/${AVISO_B}/reject`),
+    );
+  });
+
+  it('POST /transactions/from-receipt no deja crear un ticket en otro hogar', async () => {
+    // Ana apunta al piso B y reparte el ticket entre Carla y Dani, que son de B
+    await comprobarBloqueo('POST /transactions/from-receipt', () =>
+      comoAna().post('/transactions/from-receipt', {
+        apartment_id: PISO_B,
+        participant_ids: [CARLA, DANI],
+        items: [{ name: 'Producto falso de Ana', unit_price: '7.77', quantity: 1 }],
+        category: 'supplies',
+      }),
     );
   });
 
