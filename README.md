@@ -29,6 +29,10 @@ DIRECT_URL="postgresql://USUARIO:PASSWORD@HOST:5432/BASEDEDATOS"
 # Sin clave el backend arranca igual; solo falla el escaneo.
 GEMINI_API_KEY="tu_clave"
 # GEMINI_MODEL="gemini-3-flash-preview"   # opcional
+# Respaldo gratuito si Gemini falla (429, caída, clave inválida). Clave en https://openrouter.ai/keys
+# Sin clave no hay respaldo. Con límite gratuito de ~50 peticiones al día.
+# OPENROUTER_API_KEY="tu_clave"
+# OPENROUTER_MODELS="nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free"   # opcional, se prueban en orden
 ```
 
 > Si usas una base de datos sin pooler (p. ej. PostgreSQL local), `DIRECT_URL` puede ser igual que `DATABASE_URL`.

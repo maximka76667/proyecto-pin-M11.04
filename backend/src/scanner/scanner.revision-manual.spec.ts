@@ -333,6 +333,7 @@ describe('PA-1004.01: revisión manual y guardado de datos del escáner (UT1004)
     expect(response.body).toEqual({
       comercio: 'Consum',
       items: LEIDO_POR_EL_ESCANER,
+      provider: 'gemini',
     });
     expect(base.registro).toEqual([]);
     // Hasta que el usuario confirma, el gasto no afecta al resto del piso
