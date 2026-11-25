@@ -1,21 +1,60 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ScanProgress, ScanStep } from '@/components/scan-progress';
 import { Palette } from '@/constants/onboarding';
-import { apiUpload, ScannedTicket } from '@/lib/api';
+import { ApiError, apiUpload, ConnectionError, ScannedTicket } from '@/lib/api';
 
 type Source = 'camera' | 'library';
 
-// Sends a receipt photo to POST /scanner/ticket
-export function scanTicket(asset: ImagePicker.ImagePickerAsset): Promise<ScannedTicket> {
-  return apiUpload('/scanner/ticket', 'image', {
+export const SCANNER_UNAVAILABLE =
+  'No hemos podido leer el ticket ahora mismo. Añade los productos a mano.';
+
+// Sends a receipt photo to POST /scanner/ticket. With a provider only that reader is used;
+// without one the backend tries Gemini and then the backup by itself
+export function scanTicket(
+  asset: ImagePicker.ImagePickerAsset,
+  provider?: 'gemini' | 'openrouter',
+): Promise<ScannedTicket> {
+  const query = provider ? `?provider=${provider}` : '';
+  return apiUpload(`/scanner/ticket${query}`, 'image', {
     uri: asset.uri,
     name: asset.fileName ?? 'ticket.jpg',
     type: asset.mimeType ?? 'image/jpeg',
     file: asset.file,
   });
+}
+
+// The backup only makes sense when the reader is down or overloaded. A 400 means the photo is
+// not a readable ticket, and another reader would say the same
+function canTryBackup(error: unknown) {
+  if (error instanceof ConnectionError) return true;
+  return error instanceof ApiError && (error.status === 429 || error.status >= 500);
+}
+
+// Reads the ticket with Gemini and, if that fails, with the backup reader. The app runs both
+// attempts itself (one request each) so onStep can tell the user what is really happening
+export async function scanTicketWithFallback(
+  asset: ImagePicker.ImagePickerAsset,
+  onStep: (step: ScanStep) => void,
+): Promise<ScannedTicket> {
+  onStep('gemini');
+  try {
+    return await scanTicket(asset, 'gemini');
+  } catch (error) {
+    if (!canTryBackup(error)) throw error;
+  }
+
+  onStep('fallback');
+  try {
+    return await scanTicket(asset, 'openrouter');
+  } catch (error) {
+    // The backup did read the photo but found no ticket: that message is more useful
+    if (error instanceof ApiError && error.status === 400) throw error;
+    throw new Error(SCANNER_UNAVAILABLE);
+  }
 }
 
 // Camera / gallery buttons that read a receipt. Used by the review screen and by /dev.
@@ -29,7 +68,8 @@ export function TicketScanner({
   onError: (e: unknown) => void;
   compact?: boolean;
 }) {
-  const [scanning, setScanning] = useState(false);
+  // null = not scanning; otherwise which reader the app is waiting for
+  const [step, setStep] = useState<ScanStep | null>(null);
 
   const pick = async (source: Source) => {
     try {
@@ -49,23 +89,15 @@ export function TicketScanner({
       const asset = picked.assets?.[0];
       if (picked.canceled || !asset) return;
 
-      setScanning(true);
-      onScanned(await scanTicket(asset), asset);
+      onScanned(await scanTicketWithFallback(asset, setStep), asset);
     } catch (e) {
       onError(e);
     } finally {
-      setScanning(false);
+      setStep(null);
     }
   };
 
-  if (scanning) {
-    return (
-      <View style={styles.scanning}>
-        <ActivityIndicator color={Palette.primary} />
-        <Text style={styles.scanningText}>Leyendo el ticket…</Text>
-      </View>
-    );
-  }
+  if (step) return <ScanProgress key={step} step={step} />;
 
   if (compact) {
     return (
@@ -120,14 +152,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   secondaryButtonText: { fontSize: 15, fontWeight: '800', color: Palette.primary },
-  scanning: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    padding: 18,
-  },
-  scanningText: { fontSize: 14, fontWeight: '700', color: Palette.textSecondary },
   compactRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 14 },
   compactLabel: { flex: 1, fontSize: 12, color: Palette.textSecondary },
   compactButton: { flexDirection: 'row', alignItems: 'center', gap: 5 },

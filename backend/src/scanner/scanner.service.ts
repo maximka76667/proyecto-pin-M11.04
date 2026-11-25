@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  GatewayTimeoutException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -16,6 +17,11 @@ import {
   MAX_PRECIO_UNIDAD,
   MAX_PRODUCTOS,
 } from '../transactions/dto/create-receipt-transaction.dto';
+import {
+  leerTicketConOpenRouter,
+  MODELOS_OPENROUTER_POR_DEFECTO,
+  TIMEOUT_TOTAL_OPENROUTER_MS,
+} from './openrouter';
 
 // Formatos de imagen que acepta Gemini
 export const TIPOS_DE_IMAGEN = [
@@ -29,6 +35,10 @@ export const TIPOS_DE_IMAGEN = [
 export const PESO_MAXIMO_IMAGEN = 8 * 1024 * 1024; // 8 MB
 
 const MODELO_POR_DEFECTO = 'gemini-3-flash-preview';
+
+// Pasado este tiempo se da Gemini por caído y se pasa al respaldo. Se puede cambiar con
+// GEMINI_TIMEOUT_MS: con fotos difíciles Gemini puede tardar más
+const TIMEOUT_GEMINI_POR_DEFECTO_MS = 20_000;
 
 // name, quantity y unit_price se llaman como en ReceiptItemDto para pasarlos tal cual.
 // unit_price viene a null si no se ha podido leer: el usuario lo completa al revisar.
@@ -44,7 +54,12 @@ export interface ProductoEscaneado {
 export interface TicketEscaneado {
   comercio: string | null;
   items: ProductoEscaneado[];
+  // Qué lector ha leído el ticket: la app lo usa para avisar si ha sido el de respaldo
+  provider: ProveedorDeLectura;
 }
+
+export const PROVEEDORES_DE_LECTURA = ['gemini', 'openrouter'] as const;
+export type ProveedorDeLectura = (typeof PROVEEDORES_DE_LECTURA)[number];
 
 const PROMPT = `Eres un lector de tickets de compra de un piso compartido.
 Extrae de la imagen:
@@ -86,17 +101,44 @@ export class ScannerService {
   private readonly logger = new Logger(ScannerService.name);
   private readonly gemini: GoogleGenAI | null;
   private readonly modelo: string;
+  private readonly timeoutGeminiMs: number;
+  // Respaldo gratuito por si Gemini falla; sin clave no se usa
+  private readonly claveOpenRouter: string | null;
+  private readonly modelosOpenRouter: string[];
+  private readonly timeoutOpenRouterMs: number;
 
   constructor(config: ConfigService) {
     // Sin clave la app arranca igual; solo falla el escaneo
     const clave = config.get<string>('GEMINI_API_KEY');
     this.gemini = clave ? new GoogleGenAI({ apiKey: clave }) : null;
     this.modelo = config.get<string>('GEMINI_MODEL') ?? MODELO_POR_DEFECTO;
+    this.claveOpenRouter = config.get<string>('OPENROUTER_API_KEY') || null;
+    const modelos = (config.get<string>('OPENROUTER_MODELS') ?? '')
+      .split(',')
+      .map((modelo) => modelo.trim())
+      .filter(Boolean);
+    this.modelosOpenRouter = modelos.length > 0 ? modelos : MODELOS_OPENROUTER_POR_DEFECTO;
+    this.timeoutGeminiMs = leerMilisegundos(
+      config.get<string>('GEMINI_TIMEOUT_MS'),
+      TIMEOUT_GEMINI_POR_DEFECTO_MS,
+    );
+    this.timeoutOpenRouterMs = leerMilisegundos(
+      config.get<string>('OPENROUTER_TIMEOUT_MS'),
+      TIMEOUT_TOTAL_OPENROUTER_MS,
+    );
   }
 
+  // proveedor: con "gemini" o "openrouter" se usa solo ese lector y no hay respaldo automático
+  // (así la app puede mostrar cada intento); sin él se prueba Gemini y, si falla, OpenRouter.
   async escanearTicket(
     imagen: Express.Multer.File | undefined,
+    proveedor?: string,
   ): Promise<TicketEscaneado> {
+    if (proveedor !== undefined && !esProveedor(proveedor)) {
+      throw new BadRequestException(
+        `provider must be one of: ${PROVEEDORES_DE_LECTURA.join(', ')}`,
+      );
+    }
     if (!imagen) {
       throw new BadRequestException('image file is required');
     }
@@ -105,17 +147,92 @@ export class ScannerService {
         `image must be one of: ${TIPOS_DE_IMAGEN.join(', ')}`,
       );
     }
-    if (!this.gemini) {
+    if (!proveedor && !this.gemini && !this.claveOpenRouter) {
       throw new ServiceUnavailableException(
         'Ticket scanner is not configured (missing GEMINI_API_KEY)',
       );
     }
 
+    this.logger.log(
+      `Scanning ${imagen.mimetype} of ${(imagen.buffer.length / 1024).toFixed(0)} KB`,
+    );
+    const { texto, lector } = await this.leerImagen(imagen, proveedor);
+
+    const { ticket, lineasLeidas } = normalizarRespuesta(texto, lector);
+    if (ticket.items.length === 0) {
+      throw new BadRequestException(
+        'Ticket no legible. Introduce el gasto manualmente.',
+      );
+    }
+    const sinPrecio = ticket.items.filter((producto) => producto.unit_price === null).length;
+    this.logger.log(
+      `Ticket read: ${ticket.items.length} products ` +
+        `(${sinPrecio} without price, ${lineasLeidas - ticket.items.length} lines discarded)`,
+    );
+    return ticket;
+  }
+
+  // Sin proveedor: Gemini primero y, si falla y hay clave de OpenRouter, sus modelos gratuitos.
+  // Con proveedor: solo ese lector. Devuelve el JSON del ticket como texto, sin normalizar.
+  private async leerImagen(
+    imagen: Express.Multer.File,
+    pedido?: string,
+  ): Promise<{ texto: string | undefined; lector: ProveedorDeLectura }> {
+    if (pedido === 'gemini') {
+      if (!this.gemini) {
+        throw new ServiceUnavailableException(
+          'Ticket scanner is not configured (missing GEMINI_API_KEY)',
+        );
+      }
+      return { texto: await this.leerConGemini(imagen), lector: 'gemini' };
+    }
+
+    if (pedido === 'openrouter' || !this.gemini) {
+      if (!this.claveOpenRouter) {
+        throw new ServiceUnavailableException(
+          'Ticket scanner fallback is not configured (missing OPENROUTER_API_KEY)',
+        );
+      }
+      try {
+        return { texto: await this.leerConOpenRouter(imagen), lector: 'openrouter' };
+      } catch (error) {
+        this.logger.error(`OpenRouter error: ${String(error)}`);
+        throw new BadGatewayException('Ticket scanner is not available');
+      }
+    }
+
+    try {
+      return { texto: await this.leerConGemini(imagen), lector: 'gemini' };
+    } catch (errorGemini) {
+      if (!this.claveOpenRouter || !(errorGemini instanceof HttpException)) throw errorGemini;
+
+      this.logger.warn('Gemini failed, falling back to OpenRouter');
+      try {
+        return { texto: await this.leerConOpenRouter(imagen), lector: 'openrouter' };
+      } catch (errorOpenRouter) {
+        // Al cliente le llega el error de Gemini, que es el principal
+        this.logger.error(`OpenRouter fallback failed too: ${String(errorOpenRouter)}`);
+        throw errorGemini;
+      }
+    }
+  }
+
+  private leerConOpenRouter(imagen: Express.Multer.File): Promise<string> {
+    return leerTicketConOpenRouter({
+      clave: this.claveOpenRouter as string,
+      modelos: this.modelosOpenRouter,
+      prompt: PROMPT,
+      mimetype: imagen.mimetype,
+      imagen: imagen.buffer,
+      timeoutTotalMs: this.timeoutOpenRouterMs,
+    });
+  }
+
+  private async leerConGemini(imagen: Express.Multer.File): Promise<string | undefined> {
+    const gemini = this.gemini as GoogleGenAI;
     const inicio = Date.now();
     const segundos = () => ((Date.now() - inicio) / 1000).toFixed(1);
-    this.logger.log(
-      `Scanning ${imagen.mimetype} of ${(imagen.buffer.length / 1024).toFixed(0)} KB with ${this.modelo}`,
-    );
+    this.logger.log(`Reading with Gemini (${this.modelo})`);
     // Con fotos difíciles Gemini puede tardar mucho: así el log muestra que sigue esperando
     const aviso = setInterval(
       () => this.logger.log(`Still waiting for Gemini... ${segundos()} s`),
@@ -124,7 +241,7 @@ export class ScannerService {
 
     let respuesta: GenerateContentResponse;
     try {
-      respuesta = await this.gemini.models.generateContent({
+      respuesta = await gemini.models.generateContent({
         model: this.modelo,
         contents: [
           {
@@ -143,6 +260,7 @@ export class ScannerService {
         config: {
           responseMimeType: 'application/json',
           responseSchema: ESQUEMA_RESPUESTA,
+          abortSignal: AbortSignal.timeout(this.timeoutGeminiMs),
         },
       });
     } catch (error) {
@@ -153,6 +271,10 @@ export class ScannerService {
         throw new ServiceUnavailableException(
           'Ticket scanner is not configured (invalid GEMINI_API_KEY)',
         );
+      }
+      // El SDK corta la petición con un AbortError cuando se agota el tiempo
+      if (esTiempoAgotado(error)) {
+        throw new GatewayTimeoutException('Ticket scanner timed out');
       }
       // 429 = se ha agotado el límite gratuito de Gemini
       if (error instanceof ApiError && error.status === 429) {
@@ -175,20 +297,25 @@ export class ScannerService {
         `thinking ${uso?.thoughtsTokenCount ?? 0}, output ${uso?.candidatesTokenCount ?? '?'})`,
     );
     this.logger.debug(`Gemini raw response: ${(respuesta.text ?? '').slice(0, 2000)}`);
-
-    const { ticket, lineasLeidas } = normalizarRespuesta(respuesta.text);
-    if (ticket.items.length === 0) {
-      throw new BadRequestException(
-        'Ticket no legible. Introduce el gasto manualmente.',
-      );
-    }
-    const sinPrecio = ticket.items.filter((producto) => producto.unit_price === null).length;
-    this.logger.log(
-      `Ticket read: ${ticket.items.length} products ` +
-        `(${sinPrecio} without price, ${lineasLeidas - ticket.items.length} lines discarded)`,
-    );
-    return ticket;
+    return respuesta.text;
   }
+}
+
+// Milisegundos de una variable de entorno; si falta o no es un número válido, el valor por defecto
+function leerMilisegundos(valor: string | undefined, porDefecto: number): number {
+  const numero = Number(valor);
+  return valor && Number.isFinite(numero) && numero > 0 ? numero : porDefecto;
+}
+
+// Se mira el nombre y no instanceof Error: un DOMException de otro entorno (p. ej. el de los tests)
+// no hereda del Error de este
+function esTiempoAgotado(error: unknown): boolean {
+  const nombre = (error as { name?: unknown } | null)?.name;
+  return nombre === 'AbortError' || nombre === 'TimeoutError';
+}
+
+function esProveedor(valor: string): valor is ProveedorDeLectura {
+  return (PROVEEDORES_DE_LECTURA as readonly string[]).includes(valor);
 }
 
 // Una clave mal copiada llega como 400 "API key not valid" (API_KEY_INVALID);
@@ -202,7 +329,10 @@ function esClaveInvalida(error: unknown): boolean {
 // Gemini respeta el esquema casi siempre, pero no se confía en ello:
 // lo que no tenga el formato que exige ReceiptItemDto se corrige o se deja a null
 // lineasLeidas = cuántas líneas devolvió Gemini antes de descartar las que no sirven (para el log)
-function normalizarRespuesta(texto: string | undefined): {
+function normalizarRespuesta(
+  texto: string | undefined,
+  lector: ProveedorDeLectura,
+): {
   ticket: TicketEscaneado;
   lineasLeidas: number;
 } {
@@ -217,6 +347,7 @@ function normalizarRespuesta(texto: string | undefined): {
   return {
     ticket: {
       comercio: normalizarTexto(datos.comercio),
+      provider: lector,
       items: productos
         .filter((producto): producto is Record<string, unknown> =>
           typeof producto === 'object' && producto !== null,

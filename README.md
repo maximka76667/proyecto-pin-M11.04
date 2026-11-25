@@ -29,6 +29,13 @@ DIRECT_URL="postgresql://USUARIO:PASSWORD@HOST:5432/BASEDEDATOS"
 # Sin clave el backend arranca igual; solo falla el escaneo.
 GEMINI_API_KEY="tu_clave"
 # GEMINI_MODEL="gemini-3-flash-preview"   # opcional
+# Respaldo gratuito si Gemini falla (429, caída, clave inválida). Clave en https://openrouter.ai/keys
+# Sin clave no hay respaldo. Con límite gratuito de ~50 peticiones al día.
+# OPENROUTER_API_KEY="tu_clave"
+# OPENROUTER_MODELS="nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free"   # opcional, se prueban en orden
+# Tiempos máximos en milisegundos (opcionales): pasado ese tiempo se da el lector por caído
+# GEMINI_TIMEOUT_MS=20000       # por defecto 20 s
+# OPENROUTER_TIMEOUT_MS=30000   # por defecto 30 s en total (25 s como máximo por modelo)
 ```
 
 > Si usas una base de datos sin pooler (p. ej. PostgreSQL local), `DIRECT_URL` puede ser igual que `DATABASE_URL`.
@@ -59,6 +66,31 @@ Otros comandos útiles:
 | `npm run lint`          | Linter (oxlint)                               |
 | `npx prisma studio`     | Interfaz web para ver/editar la base de datos |
 | `npx prisma migrate dev`| Crea una nueva migración tras cambiar el schema |
+
+### Escáner de tickets
+
+`POST /scanner/ticket` (multipart, campo `image`) lee la foto de un ticket y devuelve `comercio`, `items` y `provider` (qué lector la ha leído). No guarda nada: el usuario revisa los productos antes de crear el gasto.
+
+Hay dos lectores:
+
+- **Gemini** (principal). Hace falta `GEMINI_API_KEY`.
+- **OpenRouter** (respaldo gratuito y opcional). Hace falta `OPENROUTER_API_KEY`. Usa modelos `:free` con entrada de imagen, que se prueban en orden.
+
+Con el parámetro `provider` se elige cómo se usan:
+
+| Petición | Qué hace |
+| --- | --- |
+| `POST /scanner/ticket` | Prueba Gemini y, si falla (límite 429, error del servidor, tiempo agotado o clave inválida), prueba OpenRouter |
+| `POST /scanner/ticket?provider=gemini` | Solo Gemini, sin respaldo automático |
+| `POST /scanner/ticket?provider=openrouter` | Solo OpenRouter |
+
+La app usa los dos últimos, uno detrás de otro, para poder mostrar en qué intento va ("Leyendo con Gemini…", "Gemini no responde, probando con un lector de respaldo…"). Un `provider` desconocido devuelve 400, y pedir un lector sin su clave configurada devuelve 503.
+
+- Un ticket ilegible (400) no se reintenta con otro lector.
+- Si fallan los dos, la app avisa y deja añadir los productos a mano. Cuando el ticket lo lee el respaldo, la pantalla de revisión lo indica, porque suele leer peor los nombres.
+- **Límites del respaldo gratuito:** OpenRouter permite unas 20 peticiones por minuto y 50 al día en los modelos `:free` (1.000 al día si se compran 10 créditos). Los intentos fallidos también cuentan. Los modelos gratuitos cambian, pueden ir lentos o estar limitados por su proveedor, así que el respaldo es de mejor esfuerzo.
+- **Tiempos:** Gemini tiene 20 s y OpenRouter 30 s en total (25 s como máximo por modelo; no se intenta otro modelo si quedan menos de 8 s). Se cambian con `GEMINI_TIMEOUT_MS` y `OPENROUTER_TIMEOUT_MS`.
+- El `.env` solo se lee al arrancar el backend, y `npm run start:dev` no vigila ese archivo: **reinicia el backend** después de cambiarlo.
 
 ## 2. Frontend
 

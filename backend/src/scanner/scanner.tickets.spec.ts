@@ -119,7 +119,7 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
       .attach('image', join(TICKETS, 'consum-1.jpg'))
       .expect(201);
 
-    expect(response.body).toEqual({ comercio: 'Consum', items: productos });
+    expect(response.body).toEqual({ comercio: 'Consum', items: productos, provider: 'gemini' });
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
     expect(prisma.transaction.createMany).not.toHaveBeenCalled();
   });
@@ -208,5 +208,37 @@ describe('Flujo de escaneo de tickets con imágenes reales', () => {
     expect(prisma.apartment.findUnique).not.toHaveBeenCalled();
     expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('?provider=gemini llega al servicio y la respuesta indica el lector', async () => {
+    respuestaOCR([
+      { name: 'Leche entera', quantity: 1, unit_price: '0.95', category: 'supplies' },
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post('/scanner/ticket?provider=gemini')
+      .attach('image', join(TICKETS, 'consum-1.jpg'))
+      .expect(201);
+
+    expect(response.body.provider).toBe('gemini');
+  });
+
+  it('?provider=openrouter sin clave de OpenRouter responde 503 y no llama a Gemini', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/scanner/ticket?provider=openrouter')
+      .attach('image', join(TICKETS, 'consum-1.jpg'))
+      .expect(503);
+
+    expect(response.body.message).toContain('OPENROUTER_API_KEY');
+    expect(generateContent).not.toHaveBeenCalled();
+  });
+
+  it('?provider desconocido responde 400', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/scanner/ticket?provider=chatgpt')
+      .attach('image', join(TICKETS, 'consum-1.jpg'))
+      .expect(400);
+
+    expect(response.body.message).toContain('provider must be one of');
+    expect(generateContent).not.toHaveBeenCalled();
   });
 });

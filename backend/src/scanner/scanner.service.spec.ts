@@ -50,7 +50,7 @@ describe('ScannerService', () => {
 
     const resultado = await crearServicio().escanearTicket(crearImagen());
 
-    expect(resultado).toEqual({ comercio: 'Mercadona', items: productos });
+    expect(resultado).toEqual({ comercio: 'Mercadona', items: productos, provider: 'gemini' });
     const peticion = generateContent.mock.calls[0][0];
     expect(peticion.contents[0].parts[0].inlineData).toEqual({
       mimeType: 'image/jpeg',
@@ -72,6 +72,7 @@ describe('ScannerService', () => {
 
     expect(resultado).toEqual({
       comercio: null,
+      provider: 'gemini',
       items: [
         { name: 'Pan', quantity: 1, unit_price: '1.50', category: 'other' },
         { name: 'Producto 2', quantity: 1, unit_price: '2.00', category: 'supplies' },
