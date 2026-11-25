@@ -7,7 +7,12 @@ export const MODELOS_OPENROUTER_POR_DEFECTO = [
   'google/gemma-4-31b-it:free',
 ];
 
-export const TIMEOUT_OPENROUTER_MS = 45_000;
+// Cada modelo gratuito tiene este tiempo como máximo, y entre todos el presupuesto de abajo:
+// así un modelo lento no deja al usuario esperando minutos mientras se prueban los demás
+export const TIMEOUT_POR_MODELO_MS = 25_000;
+export const TIMEOUT_TOTAL_OPENROUTER_MS = 30_000;
+// Si queda menos que esto, otro modelo no llegaría a responder: no se intenta
+const TIEMPO_MINIMO_POR_INTENTO_MS = 8_000;
 
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -23,7 +28,8 @@ export interface OpcionesOpenRouter {
   prompt: string;
   mimetype: string;
   imagen: Buffer;
-  timeoutMs?: number;
+  timeoutPorModeloMs?: number;
+  timeoutTotalMs?: number;
 }
 
 const logger = new Logger('OpenRouter');
@@ -34,8 +40,15 @@ const logger = new Logger('OpenRouter');
 export async function leerTicketConOpenRouter(opciones: OpcionesOpenRouter): Promise<string> {
   const dataUrl = `data:${opciones.mimetype};base64,${opciones.imagen.toString('base64')}`;
   let ultimoError = new Error('No OpenRouter model configured');
+  const limite = Date.now() + (opciones.timeoutTotalMs ?? TIMEOUT_TOTAL_OPENROUTER_MS);
 
-  for (const modelo of opciones.modelos) {
+  for (const [indice, modelo] of opciones.modelos.entries()) {
+    const restante = limite - Date.now();
+    // El primer modelo siempre se intenta; los siguientes, solo si queda tiempo para responder
+    if (indice > 0 && restante < TIEMPO_MINIMO_POR_INTENTO_MS) {
+      logger.warn(`Time budget used up, skipping ${opciones.modelos.slice(indice).join(', ')}`);
+      break;
+    }
     const inicio = Date.now();
     try {
       const respuesta = await fetch(URL_OPENROUTER, {
@@ -58,7 +71,9 @@ export async function leerTicketConOpenRouter(opciones: OpcionesOpenRouter): Pro
             },
           ],
         }),
-        signal: AbortSignal.timeout(opciones.timeoutMs ?? TIMEOUT_OPENROUTER_MS),
+        signal: AbortSignal.timeout(
+          Math.min(opciones.timeoutPorModeloMs ?? TIMEOUT_POR_MODELO_MS, Math.max(restante, 1)),
+        ),
       });
 
       if (!respuesta.ok) {

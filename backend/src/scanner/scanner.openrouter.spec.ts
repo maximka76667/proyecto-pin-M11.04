@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  GatewayTimeoutException,
   HttpException,
   Logger,
   ServiceUnavailableException,
@@ -26,12 +27,16 @@ function crearServicio(opciones: {
   gemini?: string | null;
   openRouter?: string | null;
   modelos?: string;
+  timeoutGemini?: string;
+  timeoutOpenRouter?: string;
 } = {}) {
   const { gemini = 'clave-gemini', openRouter = 'clave-openrouter', modelos } = opciones;
   const valores: Record<string, string | undefined> = {
     GEMINI_API_KEY: gemini ?? undefined,
     OPENROUTER_API_KEY: openRouter ?? undefined,
     OPENROUTER_MODELS: modelos,
+    GEMINI_TIMEOUT_MS: opciones.timeoutGemini,
+    OPENROUTER_TIMEOUT_MS: opciones.timeoutOpenRouter,
   };
   const config = { get: (nombre: string) => valores[nombre] };
   return new ScannerService(config as unknown as ConfigService);
@@ -239,6 +244,105 @@ describe('ScannerService con ?provider (un solo lector, sin respaldo automático
     generateContent.mockRejectedValueOnce(new Error('network'));
     fetchSimulado.mockResolvedValue(respuestaDeOpenRouter(TICKET_JSON));
     expect((await crearServicio().escanearTicket(crearImagen())).provider).toBe('openrouter');
+  });
+});
+
+// Como el SDK de Gemini y fetch de verdad: la petición se rechaza cuando salta la señal de corte
+function geminiQueNoResponde() {
+  generateContent.mockImplementation(
+    ({ config }: { config: { abortSignal: AbortSignal } }) =>
+      new Promise((_, rechazar) => {
+        config.abortSignal.addEventListener('abort', () =>
+          rechazar(new DOMException('This operation was aborted', 'AbortError')),
+        );
+      }),
+  );
+}
+
+function openRouterQueNoResponde() {
+  fetchSimulado.mockImplementation(
+    (_url: string, { signal }: { signal: AbortSignal }) =>
+      new Promise((_, rechazar) => {
+        signal.addEventListener('abort', () =>
+          rechazar(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+        );
+      }),
+  );
+}
+
+describe('ScannerService: tiempos máximos', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    generateContent.mockReset();
+    fetchSimulado.mockReset();
+    global.fetch = fetchSimulado as unknown as typeof fetch;
+    for (const nivel of ['log', 'debug', 'warn', 'error'] as const) {
+      jest.spyOn(Logger.prototype, nivel).mockImplementation(() => undefined);
+    }
+  });
+
+  it('cada petición a Gemini y a OpenRouter lleva una señal de corte', async () => {
+    generateContent.mockRejectedValueOnce(new Error('network'));
+    fetchSimulado.mockResolvedValue(respuestaDeOpenRouter(TICKET_JSON));
+
+    await crearServicio().escanearTicket(crearImagen());
+
+    expect(generateContent.mock.calls[0][0].config.abortSignal).toBeInstanceOf(AbortSignal);
+    expect(fetchSimulado.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('si Gemini no responde a tiempo con ?provider=gemini, responde 504', async () => {
+    geminiQueNoResponde();
+
+    const error = await crearServicio({ timeoutGemini: '30' })
+      .escanearTicket(crearImagen(), 'gemini')
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GatewayTimeoutException);
+    expect(fetchSimulado).not.toHaveBeenCalled();
+  });
+
+  it('si Gemini no responde a tiempo sin provider, se pasa a OpenRouter', async () => {
+    geminiQueNoResponde();
+    fetchSimulado.mockResolvedValue(respuestaDeOpenRouter(TICKET_JSON));
+
+    const resultado = await crearServicio({ timeoutGemini: '30' }).escanearTicket(crearImagen());
+
+    expect(resultado.provider).toBe('openrouter');
+  });
+
+  it('un valor de GEMINI_TIMEOUT_MS que no es un número se ignora y se usa el de por defecto', async () => {
+    generateContent.mockResolvedValue({ text: TICKET_JSON });
+
+    const resultado = await crearServicio({ timeoutGemini: 'mucho' }).escanearTicket(crearImagen());
+
+    expect(resultado.provider).toBe('gemini');
+    expect(generateContent.mock.calls[0][0].config.abortSignal.aborted).toBe(false);
+  });
+
+  it('si OpenRouter agota el tiempo total, no se prueban más modelos y responde 502', async () => {
+    openRouterQueNoResponde();
+
+    await expect(
+      crearServicio({
+        gemini: null,
+        modelos: 'modelo/a:free,modelo/b:free',
+        timeoutOpenRouter: '40',
+      }).escanearTicket(crearImagen()),
+    ).rejects.toThrow(BadGatewayException);
+    expect(fetchSimulado).toHaveBeenCalledTimes(1);
+  });
+
+  it('el primer modelo se intenta siempre, aunque el tiempo total configurado sea muy corto', async () => {
+    fetchSimulado.mockResolvedValue(respuestaDeOpenRouter(TICKET_JSON));
+
+    const resultado = await crearServicio({
+      gemini: null,
+      timeoutOpenRouter: '1',
+    }).escanearTicket(crearImagen());
+
+    expect(resultado.provider).toBe('openrouter');
+    expect(fetchSimulado).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  GatewayTimeoutException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -19,6 +20,7 @@ import {
 import {
   leerTicketConOpenRouter,
   MODELOS_OPENROUTER_POR_DEFECTO,
+  TIMEOUT_TOTAL_OPENROUTER_MS,
 } from './openrouter';
 
 // Formatos de imagen que acepta Gemini
@@ -33,6 +35,10 @@ export const TIPOS_DE_IMAGEN = [
 export const PESO_MAXIMO_IMAGEN = 8 * 1024 * 1024; // 8 MB
 
 const MODELO_POR_DEFECTO = 'gemini-3-flash-preview';
+
+// Pasado este tiempo se da Gemini por caído y se pasa al respaldo. Se puede cambiar con
+// GEMINI_TIMEOUT_MS: con fotos difíciles Gemini puede tardar más
+const TIMEOUT_GEMINI_POR_DEFECTO_MS = 20_000;
 
 // name, quantity y unit_price se llaman como en ReceiptItemDto para pasarlos tal cual.
 // unit_price viene a null si no se ha podido leer: el usuario lo completa al revisar.
@@ -95,9 +101,11 @@ export class ScannerService {
   private readonly logger = new Logger(ScannerService.name);
   private readonly gemini: GoogleGenAI | null;
   private readonly modelo: string;
+  private readonly timeoutGeminiMs: number;
   // Respaldo gratuito por si Gemini falla; sin clave no se usa
   private readonly claveOpenRouter: string | null;
   private readonly modelosOpenRouter: string[];
+  private readonly timeoutOpenRouterMs: number;
 
   constructor(config: ConfigService) {
     // Sin clave la app arranca igual; solo falla el escaneo
@@ -110,6 +118,14 @@ export class ScannerService {
       .map((modelo) => modelo.trim())
       .filter(Boolean);
     this.modelosOpenRouter = modelos.length > 0 ? modelos : MODELOS_OPENROUTER_POR_DEFECTO;
+    this.timeoutGeminiMs = leerMilisegundos(
+      config.get<string>('GEMINI_TIMEOUT_MS'),
+      TIMEOUT_GEMINI_POR_DEFECTO_MS,
+    );
+    this.timeoutOpenRouterMs = leerMilisegundos(
+      config.get<string>('OPENROUTER_TIMEOUT_MS'),
+      TIMEOUT_TOTAL_OPENROUTER_MS,
+    );
   }
 
   // proveedor: con "gemini" o "openrouter" se usa solo ese lector y no hay respaldo automático
@@ -208,6 +224,7 @@ export class ScannerService {
       prompt: PROMPT,
       mimetype: imagen.mimetype,
       imagen: imagen.buffer,
+      timeoutTotalMs: this.timeoutOpenRouterMs,
     });
   }
 
@@ -243,6 +260,7 @@ export class ScannerService {
         config: {
           responseMimeType: 'application/json',
           responseSchema: ESQUEMA_RESPUESTA,
+          abortSignal: AbortSignal.timeout(this.timeoutGeminiMs),
         },
       });
     } catch (error) {
@@ -253,6 +271,10 @@ export class ScannerService {
         throw new ServiceUnavailableException(
           'Ticket scanner is not configured (invalid GEMINI_API_KEY)',
         );
+      }
+      // El SDK corta la petición con un AbortError cuando se agota el tiempo
+      if (esTiempoAgotado(error)) {
+        throw new GatewayTimeoutException('Ticket scanner timed out');
       }
       // 429 = se ha agotado el límite gratuito de Gemini
       if (error instanceof ApiError && error.status === 429) {
@@ -277,6 +299,19 @@ export class ScannerService {
     this.logger.debug(`Gemini raw response: ${(respuesta.text ?? '').slice(0, 2000)}`);
     return respuesta.text;
   }
+}
+
+// Milisegundos de una variable de entorno; si falta o no es un número válido, el valor por defecto
+function leerMilisegundos(valor: string | undefined, porDefecto: number): number {
+  const numero = Number(valor);
+  return valor && Number.isFinite(numero) && numero > 0 ? numero : porDefecto;
+}
+
+// Se mira el nombre y no instanceof Error: un DOMException de otro entorno (p. ej. el de los tests)
+// no hereda del Error de este
+function esTiempoAgotado(error: unknown): boolean {
+  const nombre = (error as { name?: unknown } | null)?.name;
+  return nombre === 'AbortError' || nombre === 'TimeoutError';
 }
 
 function esProveedor(valor: string): valor is ProveedorDeLectura {
