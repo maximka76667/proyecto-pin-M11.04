@@ -26,6 +26,8 @@ export default function ScanReceiptScreen() {
   const [manual, setManual] = useState(false);
   const [showSplit, setShowSplit] = useState(false);
   const [error, setError] = useState('');
+  // Shown above the products when the backup reader was used
+  const [notice, setNotice] = useState('');
 
   const { sharedItems, total, missingPrices } = receiptTotals(items);
 
@@ -37,6 +39,11 @@ export default function ScanReceiptScreen() {
     }
     setItems(toReceiptItems(ticket.items));
     setError('');
+    setNotice(
+      ticket.provider === 'openrouter'
+        ? 'Hemos usado el lector de respaldo: revisa bien los nombres y los precios.'
+        : '',
+    );
   };
   const onScanError = (e: unknown) => setError(errorMessage(e));
   // Stable: ReceiptSplit reloads the members when its callbacks change
@@ -95,6 +102,7 @@ export default function ScanReceiptScreen() {
               </Text>
             </View>
             <TicketScanner compact onScanned={onScanned} onError={onScanError} />
+            {notice ? <Text style={styles.notice}>{notice}</Text> : null}
             <ReceiptEditor items={items} onChange={setItems} />
             <Pressable onPress={continueToSplit} style={styles.primaryButton}>
               <Text style={styles.primaryButtonText}>Continuar y repartir</Text>
@@ -169,4 +177,5 @@ const styles = StyleSheet.create({
   secondaryButton: { alignItems: 'center', padding: 12 },
   secondaryButtonText: { fontSize: 14, fontWeight: '800', color: Palette.primary },
   error: { fontSize: 13, color: Palette.error },
+  notice: { fontSize: 13, color: Palette.textSecondary },
 });

@@ -45,6 +45,8 @@ export type ScannedItem = {
 export type ScannedTicket = {
   comercio: string | null;
   items: ScannedItem[];
+  // Which reader read the ticket: 'openrouter' is the backup, a bit less accurate
+  provider?: 'gemini' | 'openrouter';
 };
 
 // file is only set on web (the picker gives a real File); on native React Native uploads { uri, name, type }
