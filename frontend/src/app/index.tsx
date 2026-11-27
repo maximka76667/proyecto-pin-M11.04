@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Eyebrow } from '@/components/onboarding';
 import { Palette } from '@/constants/onboarding';
 import { getCurrentUser, hasAuthToken, type CurrentUser } from '@/lib/api';
 
