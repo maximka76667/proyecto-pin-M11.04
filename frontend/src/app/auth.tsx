@@ -17,12 +17,24 @@ import {
 } from '@/lib/password-policy';
 
 type Mode = 'login' | 'register';
-type AuthField = 'name' | 'email' | 'password';
+type HouseMode = 'create' | 'join';
+type AuthField = 'name' | 'email' | 'password' | 'householdName' | 'address' | 'inviteCode';
 type AuthErrors = Partial<Record<AuthField, string>>;
 
 // PA-1014.05: se valida antes de enviar para no llamar a la API con datos que va a rechazar.
 // En el login la contraseña solo es obligatoria, para no dejar fuera contraseñas antiguas
-function validateAuthForm(mode: Mode, values: { name: string; email: string; password: string }) {
+function validateAuthForm(
+  mode: Mode,
+  houseMode: HouseMode,
+  values: {
+    name: string;
+    email: string;
+    password: string;
+    householdName: string;
+    address: string;
+    inviteCode: string;
+  },
+) {
   const errors: AuthErrors = {};
   if (mode === 'register' && !values.name.trim()) errors.name = PASSWORD_MESSAGES.required;
   const emailError = validateEmail(values.email);
@@ -34,12 +46,28 @@ function validateAuthForm(mode: Mode, values: { name: string; email: string; pas
         ? PASSWORD_MESSAGES.required
         : undefined;
   if (passwordError) errors.password = passwordError;
+  if (mode === 'register' && houseMode === 'create') {
+    if (!values.householdName.trim()) errors.householdName = PASSWORD_MESSAGES.required;
+    else if (!/^[A-Za-z0-9]{3,50}$/.test(values.householdName.trim().replace(/\s+/g, ''))) {
+      errors.householdName = 'Usa entre 3 y 50 letras o números.';
+    }
+    if (!values.address.trim()) errors.address = PASSWORD_MESSAGES.required;
+  }
+  if (mode === 'register' && houseMode === 'join' && !values.inviteCode.trim()) {
+    errors.inviteCode = PASSWORD_MESSAGES.required;
+  }
   return errors;
 }
 
 export default function Auth() {
   const params = useLocalSearchParams<{
     token?: string;
+    household_created?: string;
+    id?: string;
+    name?: string;
+    address?: string;
+    invite_code?: string;
+    household_setup_failed?: string;
     google_error?: string;
     expired?: string;
     reset?: string;
@@ -49,6 +77,10 @@ export default function Auth() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [houseMode, setHouseMode] = useState<HouseMode>('create');
+  const [householdName, setHouseholdName] = useState('');
+  const [address, setAddress] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<AuthErrors>({});
   const [loading, setLoading] = useState(false);
@@ -63,16 +95,51 @@ export default function Auth() {
   useEffect(() => {
     if (params.token) {
       setAuthToken(params.token);
-      router.replace(params.verified ? { pathname: '/', params: { verified: '1' } } : '/');
+      if (params.household_created === '1') {
+        router.replace({
+          pathname: '/household-created',
+          params: {
+            id: params.id,
+            name: params.name,
+            address: params.address,
+            inviteCode: params.invite_code,
+          },
+        });
+      } else {
+        router.replace(
+          params.verified
+            ? {
+                pathname: '/',
+                params: { verified: '1', householdSetupFailed: params.household_setup_failed },
+              }
+            : '/',
+        );
+      }
     } else if (params.google_error) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reacciona a un parámetro de la URL
       setError('No se pudo conectar con Google.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 'verified' solo se lee junto al token
-  }, [params.google_error, params.token]);
+  }, [
+    params.google_error,
+    params.token,
+    params.household_created,
+    params.id,
+    params.name,
+    params.address,
+    params.invite_code,
+    params.household_setup_failed,
+  ]);
 
   const submit = async () => {
-    const errors = validateAuthForm(mode, { name, email, password });
+    const errors = validateAuthForm(mode, houseMode, {
+      name,
+      email,
+      password,
+      householdName,
+      address,
+      inviteCode,
+    });
     setFieldErrors(errors);
     setError('');
     if (Object.values(errors).some(Boolean)) return;
@@ -82,6 +149,17 @@ export default function Auth() {
         email: email.trim(),
         password,
         ...(mode === 'register' ? { full_name: name.trim() } : {}),
+        ...(mode === 'register'
+          ? {
+              household_mode: houseMode,
+              ...(houseMode === 'create'
+                ? {
+                    household_name: householdName.trim().replace(/\s+/g, ''),
+                    household_address: address.trim(),
+                  }
+                : { invite_code: inviteCode.trim() }),
+            }
+          : {}),
       });
       if (mode === 'register') {
         setVerificationPending(true);
@@ -153,8 +231,8 @@ export default function Auth() {
           <View style={[styles.notice, styles.noticeSuccess]} accessibilityLiveRegion="polite">
             <MaterialCommunityIcons name="email-check-outline" size={20} color={Palette.primary} />
             <Text style={[styles.noticeText, { color: Palette.primary }]}>
-              Confirma tu email. Te hemos enviado un enlace a {email}. Después podrás iniciar
-              sesión.
+              Confirma tu email. Te hemos enviado un enlace a {email}. Al verificarlo,{' '}
+              {houseMode === 'create' ? 'se creará tu hogar' : 'te unirás al hogar con ese código'}.
             </Text>
           </View>
         ) : null}
@@ -199,6 +277,23 @@ export default function Auth() {
         ) : null}
         {!verificationPending ? (
           <>
+            {mode === 'register' ? (
+              <View style={styles.householdSetup}>
+                <Text style={styles.householdLabel}>¿Cómo quieres empezar?</Text>
+                <SegmentedControl
+                  options={[
+                    { value: 'create', label: 'Crear una casa' },
+                    { value: 'join', label: 'Unirme a una casa' },
+                  ]}
+                  value={houseMode}
+                  onChange={(value) => {
+                    setHouseMode(value);
+                    setError('');
+                    setFieldErrors({});
+                  }}
+                />
+              </View>
+            ) : null}
             <View style={styles.form}>
               {mode === 'register' ? (
                 <View style={styles.field}>
@@ -209,6 +304,40 @@ export default function Auth() {
                     onChangeText={edit('name', setName)}
                   />
                   <FieldMessage error={fieldErrors.name} />
+                </View>
+              ) : null}
+              {mode === 'register' && houseMode === 'create' ? (
+                <>
+                  <View style={styles.field}>
+                    <Field
+                      label="Nombre de la casa"
+                      placeholder="p. ej. Piso Centro"
+                      value={householdName}
+                      onChangeText={edit('householdName', setHouseholdName)}
+                    />
+                    <FieldMessage error={fieldErrors.householdName} />
+                  </View>
+                  <View style={styles.field}>
+                    <Field
+                      label="Dirección"
+                      placeholder="p. ej. Calle Mayor 3, Valencia"
+                      value={address}
+                      onChangeText={edit('address', setAddress)}
+                    />
+                    <FieldMessage error={fieldErrors.address} />
+                  </View>
+                </>
+              ) : null}
+              {mode === 'register' && houseMode === 'join' ? (
+                <View style={styles.field}>
+                  <Field
+                    label="Código de invitación"
+                    placeholder="Código de la casa"
+                    value={inviteCode}
+                    onChangeText={edit('inviteCode', setInviteCode)}
+                    autoCapitalize="characters"
+                  />
+                  <FieldMessage error={fieldErrors.inviteCode} />
                 </View>
               ) : null}
               <View style={styles.field}>
@@ -307,6 +436,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, lineHeight: 38, fontWeight: '800', color: Palette.text },
   subtitle: { fontSize: 15, lineHeight: 22, color: Palette.textSecondary },
   form: { gap: 16 },
+  householdSetup: { gap: 8 },
+  householdLabel: { fontSize: 14, fontWeight: '700', color: Palette.text },
   field: { gap: 6 },
   fieldError: { fontSize: 13, lineHeight: 18, color: Palette.error },
   fieldHint: { fontSize: 13, lineHeight: 18, color: Palette.textSecondary },

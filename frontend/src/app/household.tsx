@@ -1,26 +1,22 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  Eyebrow,
-  Field,
-  PhotoField,
-  PrimaryButton,
-  SegmentedControl,
-} from '@/components/onboarding';
+import { Eyebrow, Field, PrimaryButton, SegmentedControl } from '@/components/onboarding';
 import { Palette } from '@/constants/onboarding';
-import { Apartment, api, errorMessage, getCurrentUser } from '@/lib/api';
+import { Apartment, api, errorMessage } from '@/lib/api';
 
 type Mode = 'create' | 'join';
 
 export default function Household() {
-  const params = useLocalSearchParams<{ mode?: string; inviteCode?: string }>();
+  const params = useLocalSearchParams<{
+    mode?: string;
+    inviteCode?: string;
+    householdSetupFailed?: string;
+  }>();
   const [mode, setMode] = useState<Mode>(params.mode === 'join' ? 'join' : 'create');
 
-  const [yourName, setYourName] = useState('');
   const [householdName, setHouseholdName] = useState('');
   const [address, setAddress] = useState('');
   const [inviteCode, setInviteCode] = useState(params.inviteCode ?? '');
@@ -28,23 +24,9 @@ export default function Household() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    void getCurrentUser()
-      .then((user) => setYourName(user.full_name))
-      .catch(() => setError('No se ha podido cargar tu cuenta.'));
-  }, []);
-
   const changeMode = (newMode: Mode) => {
     setMode(newMode);
     setError('');
-  };
-
-  const goBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/');
-    }
   };
 
   const createHousehold = async () => {
@@ -78,14 +60,19 @@ export default function Household() {
 
   const joinHousehold = async () => {
     if (!inviteCode.trim()) {
-      setError('Introduce un código de invitación.');
+      setError('Pega el enlace o introduce el código de invitación.');
       return;
     }
 
     setLoading(true);
     setError('');
     try {
-      await api('POST', '/apartments/join', { invite_code: inviteCode.trim() });
+      const code = extractInviteCode(inviteCode);
+      if (!code) {
+        setError('El enlace o código de invitación no es válido.');
+        return;
+      }
+      await api('POST', '/apartments/join', { invite_code: code });
       router.replace('/');
     } catch (e) {
       setError(errorMessage(e));
@@ -97,10 +84,6 @@ export default function Household() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={goBack} hitSlop={12} style={styles.back}>
-          <MaterialCommunityIcons name="arrow-left" size={24} color={Palette.text} />
-        </Pressable>
-
         <View style={styles.header}>
           <Eyebrow>Configuremos tu hogar</Eyebrow>
           <Text style={styles.title}>¿Con quién vives?</Text>
@@ -119,13 +102,6 @@ export default function Household() {
         />
 
         <View style={styles.form}>
-          <Field
-            label="Tu nombre"
-            placeholder="Nombre de tu cuenta"
-            value={yourName}
-            editable={false}
-          />
-
           {mode === 'create' ? (
             <>
               <Field
@@ -143,16 +119,21 @@ export default function Household() {
             </>
           ) : (
             <Field
-              label="Código de invitación"
-              placeholder="p. ej. H7K4Q"
+              label="Enlace o código de invitación"
+              placeholder="Pega aquí el enlace o código"
               value={inviteCode}
               onChangeText={setInviteCode}
               autoCapitalize="characters"
             />
           )}
-
-          <PhotoField name={yourName} />
         </View>
+
+        {params.householdSetupFailed === '1' ? (
+          <Text style={styles.error}>
+            No hemos encontrado una casa con ese enlace o código. Comprueba los datos e inténtalo de
+            nuevo.
+          </Text>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -164,6 +145,17 @@ export default function Household() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function extractInviteCode(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    return url.searchParams.get('inviteCode') ?? url.searchParams.get('invite_code') ?? '';
+  } catch {
+    return trimmed;
+  }
 }
 
 const styles = StyleSheet.create({
@@ -179,10 +171,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 24,
     gap: 24,
-  },
-  back: {
-    alignSelf: 'flex-start',
-    paddingTop: 8,
   },
   header: {
     gap: 8,

@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Headers, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  Query,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthService } from './auth.service';
@@ -10,7 +19,9 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
+  register(@Body() dto: RegisterDto) {
+    return this.auth.register(dto);
+  }
 
   @Get('verify-email')
   async verifyEmail(
@@ -19,9 +30,17 @@ export class AuthController {
     @Res() response: Response,
   ) {
     const result = token ? await this.auth.verifyEmail(token) : 'invalid';
-    if (typeof result === 'object' && redirectUri === this.auth.emailVerificationRedirectUri()) {
+    if (
+      typeof result === 'object' &&
+      redirectUri === this.auth.emailVerificationRedirectUri()
+    ) {
+      const householdParams = result.apartment
+        ? `&household_created=1&id=${encodeURIComponent(result.apartment.id)}&name=${encodeURIComponent(result.apartment.name)}&address=${encodeURIComponent(result.apartment.address)}&invite_code=${encodeURIComponent(result.apartment.invite_code)}`
+        : result.householdSetupFailed
+          ? '&household_setup_failed=1'
+          : '';
       return response.redirect(
-        `${redirectUri}?token=${encodeURIComponent(result.token)}&verified=1`,
+        `${redirectUri}?token=${encodeURIComponent(result.token)}&verified=1${householdParams}`,
       );
     }
     response
@@ -37,7 +56,9 @@ export class AuthController {
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) { return this.auth.login(dto); }
+  login(@Body() dto: LoginDto) {
+    return this.auth.login(dto);
+  }
 
   @Get('me')
   async me(@CurrentUser() userId: string) {
@@ -58,18 +79,25 @@ export class AuthController {
   }
 
   @Get('google/callback')
-  async googleCallback(@Query('code') code: string, @Query('state') state: string, @Res() response: Response) {
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() response: Response,
+  ) {
     try {
       const result = await this.auth.googleCallback(code, state);
-      const callbackUri = result.callbackUri || `${process.env.FRONTEND_URL ?? 'http://localhost:8081'}/auth`;
+      const callbackUri =
+        result.callbackUri ||
+        `${process.env.FRONTEND_URL ?? 'http://localhost:8081'}/auth`;
       const separator = callbackUri.includes('?') ? '&' : '?';
-      response.redirect(`${callbackUri}${separator}token=${encodeURIComponent(result.token)}`);
+      response.redirect(
+        `${callbackUri}${separator}token=${encodeURIComponent(result.token)}`,
+      );
     } catch {
       const frontend = process.env.FRONTEND_URL ?? 'http://localhost:8081';
       response.redirect(`${frontend}/auth?google_error=1`);
     }
   }
-
 }
 
 function verificationPage(message: string) {

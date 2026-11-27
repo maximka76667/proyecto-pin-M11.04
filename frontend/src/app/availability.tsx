@@ -301,6 +301,21 @@ export default function AvailabilityScreen() {
           </View>
         </View>
 
+        <View style={styles.calendarActions}>
+          <Pressable style={styles.calendarAction} onPress={() => router.push('/chores')}>
+            <MaterialCommunityIcons
+              name="checkbox-marked-outline"
+              size={20}
+              color={Palette.primary}
+            />
+            <Text style={styles.calendarActionText}>Tareas</Text>
+          </Pressable>
+          <Pressable style={styles.calendarAction} onPress={() => router.push('/task-preferences')}>
+            <MaterialCommunityIcons name="thumb-up-outline" size={20} color={Palette.primary} />
+            <Text style={styles.calendarActionText}>Preferencias</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.segmented}>
           {(
             [
@@ -626,6 +641,20 @@ export default function AvailabilityScreen() {
 }
 
 const styles = StyleSheet.create({
+  calendarActions: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  calendarAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.border,
+  },
+  calendarActionText: { color: Palette.primary, fontWeight: '700' },
   safeArea: { flex: 1, backgroundColor: Palette.background },
   container: {
     width: '100%',

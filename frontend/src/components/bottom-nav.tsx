@@ -19,7 +19,6 @@ type Tab = {
 // La barra solo aparece en estas páginas, así que se mueve sola con el destino.
 const tabs: Tab[] = [
   { label: 'Inicio', icon: 'home-outline', href: '/' },
-  { label: 'Tareas', icon: 'checkbox-marked-outline', href: '/chores' },
   { label: 'Calendario', icon: 'calendar-month-outline', href: '/availability' },
   { label: 'Dinero', icon: 'credit-card-outline', href: '/transactions' },
   { label: 'Tú', icon: 'account-outline', href: '/profile' },
@@ -27,11 +26,25 @@ const tabs: Tab[] = [
 
 // Páginas que no son pestaña pero también enseñan la barra. La pinta la misma instancia de
 // _layout.tsx, así que no se desmonta ni se vuelve a cargar al entrar
-const extraPages: string[] = ['/notifications'];
+const extraPages: string[] = [
+  '/notifications',
+  '/chores',
+  '/chores/create',
+  '/chores/edit',
+  '/chores/details',
+  '/chores/plan',
+  '/chores/swaps',
+  '/chores/swap',
+  '/chores/verify',
+  '/task-preferences',
+];
 
 export function BottomNav() {
   const pathname = usePathname();
-  const onTabPage = tabs.some(({ href }) => href === pathname) || extraPages.includes(pathname);
+  const onTabPage =
+    tabs.some(({ href }) => href === pathname) ||
+    extraPages.includes(pathname) ||
+    pathname.startsWith('/chores/');
   const insets = useSafeAreaInsets();
   const [hasHousehold, setHasHousehold] = useState(false);
   // Avisos sin leer (tareas, UT1019, y gastos, UT1018): pintan un punto en la pestaña «Tú»,
@@ -81,7 +94,10 @@ export function BottomNav() {
       style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       <View style={styles.tabs}>
         {tabs.map((tab) => {
-          const active = tab.href === pathname;
+          const active =
+            tab.href === pathname ||
+            (tab.href === '/availability' &&
+              (pathname.startsWith('/chores') || pathname === '/task-preferences'));
           const color = active ? Palette.primary : Palette.textSecondary;
           const hasUnread = tab.href === '/profile' && unread > 0;
 
