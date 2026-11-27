@@ -84,6 +84,7 @@ model EmailVerificationToken {
   token_hash String   @unique
   expires_at DateTime
   consumed_at DateTime?
+  household_setup Json?
   created_at DateTime @default(now())
   user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 

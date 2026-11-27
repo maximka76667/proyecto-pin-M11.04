@@ -6,12 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  createHmac,
-} from 'node:crypto';
+import { createHash, randomBytes, randomUUID, createHmac } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { MailService } from '../mail/mail.service';
@@ -33,6 +28,17 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    if (
+      dto.household_mode === 'create' &&
+      (!dto.household_name?.trim() || !dto.household_address?.trim())
+    ) {
+      throw new ConflictException(
+        'Indica el nombre y la dirección de tu hogar',
+      );
+    }
+    if (dto.household_mode === 'join' && !dto.invite_code?.trim()) {
+      throw new ConflictException('Introduce el código de invitación');
+    }
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new ConflictException(EMAIL_IN_USE);
@@ -53,7 +59,10 @@ export class AuthService {
     } catch (error) {
       // Dos registros a la vez con el mismo email pasan los dos la comprobación de arriba;
       // el @unique de la base de datos para al segundo (PA-1014.02)
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
         throw new ConflictException(EMAIL_IN_USE);
       }
       throw error;
@@ -67,10 +76,23 @@ export class AuthService {
         id: randomUUID(),
         user_id: user.id,
         token_hash: this.tokenHash(rawToken),
-        expires_at: new Date(Date.now() + EMAIL_VERIFICATION_HOURS * 60 * 60 * 1000),
+        expires_at: new Date(
+          Date.now() + EMAIL_VERIFICATION_HOURS * 60 * 60 * 1000,
+        ),
+        household_setup:
+          dto.household_mode === 'create'
+            ? {
+                mode: 'create',
+                name: dto.household_name!.trim(),
+                address: dto.household_address!.trim(),
+              }
+            : dto.household_mode === 'join'
+              ? { mode: 'join', invite_code: dto.invite_code!.trim() }
+              : Prisma.DbNull,
       },
     });
-    const backendUrl = this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3000';
+    const backendUrl =
+      this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3000';
     const appRedirect = this.emailVerificationRedirectUri();
     await this.mail.sendEmailVerification(
       email,
@@ -82,16 +104,25 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.trim().toLowerCase() } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.trim().toLowerCase() },
+    });
     // El mismo mensaje si el email no existe, la contraseña es mala o la cuenta es de Google,
     // para no revelar qué emails están registrados (PA-1014.04)
-    if (!user?.password_hash || !(await this.verifyPassword(dto.password, user.password_hash))) {
+    if (
+      !user?.password_hash ||
+      !(await this.verifyPassword(dto.password, user.password_hash))
+    ) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     if (!user.email_verified_at && !user.google_subject) {
       throw new UnauthorizedException(EMAIL_NOT_VERIFIED);
     }
-    return this.withToken({ id: user.id, email: user.email, full_name: user.full_name });
+    return this.withToken({
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+    });
   }
 
   async verifyEmail(token: string) {
@@ -108,27 +139,84 @@ export class AuthService {
       return 'invalid';
     }
 
-    await this.prisma.user.update({
-      where: { id: verification.user_id },
-      data: { email_verified_at: new Date() },
-    });
-    await this.prisma.emailVerificationToken.update({
-      where: { id: verification.id },
-      data: { consumed_at: new Date() },
-    });
+    const setup = verification.household_setup as
+      | { mode: 'create'; name: string; address: string }
+      | { mode: 'join'; invite_code: string }
+      | null;
+    let householdSetupFailed = false;
+    const createdApartment = await this.prisma.$transaction(
+      async (transaction) => {
+        let apartmentResult: {
+          id: string;
+          name: string;
+          address: string;
+          invite_code: string;
+        } | null = null;
+        await transaction.user.update({
+          where: { id: verification.user_id },
+          data: { email_verified_at: new Date() },
+        });
+        await transaction.emailVerificationToken.update({
+          where: { id: verification.id },
+          data: { consumed_at: new Date() },
+        });
+        if (setup?.mode === 'create') {
+          apartmentResult = await transaction.apartment.create({
+            data: {
+              name: setup.name,
+              address: setup.address,
+              landlord_id: verification.user_id,
+              user_apartments: { create: { user_id: verification.user_id } },
+            },
+            select: { id: true, name: true, address: true, invite_code: true },
+          });
+        } else if (setup?.mode === 'join') {
+          const apartment = await transaction.apartment.findUnique({
+            where: { invite_code: setup.invite_code },
+            select: { id: true },
+          });
+          if (apartment) {
+            await transaction.userApartment.upsert({
+              where: {
+                user_id_apartment_id: {
+                  user_id: verification.user_id,
+                  apartment_id: apartment.id,
+                },
+              },
+              create: {
+                user_id: verification.user_id,
+                apartment_id: apartment.id,
+              },
+              update: {},
+            });
+          } else {
+            householdSetupFailed = true;
+          }
+        }
+        return apartmentResult;
+      },
+    );
     const user = await this.prisma.user.findUnique({
       where: { id: verification.user_id },
       select: { id: true, email: true, full_name: true },
     });
     if (!user) return 'invalid';
     const session = await this.withToken(user);
-    return { status: 'confirmed' as const, token: session.token };
+    return {
+      status: 'confirmed' as const,
+      token: session.token,
+      apartment: createdApartment,
+      householdSetupFailed,
+    };
   }
 
   emailVerificationRedirectUri() {
     if (process.env.NODE_ENV === 'test') return '';
-    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:8081';
-    const configuredPath = this.config.get<string>('EMAIL_VERIFICATION_REDIRECT_URI');
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:8081';
+    const configuredPath = this.config.get<string>(
+      'EMAIL_VERIFICATION_REDIRECT_URI',
+    );
     if (configuredPath) return configuredPath;
     return `${frontendUrl.replace(/\/+$/, '')}/auth`;
   }
@@ -136,20 +224,33 @@ export class AuthService {
   async getUser(userId: string) {
     return this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, full_name: true, is_landlord: true, user_apartments: { select: { apartment_id: true } } },
+      select: {
+        id: true,
+        email: true,
+        full_name: true,
+        is_landlord: true,
+        user_apartments: { select: { apartment_id: true } },
+      },
     });
   }
 
   async userIdForToken(token: string) {
     let payload: jwt.JwtPayload;
     try {
-      const verified = jwt.verify(token, this.config.getOrThrow<string>('JWT_SECRET'), {
-        algorithms: ['HS256'],
-      });
+      const verified = jwt.verify(
+        token,
+        this.config.getOrThrow<string>('JWT_SECRET'),
+        {
+          algorithms: ['HS256'],
+        },
+      );
       if (typeof verified === 'string') return null;
       payload = verified;
     } catch (error) {
-      if (error instanceof Error && ['JsonWebTokenError', 'TokenExpiredError'].includes(error.name)) {
+      if (
+        error instanceof Error &&
+        ['JsonWebTokenError', 'TokenExpiredError'].includes(error.name)
+      ) {
         return null;
       }
       throw error;
@@ -160,21 +261,39 @@ export class AuthService {
       where: { token_hash: this.tokenHash(token) },
       select: { user_id: true, expires_at: true },
     });
-    if (!session || session.user_id !== payload.sub || session.expires_at <= new Date()) return null;
+    if (
+      !session ||
+      session.user_id !== payload.sub ||
+      session.expires_at <= new Date()
+    )
+      return null;
     return session.user_id;
   }
 
   async logout(token: string) {
-    await this.prisma.authSession.deleteMany({ where: { token_hash: this.tokenHash(token) } });
+    await this.prisma.authSession.deleteMany({
+      where: { token_hash: this.tokenHash(token) },
+    });
     return { success: true };
   }
 
   googleAuthorizationUrl(callbackUri?: string) {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     const redirectUri = this.config.get<string>('GOOGLE_AUTH_REDIRECT_URI');
-    if (!clientId || !redirectUri) throw new ConflictException('Google no está configurado');
-    const state = this.signState(`${redirectUri}|${callbackUri ?? ''}|${Date.now()}`);
-    const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'openid email profile', state, access_type: 'offline', prompt: 'select_account' });
+    if (!clientId || !redirectUri)
+      throw new ConflictException('Google no está configurado');
+    const state = this.signState(
+      `${redirectUri}|${callbackUri ?? ''}|${Date.now()}`,
+    );
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      access_type: 'offline',
+      prompt: 'select_account',
+    });
     return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` };
   }
 
@@ -182,17 +301,42 @@ export class AuthService {
     const [redirectUri, callbackUri] = this.verifyState(state).split('|');
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
-    if (!clientId || !clientSecret || !redirectUri) throw new ConflictException('Google no está configurado');
-    const body = new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code' });
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-    const token = await tokenResponse.json() as { access_token?: string };
-    if (!tokenResponse.ok || !token.access_token) throw new UnauthorizedException('No se pudo conectar con Google');
-    const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${token.access_token}` } });
-    const profile = await profileResponse.json() as { sub?: string; email?: string; name?: string };
-    if (!profileResponse.ok || !profile.sub || !profile.email) throw new UnauthorizedException('Google no devolvió un perfil válido');
+    if (!clientId || !clientSecret || !redirectUri)
+      throw new ConflictException('Google no está configurado');
+    const body = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    });
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    const token = (await tokenResponse.json()) as { access_token?: string };
+    if (!tokenResponse.ok || !token.access_token)
+      throw new UnauthorizedException('No se pudo conectar con Google');
+    const profileResponse = await fetch(
+      'https://openidconnect.googleapis.com/v1/userinfo',
+      { headers: { Authorization: `Bearer ${token.access_token}` } },
+    );
+    const profile = (await profileResponse.json()) as {
+      sub?: string;
+      email?: string;
+      name?: string;
+    };
+    if (!profileResponse.ok || !profile.sub || !profile.email)
+      throw new UnauthorizedException('Google no devolvió un perfil válido');
     const user = await this.prisma.user.upsert({
       where: { email: profile.email.toLowerCase() },
-      create: { email: profile.email.toLowerCase(), full_name: profile.name?.trim() || profile.email.split('@')[0], is_landlord: false, google_subject: profile.sub },
+      create: {
+        email: profile.email.toLowerCase(),
+        full_name: profile.name?.trim() || profile.email.split('@')[0],
+        is_landlord: false,
+        google_subject: profile.sub,
+      },
       update: { google_subject: profile.sub },
       select: { id: true, email: true, full_name: true },
     });
@@ -209,13 +353,24 @@ export class AuthService {
   private verifyState(state: string) {
     const [encoded, signature] = state.split('.');
     const secret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
-    if (!encoded || !signature || !secret || createHmac('sha256', secret).update(encoded).digest('base64url') !== signature) throw new UnauthorizedException('Estado OAuth no válido');
+    if (
+      !encoded ||
+      !signature ||
+      !secret ||
+      createHmac('sha256', secret).update(encoded).digest('base64url') !==
+        signature
+    )
+      throw new UnauthorizedException('Estado OAuth no válido');
     return Buffer.from(encoded, 'base64url').toString();
   }
 
   // Públicos para la UT1015: el cambio y la recuperación de contraseña reutilizan
   // el mismo hash y la misma creación de sesiones que el login
-  async withToken(user: { id: string; email: string | null; full_name: string }) {
+  async withToken(user: {
+    id: string;
+    email: string | null;
+    full_name: string;
+  }) {
     const token = jwt.sign(
       { sub: user.id, jti: randomUUID() },
       this.config.getOrThrow<string>('JWT_SECRET'),

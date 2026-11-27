@@ -531,17 +531,6 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.divider} />
-
-          {/* Preferencias de tareas (UT1020) */}
-          <Row
-            icon="thumb-up-outline"
-            tint="#E2ECE9"
-            iconColor={Palette.primary}
-            title="Preferencias de tareas"
-            subtitle="Elige qué tareas prefieres o quieres evitar"
-            trailing="chevron-right"
-            onPress={() => router.push('/task-preferences' as Href)}
-          />
         </Section>
 
         {/* Sección CUENTA (Cambio de contraseña + Logout - UT1015) */}
